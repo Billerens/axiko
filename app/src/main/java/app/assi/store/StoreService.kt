@@ -175,7 +175,7 @@ class StoreService(
     }
 
     fun apply(id: String, expectedDigest: String, acceptTrustedCode: Boolean): JSONObject = synchronized(operationLock) {
-        require(acceptTrustedCode) { "Подтвердите установку кода с доступом Assi или поручите проверку агенту." }
+        require(acceptTrustedCode) { "Подтвердите установку кода с доступом Аксико или поручите проверку агенту." }
         val current = plan(id)
         require(current.optString("status") != "applied") { "Этот план уже установлен. Для новых изменений подготовьте новый план." }
         require(current.getString("digest") == expectedDigest) { "План изменился. Проверьте изменения перед установкой." }
@@ -298,7 +298,7 @@ class StoreService(
 
     private fun compatibility(value: JSONObject, manifest: Boolean, kind: String): String? {
         val required = value.getInt(if (manifest) "assiApi" else "minAssiApi")
-        if (required > ASSI_API) return "Пакету нужен API Assi $required; установлен $ASSI_API."
+        if (required > ASSI_API) return "Пакету нужен API Аксико $required; установлен $ASSI_API."
         if (kind == "game" && value.getInt("gamesEngine") != GAMES_ENGINE) return "Нужен игровой движок ${value.getInt("gamesEngine")}; установлен $GAMES_ENGINE."
         return null
     }

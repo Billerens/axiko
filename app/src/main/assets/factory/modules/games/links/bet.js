@@ -1,5 +1,5 @@
 // «Ставка на день» (docs/games/daily-bet.md): in the morning the owner stakes game currency on a
-// promise («пройду 8 000 шагов», «лягу до 00:30»); in the evening Assi checks it by the data
+// promise («пройду 8 000 шагов», «лягу до 00:30»); in the evening Axiko checks it by the data
 // and pays through the game's inbox (the engine never edits a save).
 //
 // Conditions are templates with parameters (links/bet-templates.json) — data, not code. The odds

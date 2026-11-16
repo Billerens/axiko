@@ -1,4 +1,4 @@
-/* The hub uses the same theme tokens as every Assi module. */
+/* The hub uses the same theme tokens as every Axiko module. */
 :root {
   --desk-sidebar: 224px;
   --desk-chat: 380px;
@@ -565,6 +565,13 @@ button svg.i, [data-icon] svg.i {
   transition: transform 240ms var(--desk-ease), border-color 180ms ease;
 }
 .core-center svg.i { width: 40px; height: 40px; transform: rotate(8deg); }
+/* With a mascot it stands where the spark was — in the brand mark and in the middle of the orbits —
+and the frames made for the spark step back. */
+.brand-mark.has-mascot, .core-center.has-mascot { border-color: transparent; background: none; }
+.brand-mark .mascot { width: 44px; }
+.core-center.has-mascot { width: 104px; height: 104px; transform: none; }
+.core-center .mascot { width: 104px; }
+.create-prompt:hover .core-center.has-mascot, .create-prompt:focus-visible .core-center.has-mascot { transform: scale(1.06); }
 .create-prompt:hover .core-orbits, .create-prompt:focus-visible .core-orbits { transform: rotate(8deg) scale(1.025); }
 .create-prompt:hover .core-center, .create-prompt:focus-visible .core-center { transform: rotate(0deg) scale(1.06); border-color: var(--desk-violet); }
 .create-caption { display: flex; align-items: center; gap: 9px; }

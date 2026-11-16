@@ -139,7 +139,7 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
     }
 }
 
-/** The system requires an assistant to name a recognizer; Assi listens with its own. */
+/** The system requires an assistant to name a recognizer; Axiko listens with its own. */
 class AssistRecognitionService : RecognitionService() {
     override fun onStartListening(recognizerIntent: Intent?, listener: Callback?) = Unit
     override fun onCancel(listener: Callback?) = Unit

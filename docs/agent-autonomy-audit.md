@@ -1,10 +1,10 @@
-# Самостоятельная доработка Assi: аудит и план улучшений
+# Самостоятельная доработка Аксико: аудит и план улучшений
 
-15 ноября 2026 года. Исследованы текущие исходники Assi, инструкции встроенного агента, проверки assi-store и web-транспорт. На подключённом телефоне сверены agent/system.md, agent/handbook.md и lib/check.js: они совпадают с заводскими файлами текущего проекта. Kotlin-выводы основаны на исходниках; полной сверки установленного APK с ними не проводилось.
+15 ноября 2026 года. Исследованы текущие исходники Аксико, инструкции встроенного агента, проверки assi-store и web-транспорт. На подключённом телефоне сверены agent/system.md, agent/handbook.md и lib/check.js: они совпадают с заводскими файлами текущего проекта. Kotlin-выводы основаны на исходниках; полной сверки установленного APK с ними не проводилось.
 
 Это аудит возможностей и механизма исполнения. Серия задач с настоящей выбранной языковой моделью не запускалась, поэтому процент успешных автономных доработок не измерен. Модель, качество задания и доступный контекст влияют на результат отдельно от рассмотренных механизмов.
 
-Последующее изменение: [web-хаб перенесён в редактируемый слой](D:/Projects/Assi/docs/web-hub.md), добавлены студия, проверка ревизий файлов и заводское восстановление. Это расширяет доступную агенту область доработки. Обязательный цикл проверки и исправления, изоляция данных и отдельный browser target из этого аудита остаются планом работ.
+Последующее изменение: [web-хаб перенесён в редактируемый слой](D:/Projects/Аксико/docs/web-hub.md), добавлены студия, проверка ревизий файлов и заводское восстановление. Это расширяет доступную агенту область доработки. Обязательный цикл проверки и исправления, изоляция данных и отдельный browser target из этого аудита остаются планом работ.
 
 ## Вывод
 
@@ -26,7 +26,7 @@
 | Защита изменений | Снимки кода, diff, откат, черновики | Данные общие; есть разрывы изоляции и восстановления |
 | Длительная работа | Очередь уточнений, подзадачи, история шагов, список задач | После гибели процесса нет полноценного автоматического продолжения исполнения |
 
-Основания: [Tools.kt:255](D:/Projects/Assi/app/src/main/java/app/assi/agent/Tools.kt:255), [Tools.kt:306](D:/Projects/Assi/app/src/main/java/app/assi/agent/Tools.kt:306), [Conversation.kt:518](D:/Projects/Assi/app/src/main/java/app/assi/agent/Conversation.kt:518).
+Основания: [Tools.kt:255](D:/Projects/Аксико/app/src/main/java/app/assi/agent/Tools.kt:255), [Tools.kt:306](D:/Projects/Аксико/app/src/main/java/app/assi/agent/Tools.kt:306), [Conversation.kt:518](D:/Projects/Аксико/app/src/main/java/app/assi/agent/Conversation.kt:518).
 
 В assi-store у всех 40 проектов — 23 игр и 17 модулей — присутствуют checks.js и tests/. У Игротеки есть проверки сохранений, формул, офлайна и preview на ширинах 344/690. Развивать нужно существующую основу. Наличие файлов тестов само по себе не показывает полноту покрытия.
 
@@ -36,7 +36,7 @@
 
 Модель может закончить цикл ответом без инструментов; затем отправляется done. Проверки изменённых модулей выполняются позже, в finally, и сохраняются как отметка в интерфейсе. Они не добавляются в сообщения модели и не запускают следующую попытку. При красных проверках задача всё равно может получить DONE.
 
-Основание: [Conversation.kt:563](D:/Projects/Assi/app/src/main/java/app/assi/agent/Conversation.kt:563), [Conversation.kt:629](D:/Projects/Assi/app/src/main/java/app/assi/agent/Conversation.kt:629), [Conversation.kt:643](D:/Projects/Assi/app/src/main/java/app/assi/agent/Conversation.kt:643), [Conversation.kt:661](D:/Projects/Assi/app/src/main/java/app/assi/agent/Conversation.kt:661).
+Основание: [Conversation.kt:563](D:/Projects/Аксико/app/src/main/java/app/assi/agent/Conversation.kt:563), [Conversation.kt:629](D:/Projects/Аксико/app/src/main/java/app/assi/agent/Conversation.kt:629), [Conversation.kt:643](D:/Projects/Аксико/app/src/main/java/app/assi/agent/Conversation.kt:643), [Conversation.kt:661](D:/Projects/Аксико/app/src/main/java/app/assi/agent/Conversation.kt:661).
 
 **Предложение:** до окончательного завершения вводить этап verify. Провалы возвращать модели с диагностикой, давать ограниченный бюджет исправлений, повторять затронутые проверки. После исчерпания бюджета сохранять результат и причину остановки. Финальный статус должен различать проверенный результат, неудачные проверки, отсутствие проверки, ожидание данных и прерывание.
 
@@ -44,7 +44,7 @@
 
 Tools.run ставит ok=true, если наружу не вышло исключение. Но js_eval перехватывает ошибку и возвращает её текстом; ui_eval так же возвращает ошибку или таймаут; shell/linux помещают ненулевой exit code в строку. Модель может прочитать сообщение, но автоматическая система получает неверный признак успеха.
 
-Основание: [Tools.kt:327](D:/Projects/Assi/app/src/main/java/app/assi/agent/Tools.kt:327), [Tools.kt:354](D:/Projects/Assi/app/src/main/java/app/assi/agent/Tools.kt:354), [Tools.kt:398](D:/Projects/Assi/app/src/main/java/app/assi/agent/Tools.kt:398), [Tools.kt:429](D:/Projects/Assi/app/src/main/java/app/assi/agent/Tools.kt:429).
+Основание: [Tools.kt:327](D:/Projects/Аксико/app/src/main/java/app/assi/agent/Tools.kt:327), [Tools.kt:354](D:/Projects/Аксико/app/src/main/java/app/assi/agent/Tools.kt:354), [Tools.kt:398](D:/Projects/Аксико/app/src/main/java/app/assi/agent/Tools.kt:398), [Tools.kt:429](D:/Projects/Аксико/app/src/main/java/app/assi/agent/Tools.kt:429).
 
 **Предложение:** общий результат с ok, errorKind, exitCode, diagnostics, artifacts. Отдельно различать ошибку программы, неуспешную проверку, таймаут, недоступную возможность и временный сбой.
 
@@ -58,7 +58,7 @@ Tools.run ставит ok=true, если наружу не вышло исклю
 
 Текущая selfChecks определяет успех отсутствием текста «НЕ ПРОШЛО», поэтому первые два случая проходят. Отсутствующий checks.js вообще исключается из списка автопроверок.
 
-Основание: [lib/check.js:90](D:/Projects/Assi/app/src/main/assets/factory/lib/check.js:90), [lib/check.js:105](D:/Projects/Assi/app/src/main/assets/factory/lib/check.js:105), [Conversation.kt:708](D:/Projects/Assi/app/src/main/java/app/assi/agent/Conversation.kt:708).
+Основание: [lib/check.js:90](D:/Projects/Аксико/app/src/main/assets/factory/lib/check.js:90), [lib/check.js:105](D:/Projects/Аксико/app/src/main/assets/factory/lib/check.js:105), [Conversation.kt:708](D:/Projects/Аксико/app/src/main/java/app/assi/agent/Conversation.kt:708).
 
 **Предложение:** структурированные passed/failed/skipped/missing/timedOut; обязательный минимальный набор сценариев для типа изменения. Пропуск должен объяснять, что именно осталось непроверенным. Проверки автора дополнить независимыми проверками общего контракта модуля и поведения UI.
 
@@ -68,7 +68,7 @@ Tools.run ставит ok=true, если наружу не вышло исклю
 
 На точном коде загрузчика в Node VM воспроизведено: до изменения результат 1; после изменения дочернего файла повторный require(parent) всё ещё даёт 1; прямой require(child) уже даёт 2.
 
-Основание: [bootstrap.js:109](D:/Projects/Assi/app/src/main/assets/engine/bootstrap.js:109).
+Основание: [bootstrap.js:109](D:/Projects/Аксико/app/src/main/assets/engine/bootstrap.js:109).
 
 **Предложение:** учитывать граф зависимостей и инвалидировать зависимых потребителей. Добавить управляемые dispose/reload/start для модулей, чтобы при обновлении не оставались старые подписки, таймеры и объекты. Проверки должны фиксировать, какую ревизию они действительно исполняли.
 
@@ -78,7 +78,7 @@ Tools.run ставит ok=true, если наружу не вышло исклю
 
 Это вывод по коду, без экспериментов с изменением рабочей версии телефона.
 
-Основание: [Conversation.kt:72](D:/Projects/Assi/app/src/main/java/app/assi/agent/Conversation.kt:72), [Conversation.kt:383](D:/Projects/Assi/app/src/main/java/app/assi/agent/Conversation.kt:383), [Conversation.kt:586](D:/Projects/Assi/app/src/main/java/app/assi/agent/Conversation.kt:586), [Agent.kt:96](D:/Projects/Assi/app/src/main/java/app/assi/agent/Agent.kt:96), [Drafts.kt:25](D:/Projects/Assi/app/src/main/java/app/assi/core/Drafts.kt:25), [Host.kt:122](D:/Projects/Assi/app/src/main/java/app/assi/core/Host.kt:122).
+Основание: [Conversation.kt:72](D:/Projects/Аксико/app/src/main/java/app/assi/agent/Conversation.kt:72), [Conversation.kt:383](D:/Projects/Аксико/app/src/main/java/app/assi/agent/Conversation.kt:383), [Conversation.kt:586](D:/Projects/Аксико/app/src/main/java/app/assi/agent/Conversation.kt:586), [Agent.kt:96](D:/Projects/Аксико/app/src/main/java/app/assi/agent/Agent.kt:96), [Drafts.kt:25](D:/Projects/Аксико/app/src/main/java/app/assi/core/Drafts.kt:25), [Host.kt:122](D:/Projects/Аксико/app/src/main/java/app/assi/core/Host.kt:122).
 
 **Предложение:** явный контекст исполнения с taskId, revision/draftId и пространством тестовых данных. Передавать его через дочерние задачи, spawn, события и проверки. Для параллельных правок проверять конфликты перед объединением.
 
@@ -88,7 +88,7 @@ data/ общий для draft и рабочей версии и не входи�
 
 Кроме того, snapshot пропускает файлы workspace больше 5 MiB, а restore удаляет workspace целиком перед восстановлением. По коду большие ресурсы могут исчезнуть при откате. Разрушительная проверка не запускалась. Принятие draft также копирует файлы по одному, без проверки изменившейся базовой версии.
 
-Основание: [Drafts.kt:16](D:/Projects/Assi/app/src/main/java/app/assi/core/Drafts.kt:16), [Drafts.kt:136](D:/Projects/Assi/app/src/main/java/app/assi/core/Drafts.kt:136), [Workspace.kt:146](D:/Projects/Assi/app/src/main/java/app/assi/core/Workspace.kt:146), [Workspace.kt:176](D:/Projects/Assi/app/src/main/java/app/assi/core/Workspace.kt:176).
+Основание: [Drafts.kt:16](D:/Projects/Аксико/app/src/main/java/app/assi/core/Drafts.kt:16), [Drafts.kt:136](D:/Projects/Аксико/app/src/main/java/app/assi/core/Drafts.kt:136), [Workspace.kt:146](D:/Projects/Аксико/app/src/main/java/app/assi/core/Workspace.kt:146), [Workspace.kt:176](D:/Projects/Аксико/app/src/main/java/app/assi/core/Workspace.kt:176).
 
 **Предложение:** временные данные и копия БД для тестов; миграции с резервной копией и проверкой совместимости; полный manifest снимка с корректным сохранением больших ресурсов; активация проверенной ревизии с контролем базовых хешей.
 
@@ -98,7 +98,7 @@ selfChecks реагирует только на modules/<первый сегме
 
 UI-инструменты используют MainActivity.page. Для запроса из браузера проверяется телефонный экран, а не desktop viewport. Открытие страницы и короткое ожидание не доказывают работу кнопок, загрузку данных, отсутствие переполнения и приемлемую скорость.
 
-Основание: [Conversation.kt:708](D:/Projects/Assi/app/src/main/java/app/assi/agent/Conversation.kt:708), [Tools.kt:337](D:/Projects/Assi/app/src/main/java/app/assi/agent/Tools.kt:337), [Tools.kt:407](D:/Projects/Assi/app/src/main/java/app/assi/agent/Tools.kt:407), [lib/check.js:47](D:/Projects/Assi/app/src/main/assets/factory/lib/check.js:47).
+Основание: [Conversation.kt:708](D:/Projects/Аксико/app/src/main/java/app/assi/agent/Conversation.kt:708), [Tools.kt:337](D:/Projects/Аксико/app/src/main/java/app/assi/agent/Tools.kt:337), [Tools.kt:407](D:/Projects/Аксико/app/src/main/java/app/assi/agent/Tools.kt:407), [lib/check.js:47](D:/Projects/Аксико/app/src/main/assets/factory/lib/check.js:47).
 
 **Предложение:** карта влияния изменений; общий smoke-набор для навигации, настроек, главного экрана и чата; проверки конкретных игр; отдельная тестовая поверхность с размерами телефона, Fold и desktop. UI-проверка ждёт нужное состояние, отслеживает ошибки на всём сценарии и измеряет время появления полезного содержимого.
 
@@ -106,7 +106,7 @@ UI-инструменты используют MainActivity.page. Для зап�
 
 Лимит 80 шагов завершает loop через break без failure, поэтому итог может остаться DONE. После смерти приложения задачи получают interrupted; продолжение выполняется вручную обычным новым сообщением. Сетевые ошибки завершают ход, отдельного прикладного backoff для 429/5xx нет. Истории дочерних lasting=false разговоров не сохраняются как самостоятельные рабочие процессы.
 
-Основание: [Conversation.kt:506](D:/Projects/Assi/app/src/main/java/app/assi/agent/Conversation.kt:506), [Tasks.kt:59](D:/Projects/Assi/app/src/main/java/app/assi/agent/Tasks.kt:59), [Native.kt:83](D:/Projects/Assi/app/src/main/java/app/assi/core/Native.kt:83).
+Основание: [Conversation.kt:506](D:/Projects/Аксико/app/src/main/java/app/assi/agent/Conversation.kt:506), [Tasks.kt:59](D:/Projects/Аксико/app/src/main/java/app/assi/agent/Tasks.kt:59), [Native.kt:83](D:/Projects/Аксико/app/src/main/java/app/assi/core/Native.kt:83).
 
 **Предложение:** сохраняемые этапы задачи, явные причины остановки, ограниченные повторы временных сбоев и журнал уже выполненных операций. Автоматическое продолжение должно знать, какие действия завершились, чтобы не выполнять их повторно.
 
@@ -116,7 +116,7 @@ UI-инструменты используют MainActivity.page. Для зап�
 
 При маленьком контексте локальной модели lean-набор скрывает штатные UI-check, module_check, draft и delegation инструменты. Проверка через js_eval остаётся технически возможной, но обычный путь становится менее доступным.
 
-Основание: [system.md:11](D:/Projects/Assi/app/src/main/assets/factory/agent/system.md:11), [Conversation.kt:307](D:/Projects/Assi/app/src/main/java/app/assi/agent/Conversation.kt:307), [Conversation.kt:866](D:/Projects/Assi/app/src/main/java/app/assi/agent/Conversation.kt:866), [Conversation.kt:1018](D:/Projects/Assi/app/src/main/java/app/assi/agent/Conversation.kt:1018).
+Основание: [system.md:11](D:/Projects/Аксико/app/src/main/assets/factory/agent/system.md:11), [Conversation.kt:307](D:/Projects/Аксико/app/src/main/java/app/assi/agent/Conversation.kt:307), [Conversation.kt:866](D:/Projects/Аксико/app/src/main/java/app/assi/agent/Conversation.kt:866), [Conversation.kt:1018](D:/Projects/Аксико/app/src/main/java/app/assi/agent/Conversation.kt:1018).
 
 **Предложение:** один раз задаваемая политика самостоятельных доработок. В согласованной задаче технический план сообщает ход работы; обычные исправления и проверки продолжаются автоматически. Уточнение требуется при действительно недостающей информации или расширении задачи. Наборы инструментов подбираются по текущему виду работы; минимальный набор проверки сохраняется и в lean.
 

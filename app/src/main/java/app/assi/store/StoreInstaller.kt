@@ -307,7 +307,7 @@ class StoreInstaller(
             for (path in declared.keys) virtualToInstalled(path)?.let { copyFile(File(archiveRoot, path), File(payload, it)) }
             validateRuntime(payload, manifest)
             if (manifest.getString("kind") == "module" && StoreFormat.parse(File(payload, "module.json").readBytes()).optBoolean("autostart")) {
-                findings.put(JSONObject().put("code", "autostart").put("path", "code/module.json").put("message", "Модуль просит фоновый запуск при следующем старте Assi."))
+                findings.put(JSONObject().put("code", "autostart").put("path", "code/module.json").put("message", "Модуль просит фоновый запуск при следующем старте Аксико."))
             }
             atomicJson(File(fresh, "analysis.json"), JSONObject().put("findings", findings))
             copyFile(archive, File(fresh, "package.zip"))

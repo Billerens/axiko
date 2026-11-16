@@ -10,7 +10,7 @@ $adb = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
 & $adb -s $Serial push $File /data/local/tmp/assi-eval.js | Out-Null
 & $adb -s $Serial logcat -c
 $loader = "(0,eval)(String(new java.lang.String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get('/data/local/tmp/assi-eval.js')),'UTF-8')))"
-& $adb -s $Serial shell am start --user 0 -n app.assi/.MainActivity --ei evalTimeout $WaitSeconds --es eval "`"$loader`"" | Out-Null
+& $adb -s $Serial shell am start --user 0 -n app.axiko/app.assi.MainActivity --ei evalTimeout $WaitSeconds --es eval "`"$loader`"" | Out-Null
 
 $deadline = (Get-Date).AddSeconds($WaitSeconds)
 do {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build local readable Assi packages. Never upload, install or execute package code."""
+"""Build local readable Axiko packages. Never upload, install or execute package code."""
 from __future__ import annotations
 
 import argparse
@@ -75,7 +75,7 @@ def audit_file(path: str, raw: bytes):
 
 
 def scan_source(path: str, raw: bytes):
-    """Early checks; the actual Assi installer remains the final archive validator."""
+    """Early checks; the actual Axiko installer remains the final archive validator."""
     lower = path.lower()
     if Path(lower).suffix in FORBIDDEN_EXTENSIONS or raw.startswith(b'\x7fELF'):
         raise BuildError(f'{path}: binary executable/archive payload is forbidden')
@@ -300,7 +300,7 @@ def build(args):
               'publisher': args.publisher, 'license': args.license_id,
               'limitations': [
                   'No publication, installation, execution or migration is performed.',
-                  'Run the actual Assi installer archive validation before publishing this build.',
+                  'Run the actual Axiko installer archive validation before publishing this build.',
                   'Capabilities and literal network hosts are declarations, not enforced isolation or exhaustive network analysis.',
                   'Credential pattern scanning is a limited preflight; manual privacy and license review is still required.',
                   'ZIP bytes are reproducible for identical source bytes and Python/zlib versions; source line endings are preserved.',
@@ -356,7 +356,7 @@ def parser():
     result.add_argument('--license-id', default='UNLICENSED', help='License metadata, defaults to UNLICENSED; does not grant rights')
     result.add_argument('--version', default='0.1.0', help='Package SemVer, independent from game saveVersion')
     result.add_argument('--repository-id', default='billerens.assi-store')
-    result.add_argument('--repository-title', default='Assi Store')
+    result.add_argument('--repository-title', default='Axiko Store')
     result.add_argument('--repository-homepage', default='https://github.com/Billerens/assi-store')
     result.add_argument('--exclude', action='append', default=[], help='Explicit package ID or source folder to omit, repeatable')
     return result

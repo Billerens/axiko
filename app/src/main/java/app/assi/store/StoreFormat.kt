@@ -110,7 +110,7 @@ object StoreFormat {
         for (key in listOf("id", "kind", "version", "publisher", "license")) require(entry.getString(key) == manifest.getString(key)) { "Манифест не совпадает с индексом: $key." }
         val expected = entry.getJSONObject("compatibility"); val runtime = manifest.getJSONObject("runtime")
         require(expected.getInt("minAssiApi") == runtime.getInt("assiApi")) { "Требования API не совпадают с индексом." }
-        require(runtime.getInt("assiApi") <= ASSI_API) { "Нужна более новая версия API Assi." }
+        require(runtime.getInt("assiApi") <= ASSI_API) { "Нужна более новая версия API Аксико." }
         if (manifest.getString("kind") == "game") {
             require(expected.getInt("gamesEngine") == runtime.getInt("gamesEngine") && runtime.getInt("gamesEngine") == GAMES_ENGINE) { "Несовместимая версия игрового движка." }
         }

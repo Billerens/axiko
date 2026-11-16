@@ -11,6 +11,7 @@ import java.io.File
  * Themes are files in the workspace, `themes/<id>.json`:
  * `{ "name": "Изумруд", "tokens": { "accent": "#3DDC97", … }, "css": "…" }`. The tokens are the
  * custom properties of `ui/kit/kit.css` without the dashes; `css` is anything more a theme wants.
+ * Tokens named `mascot-body`, `mascot-gills`, `mascot-line` colour the mascot (see [render]).
  * The chosen theme is appended to the kit's stylesheet as it is served, so every screen that
  * links the kit wears it — the agent's own screens too. Being workspace files, themes are
  * written and edited by the agent like everything else, and are covered by snapshots.
@@ -95,20 +96,34 @@ object Themes {
         return theme() + decor
     }
 
-    private fun theme(): String {
-        val theme = read(active) ?: return ""
-        val out = StringBuilder("\n/* theme: ").append(active).append(" */\n:root {\n")
-        theme.optJSONObject("tokens")?.let { tokens ->
-            for (key in tokens.keys()) {
-                if (!Regex("[a-zA-Z0-9-]+").matches(key)) continue
-                val value = tokens.optString(key).replace(Regex("[;{}<>]"), "").trim()
-                if (value.isNotEmpty()) out.append("  --").append(key).append(": ").append(value).append(";\n")
-            }
+    private fun theme(): String = read(active)?.let { render(active, it) }.orEmpty()
+
+    /** A theme as the stylesheet text appended to the kit's. */
+    internal fun render(id: String, theme: JSONObject): String {
+        val out = StringBuilder("\n/* theme: ").append(id).append(" */\n:root {\n")
+        val tokens = theme.optJSONObject("tokens") ?: JSONObject()
+        for (key in tokens.keys()) {
+            if (!Regex("[a-zA-Z0-9-]+").matches(key)) continue
+            val value = tokens.optString(key).replace(Regex("[;{}<>]"), "").trim()
+            if (value.isNotEmpty()) out.append("  --").append(key).append(": ").append(value).append(";\n")
         }
         out.append("}\n")
+        // The mascot wears the theme. A theme that says nothing about it ("mascot-body", …) still
+        // has an accent: the gills take it, the body its light tint, the outline its dark one.
+        // Only where the WebView can mix colours — elsewhere the mascot keeps its own.
+        if (tokens.optString("accent").isNotBlank() && tokens.keys().asSequence().none { it.startsWith("mascot-") }) {
+            out.append(MASCOT_FROM_ACCENT)
+        }
         theme.optString("css").takeIf { it.isNotBlank() }?.let { out.append(it.replace("</", "<\\/")).append('\n') }
         return out.toString()
     }
+
+    private const val MASCOT_FROM_ACCENT =
+        "@supports (color: color-mix(in oklab, red, blue)) {\n:root {\n" +
+            "  --mascot-gills: var(--accent);\n" +
+            "  --mascot-body: color-mix(in oklab, var(--accent) 38%, white);\n" +
+            "  --mascot-line: color-mix(in oklab, var(--accent) 45%, black);\n" +
+            "}\n}\n"
 
     /** A theme colour for the shell's own parts (the round button, the edges), or [fallback]. */
     fun color(token: String, fallback: Int): Int =

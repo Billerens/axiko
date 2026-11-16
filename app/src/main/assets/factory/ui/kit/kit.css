@@ -848,3 +848,286 @@ textarea.input {
   font-size: 13px;
   margin-bottom: 6px;
 }
+
+/* The mascot (ui.mascot in kit.js). Its art is drawn with --mascot-body, --mascot-gills,
+--mascot-line, --mascot-mouth, --mascot-sticker: a theme sets them among its tokens
+("mascot-body": …), and ui/mascot/mascot.json may set its own over any theme. */
+.mascot {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  width: 96px;
+  aspect-ratio: 1;
+}
+
+.mascot > svg, .mascot > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* A gill frond lights up for each agent at work. */
+.mascot .axiko-gill {
+  transition: fill .3s;
+}
+
+.mascot .axiko-gill.lit {
+  fill: var(--mascot-light, #F5B731);
+  animation: mascot-glow 1.2s ease-in-out infinite alternate;
+}
+
+/* A mascot that is alive ("alive" in mascot.json, on by default) blinks, breathes, hops into a
+new pose and wiggles when tapped. Without the class it is a still picture. */
+.mascot.alive .axiko-eye {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: mascot-blink 5.6s infinite;
+}
+
+.mascot.alive > svg, .mascot.alive > img {
+  transform-origin: 50% 100%;
+  animation: mascot-breathe 3.8s ease-in-out infinite;
+}
+
+.mascot.alive.pop {
+  animation: mascot-pop .34s ease-out;
+}
+
+.mascot.alive.wiggle {
+  animation: mascot-wiggle .5s ease-in-out 3;
+}
+
+.mascot-dots {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -3px;
+  display: flex;
+  justify-content: center;
+  gap: 3px;
+}
+
+.mascot-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--mascot-light, #F5B731);
+  animation: mascot-glow 1.2s ease-in-out infinite alternate;
+}
+
+/* Brightness, not opacity: a frond that fades would show the dark outline layer under it. */
+@keyframes mascot-glow {
+  from {
+    filter: brightness(.92);
+  }
+  to {
+    filter: brightness(1.18);
+  }
+}
+
+@keyframes mascot-blink {
+  0%, 93%, 100% {
+    transform: scaleY(1);
+  }
+  96.5% {
+    transform: scaleY(.1);
+  }
+}
+
+@keyframes mascot-breathe {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.015, 1.03);
+  }
+}
+
+@keyframes mascot-pop {
+  0% {
+    transform: scale(.9);
+  }
+  60% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes mascot-wiggle {
+  0%, 100% {
+    transform: rotate(0);
+  }
+  25% {
+    transform: rotate(-7deg);
+  }
+  75% {
+    transform: rotate(7deg);
+  }
+}
+
+/* The mascot climbing over an edge (ui.mascot.climber): the body rises behind the bottom of this
+box, the paws lie over it. `data-state`: hidden, peek (just the eyes over the edge), up (out to
+the shoulders — its paws are short, it cannot pull itself any higher). The numbers follow the
+art of peek-body: the eyes end at 55% of its height, the mouth at 64%, the chin at about 68% —
+a peek is cut right under the eyes, never across them or across the mouth. */
+.climber {
+  --climber: 96px;
+  position: relative;
+  display: inline-block;
+  /* Its bottom is the edge: no room for a text line's descenders under it. */
+  vertical-align: bottom;
+  flex: none;
+  width: var(--climber);
+  height: calc(var(--climber) * .84);
+  pointer-events: none;
+}
+
+.climber-body {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.climber-body .mascot {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  transform: translateY(45%);
+  transition: transform .5s cubic-bezier(.3, 1.45, .5, 1) .12s;
+}
+
+.climber[data-state="hidden"] .climber-body .mascot {
+  transform: translateY(104%);
+  transition: transform .3s ease-in;
+}
+
+.climber[data-state="up"] .climber-body .mascot {
+  transform: translateY(19%);
+}
+
+.climber-paw {
+  position: absolute;
+  top: calc(100% - 4px);
+  width: 22%;
+  transform-origin: 50% 0;
+  transition: transform .22s ease-out, opacity .15s;
+}
+
+.climber-paw.left {
+  left: 22%;
+}
+
+.climber-paw.right {
+  right: 22%;
+  transform: scaleX(-1);
+}
+
+.climber-paw .mascot {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1.28;
+}
+
+/* Letting go: the paws leave after the body has sunk. */
+.climber[data-state="hidden"] .climber-paw {
+  opacity: 0;
+  transform: translateY(-7px) scale(.5);
+  transition-delay: .22s;
+}
+
+.climber[data-state="hidden"] .climber-paw.right {
+  transform: translateY(-7px) scale(-.5, .5);
+}
+
+/* Inside the climber the layers move as the climb says, not by themselves. */
+.climber .mascot.pop, .climber .mascot.wiggle, .climber-paw .mascot > svg {
+  animation: none;
+}
+
+.climber.alive[data-state="peek"] .climber-body .mascot > svg {
+  animation: climber-bob 3.4s ease-in-out infinite;
+}
+
+/* Up from the peek and back: it never sinks lower than its eyes. */
+@keyframes climber-bob {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3%);
+  }
+}
+
+/* A tour of a screen (ui.tour): everything dim but one thing, and a card that explains it. */
+.tour {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+}
+
+.tour-hole {
+  position: fixed;
+  border-radius: 16px;
+  box-shadow: 0 0 0 200vmax rgba(0, 0, 0, .74), 0 0 0 2px var(--accent);
+  transition: left .28s, top .28s, width .28s, height .28s;
+}
+
+.tour-card {
+  position: fixed;
+  left: 14px;
+  right: 14px;
+  max-width: 420px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line);
+  transition: top .28s;
+}
+
+.tour-card p {
+  color: var(--ink-2);
+}
+
+.tour-card .climber {
+  position: absolute;
+  right: 18px;
+  bottom: 100%;
+}
+
+.tour-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.tour-skip {
+  padding: 8px 4px;
+  border: 0;
+  background: none;
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.tour-count {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mascot .axiko-gill.lit, .mascot.alive .axiko-eye, .mascot-dots i, .mascot.alive > svg, .mascot.alive > img,
+  .mascot.alive.pop, .mascot.alive.wiggle, .climber.alive .climber-body .mascot > svg {
+    animation: none;
+  }
+
+  .climber-body .mascot, .climber-paw, .tour-hole, .tour-card {
+    transition: none;
+  }
+}

@@ -124,7 +124,10 @@
   assi.on('tasks', () => { clearTimeout(timer); timer = setTimeout(render, 250); });
   setInterval(() => { if (!document.hidden) render(); }, 5000);
   document.getElementById('clear').onclick = async () => { await assi.native('tasks.forget', '*'); render(); };
-  assi.native('agent.list').then(list => { agents = list; render(); });
+  assi.native('agent.list').then(list => { agents = list; render(); }).then(() => ui.tour.offer('tasks', [
+    { target: '#running', title: 'Идут сейчас', text: 'Всё, чем приложение занято прямо сейчас: просьбы из чата, фоновые поручения, проверки. Работу можно остановить отсюда.' },
+    { title: 'Работа идёт и без вас', text: 'Чат можно закрыть: задача продолжится, а о результате придёт уведомление. Если приложение закрылось посреди работы, прерванное появится здесь — и его можно продолжить с того же места.' },
+  ]));
 </script>
 </body>
 </html>

@@ -21,6 +21,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Base64
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewOutlineProvider
@@ -50,7 +51,8 @@ import java.util.concurrent.TimeUnit
 /**
  * The shell: one WebView for the current screen, one for the chat that slides over it, one for
  * the menu of screens (a bar below, a rail at the side when wide), and a native button that
- * the workspace cannot break.
+ * the workspace cannot break. The button's look may come from a page too (ui/button/: the
+ * mascot peeking over the edge) — but only its look: the press and the recovery menu stay native.
  */
 class MainActivity : Activity() {
     lateinit var page: Bridge
@@ -58,6 +60,13 @@ class MainActivity : Activity() {
     lateinit var chat: Bridge
         private set
     private lateinit var nav: Bridge
+
+    /** The page that draws the chat button's look; it never takes a touch. */
+    private lateinit var face: Bridge
+
+    /** That page has drawn something to show in place of the round button. */
+    private var faceOn = false
+    private var edgeBar: Boolean? = null
 
     private lateinit var root: FrameLayout
     private lateinit var scrim: View
@@ -90,6 +99,7 @@ class MainActivity : Activity() {
         page.web.loadUrl(Pages.url(HOME))
         chat.web.loadUrl(Pages.url(CHAT))
         nav.web.loadUrl(Pages.url(NAV))
+        face.web.loadUrl(Pages.url(BUTTON))
         handler.postDelayed({
             if (!alive) toast("Экран не отвечает. Удерживайте круглую кнопку — там восстановление.")
         }, 9000)
@@ -164,7 +174,7 @@ class MainActivity : Activity() {
     private fun seen(on: Boolean) {
         if (on) startedActivities.add(this) else startedActivities.remove(this)
         if (startedActivities.isNotEmpty()) page.web.resumeTimers()
-        for (bridge in listOf(page, chat, nav)) if (on) bridge.web.onResume() else bridge.web.onPause()
+        for (bridge in listOf(page, chat, nav, face)) if (on) bridge.web.onResume() else bridge.web.onPause()
         val event = org.json.JSONObject().put("on", startedActivities.isNotEmpty())
         Pages.broadcast("app.visible", event.toString())
         Engine.fire("app.visible", event)
@@ -182,6 +192,7 @@ class MainActivity : Activity() {
         page.destroy()
         chat.destroy()
         nav.destroy()
+        face.destroy()
         super.onDestroy()
     }
 
@@ -242,6 +253,15 @@ class MainActivity : Activity() {
         nav = Bridge(WebView(this), "nav")
         root.addView(nav.web, FrameLayout.LayoutParams(MATCH_PARENT, dp(BAR_DP), Gravity.BOTTOM))
 
+        // Over the screen and the menu, under the chat: the button's look. Touches fall through
+        // it to whatever lies beneath; the native button above it is what gets pressed.
+        face = Bridge(object : WebView(this) {
+            override fun dispatchTouchEvent(event: MotionEvent): Boolean = false
+        }, "button")
+        face.web.isFocusable = false
+        face.web.visibility = View.GONE
+        root.addView(face.web, FrameLayout.LayoutParams(dp(FACE_DP), dp(FACE_DP), Gravity.BOTTOM or Gravity.END))
+
         scrim = View(this).apply {
             setBackgroundColor(getColor(R.color.scrim))
             visibility = View.GONE
@@ -269,7 +289,7 @@ class MainActivity : Activity() {
             setColorFilter(getColor(R.color.on_accent))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             setPadding(dp(15), dp(15), dp(15), dp(15))
-            contentDescription = "Чат с Assi"
+            contentDescription = "Чат с Аксико"
             setOnClickListener { showChat(true) }
             setOnLongClickListener { recoveryMenu(); true }
         }
@@ -301,6 +321,26 @@ class MainActivity : Activity() {
         arrange()
     }
 
+    /** The button wears the look its page drew — never in safe mode, where nothing of the workspace is trusted. */
+    private val faced: Boolean get() = faceOn && !Workspace.safeMode
+
+    /** The menu of screens is a bar along the bottom right now: the edge the mascot holds on to. */
+    private val barShown: Boolean get() = menu && !wide && !typing && staged == null
+
+    /**
+     * The button's page says whether it has a look to show (`button.face`). Answers with what
+     * the page needs to draw it: whether the edge under the button is the menu bar.
+     */
+    fun setFace(on: Boolean): org.json.JSONObject {
+        runOnUiThread {
+            if (faceOn != on) {
+                faceOn = on
+                arrange()
+            }
+        }
+        return org.json.JSONObject().put("bar", barShown)
+    }
+
     /** The menu of screens is shown: the owner may switch it off. */
     private val menu: Boolean get() = App.prefs.getString("nav.on", "on") == "on"
 
@@ -320,9 +360,10 @@ class MainActivity : Activity() {
         val pageParams = page.web.layoutParams as FrameLayout.LayoutParams
         val navParams = nav.web.layoutParams as FrameLayout.LayoutParams
         val fabParams = fab.layoutParams as FrameLayout.LayoutParams
+        val faceParams = face.web.layoutParams as FrameLayout.LayoutParams
         val radius = dp(22).toFloat()
         val rail = menu && wide && staged == null
-        val bar = menu && !wide && !typing && staged == null
+        val bar = barShown
         nav.web.visibility = if (rail || bar) View.VISIBLE else View.GONE
         navParams.width = if (rail) dp(RAIL_DP) else MATCH_PARENT
         navParams.height = if (rail) MATCH_PARENT else dp(BAR_DP)
@@ -330,8 +371,22 @@ class MainActivity : Activity() {
         nav.web.layoutParams = navParams
         pageParams.leftMargin = if (rail) dp(RAIL_DP) else 0
         pageParams.bottomMargin = if (bar) dp(BAR_DP) else 0
-        fabParams.bottomMargin = dp(22) + if (bar) dp(BAR_DP) else 0
+        // With a look of its own the native button is only the place to press: unseen, and as
+        // large as what the page draws — the mascot's head and paws at the edge.
+        fab.alpha = if (faced) 0f else 1f
+        fabParams.width = dp(if (faced) 104 else 56)
+        fabParams.height = dp(if (faced) 78 else 56)
+        fabParams.rightMargin = dp(if (faced) 8 else 18)
+        fabParams.bottomMargin = (if (faced) 0 else dp(22)) + if (bar) dp(BAR_DP) else 0
         fab.layoutParams = fabParams
+        // The look reaches a little below the edge, so the paws can lie over the menu bar.
+        faceParams.bottomMargin = if (bar) dp(BAR_DP) - dp(FACE_OVERLAP_DP) else 0
+        face.web.layoutParams = faceParams
+        face.web.visibility = if (faced && staged == null && !(wide && chatOpen)) View.VISIBLE else View.GONE
+        if (edgeBar != bar) {
+            edgeBar = bar
+            Pages.broadcast("button.edge", org.json.JSONObject().put("bar", bar).toString())
+        }
         if (wide) {
             panelParams.width = dockWidth()
             panelParams.topMargin = 0
@@ -443,7 +498,7 @@ class MainActivity : Activity() {
             "Откатить последнее изменение",
             "Сбросить интерфейс к заводскому",
         )
-        AlertDialog.Builder(this).setTitle("Assi").setItems(items.map { I18n.t(it) }.toTypedArray()) { _, which ->
+        AlertDialog.Builder(this).setTitle("Аксико").setItems(items.map { I18n.t(it) }.toTypedArray()) { _, which ->
             when (which) {
                 0 -> open(HOME)
                 1 -> reloadPages()
@@ -516,7 +571,7 @@ class MainActivity : Activity() {
         rebuilds.removeAll { now - it > 60_000 }
         rebuilds.add(now)
         if (rebuilds.size > 3) {
-            toast("Экран не удаётся показать: системе не хватает памяти. Закройте другие приложения и откройте Assi снова.")
+            toast("Экран не удаётся показать: системе не хватает памяти. Закройте другие приложения и откройте Аксико снова.")
             return@runOnUiThread
         }
         // Not the workspace's fault: this start must not count towards safe mode.
@@ -528,6 +583,9 @@ class MainActivity : Activity() {
         page.web.reload()
         chat.web.reload()
         nav.web.reload()
+        // The button is itself again until its page says otherwise.
+        faceOn = false
+        face.web.reload()
         applyTheme()
     }
 
@@ -543,6 +601,8 @@ class MainActivity : Activity() {
         open(HOME)
         chat.web.reload()
         nav.web.reload()
+        faceOn = false
+        face.web.reload()
         applyTheme()
         if (!on) Engine.pool.execute { Engine.runBoot() }
         toast(if (on) "Безопасный режим: заводской интерфейс" else "Обычный режим")
@@ -649,6 +709,9 @@ class MainActivity : Activity() {
         const val HOME = "ui/home/index.html"
         const val CHAT = "ui/chat/index.html"
         const val NAV = "ui/nav/index.html"
+        const val BUTTON = "ui/button/index.html"
+        private const val FACE_DP = 132
+        private const val FACE_OVERLAP_DP = 14
         const val HEALTH_RATIONALE = "ui/health-rationale/index.html"
         private const val BAR_DP = 62
         private const val RAIL_DP = 76

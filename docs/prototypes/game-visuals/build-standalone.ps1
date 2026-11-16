@@ -1,5 +1,5 @@
 $ErrorActionPreference = 'Stop'
-# Run with PowerShell 7. This packages the gallery without touching Assi assets.
+# Run with PowerShell 7. This packages the gallery without touching Axiko assets.
 $galleryRoot = $PSScriptRoot
 $html = Get-Content -LiteralPath (Join-Path $galleryRoot 'index.html') -Raw -Encoding utf8
 $css = Get-Content -LiteralPath (Join-Path $galleryRoot 'gallery.css') -Raw -Encoding utf8

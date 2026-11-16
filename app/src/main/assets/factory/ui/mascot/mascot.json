@@ -1,0 +1,36 @@
+{
+ "name": "Аксико",
+ "enabled": true,
+ "alive": true,
+ "button": true,
+ "poses": {
+  "idle": "idle.svg",
+  "hello": "hello.svg",
+  "point": "point.svg",
+  "listening": "listening.svg",
+  "thinking": "thinking.svg",
+  "searching": "searching.svg",
+  "working": "working.svg",
+  "building": "building.svg",
+  "plan": "plan.svg",
+  "asking": "asking.svg",
+  "oops": "oops.svg",
+  "celebrating": "celebrating.svg",
+  "love": "love.svg",
+  "sleeping": "sleeping.svg",
+  "safe": "safe.svg",
+  "name": "name.svg",
+  "head": "head.svg",
+  "peek": "peek.svg",
+  "peek-body": "peek-body.svg",
+  "peek-paw": "peek-paw.svg"
+ },
+ "colors": {},
+ "phrases": {
+  "hello": "Привет! Я Аксико. Живу в вашем телефоне и перестраиваю это приложение под вас — просто скажите, каким мне стать.",
+  "model": "Чтобы думать, мне нужна языковая модель: адрес провайдера, ключ и название модели. Ключ я спрячу в сейф.",
+  "safe": "Я в безопасном режиме и показываю заводские экраны. Откатите последнее изменение или попросите меня починить их.",
+  "setup": "Осталось несколько шагов — и я смогу работать. Начните с провайдера и модели, остальное можно и позже.",
+  "empty": "Модулей пока нет. Опишите, что вам нужно, — и я отращу экран."
+ }
+}

@@ -87,7 +87,7 @@ object OAuth {
                 }
                 val page = "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>" +
                     "<body style='font:17px system-ui;background:#101010;color:#ededed;padding:32px'>" +
-                    (if (waiting.error == null) "Вход выполнен. Можно вернуться в Assi." else "Не получилось: ${waiting.error}") + "</body>"
+                    (if (waiting.error == null) "Вход выполнен. Можно вернуться в Аксико." else "Не получилось: ${waiting.error}") + "</body>"
                 val bytes = page.toByteArray()
                 socket.getOutputStream().apply {
                     write("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n".toByteArray())

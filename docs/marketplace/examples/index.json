@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "repository": {
     "id": "example.community",
-    "title": "Example Assi catalog — metadata only",
+    "title": "Example Axiko catalog — metadata only",
     "homepage": "https://example.org/assi-catalog/"
   },
   "packages": [

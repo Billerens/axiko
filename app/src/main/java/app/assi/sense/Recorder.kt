@@ -24,7 +24,7 @@ import org.json.JSONObject
  * which app, what was pressed, what was typed — and the steps go to the agent with the next
  * message, to be turned into something that can be repeated.
  *
- * Watching ends when the owner comes back to Assi, presses the floating stop button, or after
+ * Watching ends when the owner comes back to Axiko, presses the floating stop button, or after
  * a few minutes. What is typed into password fields is not recorded.
  */
 object Recorder {
@@ -44,7 +44,7 @@ object Recorder {
 
     fun start(): JSONObject {
         val service = ScreenService.instance
-            ?: error("Доступ к экрану выключен. Откройте «Настройки» Assi, раздел «Чувства телефона», и включите «Видеть экран».")
+            ?: error("Доступ к экрану выключен. Откройте «Настройки» Аксико, раздел «Чувства телефона», и включите «Видеть экран».")
         synchronized(steps) { steps.clear() }
         lastPackage = App.instance.packageName
         started = System.currentTimeMillis()
@@ -53,7 +53,7 @@ object Recorder {
         val begun = started
         main.post {
             showStop()
-            Toast.makeText(App.instance, I18n.t("Покажите действие и вернитесь в Assi — запись остановится сама."), Toast.LENGTH_LONG).show()
+            Toast.makeText(App.instance, I18n.t("Покажите действие и вернитесь в Аксико — запись остановится сама."), Toast.LENGTH_LONG).show()
             MainActivity.current?.moveTaskToBack(true)
         }
         main.postDelayed({ if (active && started == begun) stop() }, MAX_MS)
@@ -76,7 +76,7 @@ object Recorder {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
                 if (name.isEmpty() || name == lastPackage) return
                 val mine = name == App.instance.packageName
-                // Back in Assi: the showing is over.
+                // Back in Axiko: the showing is over.
                 if (mine && synchronized(steps) { steps.isNotEmpty() }) {
                     stop()
                     return

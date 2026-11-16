@@ -3,6 +3,9 @@
   "tokens": {
     "accent": "#FF6F91",
     "accent-ink": "#1F060C",
-    "accent-soft": "#3A1822"
+    "accent-soft": "#3A1822",
+    "mascot-body": "#FFC2D1",
+    "mascot-gills": "#FF6F91",
+    "mascot-line": "#7A1F3D"
   }
 }

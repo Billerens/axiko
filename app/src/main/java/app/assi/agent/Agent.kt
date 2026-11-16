@@ -34,7 +34,7 @@ object Agent {
     fun exists(id: String): Boolean = id == MAIN || File(Workspace.root, "agents/$id").isDirectory
 
     /** What the owner calls the assistant: in the chat, in its prompt, and aloud as the wake word. */
-    val name: String get() = App.prefs.getString("assistant.name", null)?.trim().orEmpty().ifEmpty { "Асси" }
+    val name: String get() = App.prefs.getString("assistant.name", null)?.trim().orEmpty().ifEmpty { "Аксико" }
 
     fun rename(value: String) = App.prefs.edit().putString("assistant.name", value.trim()).apply()
 

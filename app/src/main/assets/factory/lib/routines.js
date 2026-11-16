@@ -99,7 +99,7 @@ function arm() {
     listening.notification = true;
     on('notification', function (notice) {
       // The app's own notifications set nothing off: a routine must not answer itself.
-      if (String(notice.package || '').indexOf('app.assi') >= 0) return;
+      if (String(notice.package || '').indexOf(String(context.getPackageName())) === 0) return;
       load().forEach(function (routine) {
         var when = routine.when || {};
         if (!routine.enabled || when.kind !== 'notification') return;

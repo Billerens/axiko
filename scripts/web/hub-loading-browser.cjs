@@ -29,8 +29,10 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       const request = JSON.parse(body);
       let value = null;
-      if (request.op === 'desk.status') value = { name: 'Assi', factory: false };
+      if (request.op === 'desk.status') value = { name: 'Axiko', factory: false };
       else if (request.op === 'eval') value = request.code.includes('ui/nav.json') ? '{"items":[]}' : [];
+      // The owner of this hub has seen the tours: they would stand over what the test clicks.
+      else if (request.op === 'native' && request.method === 'pref.get' && String(request.args).includes('tours.done')) value = '*';
       else if (request.op === 'native') value = [];
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ result: JSON.stringify(value) }));

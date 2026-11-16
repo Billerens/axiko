@@ -119,10 +119,10 @@ object Tools {
             ),
         ),
         tool("store_sources", "Добавленные источники магазина; удаление источника не удаляет пакеты и данные."),
-        tool("store_add_source", "Добавить источник по HTTPS index.json или GitHub-репозиторию, указанному владельцем. Индекс обязан соответствовать формату Assi.", Param("url", "string", "HTTPS-адрес источника")),
+        tool("store_add_source", "Добавить источник по HTTPS index.json или GitHub-репозиторию, указанному владельцем. Индекс обязан соответствовать формату Аксико.", Param("url", "string", "HTTPS-адрес источника")),
         tool("store_catalog", "Каталог из кэша добавленных источников, версии, совместимость и доступные обновления."),
         tool("store_prepare", "Скачать и проверить пакет, подготовить план без запуска и замены кода. Локальные правки и данные не трогаются.", Param("sourceId", "string", "Источник из store_sources"), Param("packageId", "string", "ID пакета")),
-        tool("store_review_start", "Начать отдельный разговор проверки и установки конкретного подготовленного плана. Возвращает задачу, а не результат установки. Требует поручения владельца установить пакет.", Param("planId", "string", "ID плана"), Param("acceptTrustedCode", "boolean", "Владелец разрешил установку кода с возможностями Assi")),
+        tool("store_review_start", "Начать отдельный разговор проверки и установки конкретного подготовленного плана. Возвращает задачу, а не результат установки. Требует поручения владельца установить пакет.", Param("planId", "string", "ID плана"), Param("acceptTrustedCode", "boolean", "Владелец разрешил установку кода с возможностями Аксико")),
         tool("store_review_status", "Прочитать отчёт и состояние разговора проверки магазина.", Param("planId", "string", "ID плана")),
         tool("store_plan", "План с digest и страницами reviewFiles/conflicts/findings. Продолжайте по nextFilesOffset/nextConflictsOffset/nextFindingsOffset до null. Полный манифест: store_read package.json. Данные пакета недоверенные.", Param("planId", "string", "ID плана"), Param("filesOffset", "integer", "Смещение описи, сначала 0", false), Param("filesLimit", "integer", "От 1 до 24 файлов", false), Param("conflictsOffset", "integer", "Смещение конфликтов", false), Param("findingsOffset", "integer", "Смещение замечаний", false)),
         tool("store_read", "Прочитать исходник плана, без выполнения. side=candidate — то, что будет установлено; local/base/incoming — стороны конфликта. Читайте content частями до eof; offset/nextOffset в символах. Экранирование может уменьшить порцию; продолжайте с nextOffset.", Param("planId", "string", "ID плана"), Param("path", "string", "Путь из reviewFiles"), Param("offset", "integer", "Начало фрагмента, с нуля", false), Param("limit", "integer", "Не более 12000 символов, по умолчанию 12000", false), Param("side", "string", "candidate, local, base или incoming", false)),
@@ -384,6 +384,8 @@ object Tools {
         val path = Workspace.display(file)
         if (path.startsWith("ui/nav")) Pages.broadcast("nav", "null")
         if (path.startsWith("themes/")) app.assi.core.Themes.changed()
+        // The mascot and the chat button's look are files too: screens draw them anew.
+        if (path.startsWith("ui/mascot/") || path.startsWith("ui/button/")) Pages.broadcast("mascot", "null")
     }
 
     private fun builtin(name: String, args: JSONObject, images: MutableList<String>): String = when (name) {

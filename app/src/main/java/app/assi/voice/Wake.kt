@@ -25,7 +25,7 @@ import java.util.concurrent.Executors
 
 /**
  * The name the assistant answers to. With the wake word on, the microphone is listened to all
- * the time; a phrase that starts with the name ("Асси, который час?") goes to the main agent,
+ * the time; a phrase that starts with the name ("Аксико, который час?") goes to the main agent,
  * and the answer is spoken.
  *
  * Two ways to listen. The thorough one recognizes every phrase heard with the big speech model
@@ -139,7 +139,7 @@ object Wake {
     }
 
     /**
-     * Where the request begins when the phrase starts with the name ("Асси, …", "Эй, Асси, …"),
+     * Where the request begins when the phrase starts with the name ("Аксико, …", "Эй, Аксико, …"),
      * or null when it was not addressed to the assistant.
      */
     fun nameEnd(heard: String, wanted: String = name): Int? {

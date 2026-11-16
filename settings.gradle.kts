@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Assi"
+rootProject.name = "Axiko"
 include(":app")

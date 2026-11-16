@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Маскот</title>
+<link rel="stylesheet" href="/ui/kit/kit.css">
+<style>
+  .stage {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .stage .mascot {
+    width: min(220px, 60vw);
+  }
+
+  .stage .off {
+    padding: 36px 0;
+    color: var(--ink-3);
+  }
+
+  .colour {
+    width: 48px;
+    height: 36px;
+    padding: 0;
+    border: 0;
+    background: none;
+  }
+</style>
+<body>
+<main class="page">
+  <header class="topbar">
+    <button class="icon-btn" onclick="assi.back()" aria-label="Назад" data-icon="back"></button>
+    <h1>Маскот</h1>
+  </header>
+  <p class="muted">Персонаж приложения. Его можно перекрасить, заменить любым другим или убрать совсем — приложение работает и без него.</p>
+
+  <section class="card stage" id="stage"></section>
+
+  <section class="section">
+    <div class="list" id="show"></div>
+  </section>
+
+  <section class="section">
+    <h2>Иконка приложения</h2>
+    <p class="muted small">Значок на рабочем столе телефона. Он меняется за несколько секунд; ярлык, вынесенный на рабочий стол вручную, телефон может убрать — тогда верните его из списка приложений.</p>
+    <div class="chips" id="icon"></div>
+  </section>
+
+  <section class="section" id="look-section">
+    <h2>Окрас</h2>
+    <p class="muted small">Обычно маскот носит цвета темы. Свой окрас остаётся при любой теме.</p>
+    <div class="chips" id="look"></div>
+    <div class="section" id="colours"></div>
+  </section>
+
+  <section class="section">
+    <h2>Свой персонаж</h2>
+    <p class="muted small">Любая картинка вместо маскота — или попросите в чате: «нарисуй вместо аксолотля лису», «перекрась маскота в зелёный», «убери маскота».</p>
+    <input type="file" id="file" accept="image/*,.svg" hidden>
+    <button class="btn soft" id="replace">Заменить своей картинкой</button>
+    <button class="btn" id="reset">Вернуть заводского</button>
+  </section>
+</main>
+<script src="/ui/kit/kit.js"></script>
+<script>
+  const h = ui.h;
+  const FILE = 'ui/mascot/mascot.json';
+  // The colours the owner can set by hand: [key, label, the art's own colour].
+  const COLOURS = [['body', 'Тело', '#C9B6FD'], ['gills', 'Жабры', '#F98FAC'], ['line', 'Контур', '#44308A']];
+  const POSES = {
+    idle: 'Спокоен', hello: 'Привет', point: 'Показывает', listening: 'Слушает', thinking: 'Думает', searching: 'Ищет',
+    working: 'Чинит', building: 'Строит', plan: 'План', asking: 'Спрашивает', oops: 'Ой', celebrating: 'Готово',
+    love: 'Спасибо', sleeping: 'Спит', safe: 'Безопасный режим', name: 'Имя', head: 'Голова', peek: 'Выглядывает',
+  };
+  // Layers of the climb at the chat button: not poses to look at by themselves.
+  const LAYERS = ['peek-body', 'peek-paw'];
+  let config = { enabled: true, poses: {}, colors: {}, phrases: {} };
+  let pose = 'hello';
+
+  const isHex = value => /^#[0-9a-fA-F]{6}$/.test(value || '');
+
+  async function load() {
+    config = await fetch('/' + FILE + '?' + Date.now()).then(response => (response.ok ? response.json() : null)).catch(() => null)
+      || { enabled: false, poses: {}, colors: {}, phrases: {} };
+    config.colors = config.colors || {};
+    config.poses = config.poses || {};
+  }
+
+  async function save() {
+    await assi.eval('require("lib/assi").files.writeJson(' + JSON.stringify(FILE) + ', ' + JSON.stringify(config) + ')');
+    // Every screen that shows the mascot, and the chat button, draw it anew.
+    await assi.native('mascot.changed');
+    await ui.mascot.ready(true);
+    render();
+  }
+
+  function render() {
+    const on = config.enabled !== false && Object.keys(config.poses).length > 0;
+    const names = Object.keys(config.poses).filter(name => LAYERS.indexOf(name) < 0);
+    if (names.indexOf(pose) < 0) pose = names[0] || 'idle';
+
+    const stage = document.getElementById('stage');
+    const figure = ui.mascot(pose, { lively: true });
+    stage.replaceChildren(...[
+      on ? figure : h('div', { class: 'off' }, 'Маскот выключен'),
+      on && names.length > 1 && h('div', { class: 'chips', style: 'justify-content: center' },
+        names.map(name => h('button', { class: 'chip' + (name === pose ? ' on' : ''), onclick: () => { pose = name; render(); } }, POSES[name] || ui.raw(name)))),
+    ].filter(Boolean));
+
+    const shown = h('input', { type: 'checkbox', class: 'switch', checked: config.enabled !== false });
+    shown.onchange = () => { config.enabled = shown.checked; save(); };
+    // Two ways to make it plainer without putting it away: a still picture, and the usual round button.
+    const alive = h('input', { type: 'checkbox', class: 'switch', checked: config.alive !== false });
+    alive.onchange = () => { config.alive = alive.checked; save(); };
+    const climbs = Boolean(config.poses['peek-body'] && config.poses['peek-paw']);
+    const button = h('input', { type: 'checkbox', class: 'switch', checked: config.button !== false && climbs, disabled: !climbs });
+    button.onchange = () => { config.button = button.checked; save(); };
+    const row = (title, about, input) => h('label', {},
+      h('span', { class: 'grow' }, h('div', {}, title), about && h('div', { class: 'small muted' }, about)), input);
+    document.getElementById('show').replaceChildren(...[
+      row('Показывать маскота', '', shown),
+      on && row('Живой', 'Моргает, дышит, выбирается из-за края. Без этого — неподвижная картинка', alive),
+      on && row('Вместо кнопки чата', climbs ? 'Выглядывает из-за края экрана и держится за него. Без этого — обычная круглая кнопка'
+        : 'Этому персонажу не хватает поз peek-body и peek-paw', button),
+    ].filter(Boolean));
+
+    // Colours apply to art drawn with the --mascot-* variables: the factory character, or an SVG made to match.
+    document.getElementById('look-section').hidden = !on;
+    const own = COLOURS.some(([key]) => isHex(config.colors[key]));
+    document.getElementById('look').replaceChildren(
+      h('button', { class: 'chip' + (own ? '' : ' on'), onclick: () => { COLOURS.forEach(([key]) => delete config.colors[key]); save(); } }, 'Как у темы'),
+      h('button', { class: 'chip' + (own ? ' on' : ''), onclick: () => { if (!own) { COLOURS.forEach(([key, , art]) => { config.colors[key] = art; }); save(); } } }, 'Свой'));
+    document.getElementById('colours').replaceChildren(...(own ? COLOURS.map(([key, label, art]) => {
+      const input = h('input', { type: 'color', class: 'colour', value: isHex(config.colors[key]) ? config.colors[key] : art });
+      // The picture follows the picker as it moves; the file is written when the choice is made.
+      input.oninput = () => { figure.style.setProperty('--mascot-' + key, input.value); };
+      input.onchange = () => { config.colors[key] = input.value.toUpperCase(); save(); };
+      return h('label', { class: 'row' }, h('span', { class: 'grow' }, label), input);
+    }) : []));
+  }
+
+  /** The picked picture as SVG text: an SVG as it is, anything else inside a small SVG frame. */
+  async function asSvg(file) {
+    if (/svg/i.test(file.type) || /\.svg$/i.test(file.name)) {
+      const text = await file.text();
+      if (text.indexOf('<svg') < 0) throw new Error('В файле нет SVG');
+      return text;
+    }
+    const data = await ui.squareImage(file, 512);
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><image width="512" height="512" href="' + data + '"/></svg>\n';
+  }
+
+  const picker = document.getElementById('file');
+  document.getElementById('replace').onclick = () => picker.click();
+  picker.onchange = async () => {
+    const file = picker.files[0];
+    picker.value = '';
+    if (!file) return;
+    try {
+      const svg = await asSvg(file);
+      await assi.eval('require("lib/assi").files.write("ui/mascot/own.svg", ' + JSON.stringify(svg) + ')');
+      // One picture stands for every pose; the phrases of the old character go with it.
+      config.poses = { idle: 'own.svg' };
+      config.colors = {};
+      config.phrases = {};
+      config.name = '';
+      config.enabled = true;
+      pose = 'idle';
+      await save();
+      ui.toast('Маскот заменён');
+    } catch (error) {
+      ui.toast(error.message);
+    }
+  };
+
+  document.getElementById('reset').onclick = async () => {
+    if (!(await ui.confirm('Вернуть заводского маскота? Свой окрас и своя картинка перестанут использоваться.', 'Вернуть'))) return;
+    await assi.native('safe.resetUi', 'ui/mascot/');
+    await load();
+    await ui.mascot.ready(true);
+    pose = 'hello';
+    render();
+  };
+
+  async function renderIcon() {
+    const now = await assi.native('launcher.icon');
+    document.getElementById('icon').replaceChildren(...[['mascot', 'С маскотом'], ['plain', 'Простая']].map(([id, label]) =>
+      h('button', { class: 'chip' + (now === id ? ' on' : ''), onclick: async () => {
+        try { await assi.native('launcher.icon.set', id); } catch (error) { ui.toast(error.message); }
+        renderIcon();
+      } }, label)));
+  }
+
+  load().then(render).then(renderIcon).then(() => ui.tour.offer('mascot', [
+    { target: '#stage', title: 'Это маскот', text: 'Персонаж приложения. Нажмите на позу, чтобы посмотреть её; нажмите на него самого — он ответит.' },
+    { target: '#show', title: 'Сколько его в приложении', text: 'Маскота можно выключить совсем, оставить неподвижной картинкой или вернуть на место кнопки чата обычную круглую кнопку.' },
+    { target: '#look-section', title: 'Окрас', text: 'Обычно он носит цвета темы. Свой окрас останется при любой теме.' },
+    { target: '#replace', title: 'Свой персонаж', text: 'Вместо него можно поставить любую картинку — или попросить в чате нарисовать другого.' },
+  ])).catch(error => ui.toast(error.message));
+</script>
+</body>
+</html>

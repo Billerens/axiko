@@ -22,7 +22,7 @@ class EngineService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
-            NotificationChannel(CHANNEL, "Assi работает", NotificationManager.IMPORTANCE_MIN).apply {
+            NotificationChannel(CHANNEL, "Аксико работает", NotificationManager.IMPORTANCE_MIN).apply {
                 setShowBadge(false)
             },
         )
@@ -31,7 +31,7 @@ class EngineService : Service() {
         )
         val notification = Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_spark)
-            .setContentTitle("Assi")
+            .setContentTitle("Аксико")
             .setContentText("Работает в фоне")
             .setContentIntent(open)
             .setOngoing(true)

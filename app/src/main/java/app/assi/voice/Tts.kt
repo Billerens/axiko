@@ -191,7 +191,7 @@ object Tts {
         }
         return Request.Builder().url(target.baseUrl + "/audio/speech").apply {
             if (target.key.isNotEmpty()) header("Authorization", "Bearer ${target.key}")
-            header("X-Title", "Assi")
+            header("X-Title", "Axiko")
         }.post(body.toString().toRequestBody("application/json".toMediaType())).build()
     }
 

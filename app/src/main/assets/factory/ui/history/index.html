@@ -39,7 +39,9 @@
     await assi.native('snap.restore', snapshot.id);
   }
 
-  render().catch(error => ui.toast(error.message));
+  render().then(() => ui.tour.offer('history', [
+    { target: '#list', title: 'История изменений', text: 'Здесь прежние состояния приложения: оно сохраняет себя перед каждой просьбой, которая что-то меняет. «Вернуть» возвращает приложение к этому моменту — данные модулей при этом не трогаются, а нынешнее состояние тоже остаётся в истории.' },
+  ])).catch(error => ui.toast(error.message));
 </script>
 </body>
 </html>

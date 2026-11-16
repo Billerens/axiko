@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Кнопка чата</title>
+<link rel="stylesheet" href="/ui/kit/kit.css">
+<style>
+  /* The look of the chat button. This page is drawn by the shell over the bottom right corner of
+  every screen, and it only draws: the press and the long press belong to the shell's own button
+  that lies over it, so nothing here can leave the owner without a way into the chat. When this
+  page has nothing to show (the mascot is off, or "button" is off in mascot.json), it says so
+  and the shell shows its plain round button. */
+  html, body {
+    background: transparent;
+    overflow: hidden;
+  }
+
+  /* The edge the mascot holds on to: the top of the menu bar, 14px above the bottom of this
+  page — the paws hang over the bar. Without a bar there is a little shelf instead. */
+  .edge {
+    position: fixed;
+    right: 10px;
+    bottom: 14px;
+    display: flex;
+  }
+
+  .shelf {
+    position: fixed;
+    right: 4px;
+    bottom: 2px;
+    width: 112px;
+    height: 12px;
+    border-radius: 8px 8px 3px 3px;
+    background: var(--surface-2);
+    box-shadow: 0 0 0 1px var(--line);
+  }
+</style>
+<body>
+<div class="shelf" id="shelf" hidden></div>
+<div class="edge" id="edge"></div>
+<script src="/ui/kit/kit.js"></script>
+<script>
+  const climber = ui.mascot.climber({ width: 96, state: 'hidden' });
+  document.getElementById('edge').append(climber);
+
+  let shown = false;      // this page has a look for the button
+  let chatOpen = false;
+  let lively = true;
+  const working = {};     // chats where an agent is at work -> the pieces of handed-out work running there
+
+  /** How far out the mascot is: out to the shoulders when called or at work, barely a peek otherwise. */
+  function settle() {
+    if (!shown) return;
+    const busy = Object.keys(working);
+    const lights = busy.reduce((sum, key) => sum + Math.max(1, Object.keys(working[key]).length), 0);
+    ui.mascot.lights(climber.body, lights);
+    ui.mascot.climb(climber, chatOpen || lights ? 'up' : 'peek');
+  }
+
+  function edge(info) {
+    // No menu bar under the button: the mascot holds on to a shelf of its own.
+    document.getElementById('shelf').hidden = !shown || Boolean(info && info.bar);
+  }
+
+  async function start() {
+    const config = await ui.mascot.ready();
+    const has = await climber.ready;
+    shown = Boolean(has && config && config.button !== false);
+    lively = Boolean(config && config.alive !== false);
+    const info = await assi.native('button.face', shown);
+    edge(info);
+    if (!shown) return;
+    // Called into being: first the paws catch the edge, then it pulls itself up for a look.
+    ui.mascot.climb(climber, lively ? 'up' : 'peek');
+    setTimeout(settle, 1400);
+  }
+
+  assi.on('button.edge', edge);
+  // The mascot was changed or turned off: this page decides anew whether it has a look to show.
+  assi.on('mascot', () => location.reload());
+  // The owner called: it climbs out while the chat opens, and goes back to peeking after.
+  assi.on('chat.visible', visible => { chatOpen = visible === true || visible === 'true'; settle(); });
+  assi.on('agent', event => {
+    const key = event.agent + ':' + event.thread;
+    if (event.type === 'idle' || event.type === 'stopped' || event.type === 'error') delete working[key];
+    else {
+      const parts = working[key] = working[key] || {};
+      if (event.type === 'part') { if (event.state === 'run') parts[event.name] = 1; else delete parts[event.name]; }
+    }
+    settle();
+  });
+
+  // Now and then, with nothing going on, it pulls itself up to look around.
+  setInterval(() => {
+    if (!shown || !lively || chatOpen || Object.keys(working).length || document.hidden) return;
+    ui.mascot.climb(climber, 'up');
+    setTimeout(settle, 1600);
+  }, 41000);
+
+  start();
+</script>
+</body>
+</html>

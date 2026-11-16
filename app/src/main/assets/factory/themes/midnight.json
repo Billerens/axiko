@@ -7,6 +7,9 @@
     "line": "#242424",
     "accent": "#8B7CFF",
     "accent-ink": "#0F0E17",
-    "accent-soft": "#1D1A33"
+    "accent-soft": "#1D1A33",
+    "mascot-body": "#C9B6FD",
+    "mascot-gills": "#F98FAC",
+    "mascot-line": "#44308A"
   }
 }

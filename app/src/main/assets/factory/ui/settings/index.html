@@ -67,7 +67,13 @@
 
   <div class="card accent" id="checklist" hidden>
     <div class="section">
-      <h3>Настройка по шагам</h3>
+      <div class="row">
+        <span id="steps-mascot"></span>
+        <div class="grow">
+          <h3>Настройка по шагам</h3>
+          <p class="muted small" id="steps-say" hidden></p>
+        </div>
+      </div>
       <div class="list" id="steps"></div>
     </div>
   </div>
@@ -128,7 +134,7 @@
 
     <section class="section">
       <h2>Имя</h2>
-      <p class="muted small">На это имя ассистент откликается голосом: «<span class="wake-name">Асси</span>, который час?»</p>
+      <p class="muted small">На это имя ассистент откликается голосом: «<span class="wake-name">Аксико</span>, который час?»</p>
       <div class="list" id="wake"></div>
     </section>
   </div>
@@ -136,20 +142,32 @@
   <div class="tab" data-tab="look">
     <section class="section">
       <h2>Язык</h2>
-      <p class="muted small">Язык экранов приложения. Отвечает ассистент на том языке, на котором к нему обратились. Нужного языка нет — попросите Assi перевести интерфейс: он добавит словарь.</p>
+      <p class="muted small">Язык экранов приложения. Отвечает ассистент на том языке, на котором к нему обратились. Нужного языка нет — попросите Аксико перевести интерфейс: он добавит словарь.</p>
       <div class="list" id="lang"></div>
     </section>
 
     <section class="section">
       <h2>Тема</h2>
-      <p class="muted small">Тему можно собрать здесь или попросить Assi: «сделай тему в цветах заката». Его темы появятся в этом списке, их можно править и переключать.</p>
+      <p class="muted small">Тему можно собрать здесь или попросить Аксико: «сделай тему в цветах заката». Его темы появятся в этом списке, их можно править и переключать.</p>
       <div class="list" id="themes"></div>
       <button class="btn soft" id="add-theme">Новая тема</button>
     </section>
 
     <section class="section">
+      <h2>Маскот</h2>
+      <p class="muted small">Персонаж приложения носит цвета темы. Его можно перекрасить отдельно, заменить своим или убрать.</p>
+      <div class="list">
+        <button id="mascot-open">
+          <span id="mascot-face"></span>
+          <span class="grow"><div style="font-weight: 600">Маскот</div><div class="value">Окрас, свой персонаж, показывать или нет</div></span>
+          <span class="muted" data-icon="right"></span>
+        </button>
+      </div>
+    </section>
+
+    <section class="section">
       <h2>Меню</h2>
-      <p class="muted small">Полоса с экранами: снизу, а на широком экране — слева. Попросите Assi добавить в неё экран или убрать лишнее.</p>
+      <p class="muted small">Полоса с экранами: снизу, а на широком экране — слева. Попросите Аксико добавить в неё экран или убрать лишнее.</p>
       <div class="list" id="menu"></div>
     </section>
   </div>
@@ -199,6 +217,7 @@
         <button id="web-cache"><span class="grow">Кэш веб-ресурсов<div class="value" id="web-cache-size"></div></span><span class="badge">Очистить</span></button>
         <button onclick="assi.open('ui/base/index.html')"><span class="grow">Личные данные<div class="value">Общая база того, что записано о вашей жизни</div></span><span class="muted" data-icon="right"></span></button>
         <button id="engine-log"><span class="grow">Журнал движка</span><span class="muted" data-icon="right"></span></button>
+        <button id="tours"><span class="grow">Обучение<div class="value">Показать подсказки по экранам заново</div></span></button>
         <div><span class="grow value" id="about"></span></div>
       </div>
     </section>
@@ -253,7 +272,7 @@
       assi.native('modules.list'), assi.native('speech.status'), assi.native('pref.all'),
     ]);
     document.getElementById('safe').checked = info.safeMode;
-    document.getElementById('about').textContent = `Assi ${info.version} · ${info.device} · Android ${info.android}`;
+    document.getElementById('about').textContent = `Аксико ${info.version} · ${info.device} · Android ${info.android}`;
     render();
   }
 
@@ -265,9 +284,9 @@
           h('div', { style: 'font-weight: 600' }, provider.name),
           h('div', { class: 'value truncate' }, provider.baseUrl)),
         h('span', { class: 'badge' }, provider.key ? 'ключ задан' : 'без ключа'))));
-    if (!providers.length) list.replaceChildren(h('div', { class: 'empty' }, 'Пока ни одного. Добавьте провайдера, чтобы Assi заработал.'));
+    if (!providers.length) list.replaceChildren(h('div', { class: 'empty' }, 'Пока ни одного. Добавьте провайдера, чтобы Аксико заработал.'));
 
-    const rows = [roleRow('main', 'Основной агент', 'Assi: меняет приложение')];
+    const rows = [roleRow('main', 'Основной агент', 'Аксико: меняет приложение')];
     agents.filter(agent => agent.id !== 'assi').forEach(agent =>
       rows.push(roleRow(agent.role, 'Агент «' + agent.title + '»', agent.description || '')));
     modules.forEach(module => (module.models || []).forEach(model =>
@@ -285,13 +304,23 @@
     const sense = await assi.native('sense.status');
     const steps = [
       ['Провайдер моделей', 'Адрес и ключ сервиса с моделями', providers.length > 0, () => { showTab('models'); editProvider(null); }],
-      ['Основная модель', 'На ней работает Assi', Boolean(assigned('main')), () => { showTab('models'); editRole('main', 'Основной агент'); }],
-      ['Распознавание речи', 'Скачать модель, чтобы говорить с Assi голосом', speech.ready || speech.engine === 'system', () => { showTab('voice'); editHearing(); }],
+      ['Основная модель', 'На ней работает Аксико', Boolean(assigned('main')), () => { showTab('models'); editRole('main', 'Основной агент'); }],
+      ['Распознавание речи', 'Скачать модель, чтобы говорить с Аксико голосом', speech.ready || speech.engine === 'system', () => { showTab('voice'); editHearing(); }],
       ['Чувства телефона', 'По желанию: экран других приложений, уведомления, ассистент', sense.screen || sense.notices || sense.assistant,
         () => showTab('phone')],
     ];
     const needed = !steps[0][2] || !steps[1][2] || new URLSearchParams(location.search).has('setup');
     document.getElementById('checklist').hidden = !needed || steps.every(step => step[2]);
+    // The mascot leads the setup — when there is one: without it the card is just the list.
+    const guide = document.getElementById('steps-mascot');
+    if (!guide.firstChild) {
+      guide.append(ui.mascot('building', { size: 72 }));
+      ui.mascot.say('setup', '').then(phrase => {
+        const says = document.getElementById('steps-say');
+        says.textContent = phrase;
+        says.hidden = !phrase;
+      });
+    }
     document.getElementById('steps').replaceChildren(...steps.map(([title, about, done, action]) =>
       h('button', { onclick: action },
         h('span', { style: 'color: ' + (done ? 'var(--ok)' : 'var(--ink-3)') }, ui.icon(done ? 'check' : 'right')),
@@ -841,9 +870,10 @@
   }
 
   function editName() {
-    const name = h('input', { class: 'input', value: wake.name, placeholder: 'Асси' });
+    const name = h('input', { class: 'input', value: wake.name, placeholder: 'Аксико' });
     let close = null;
     close = ui.sheet([
+      h('div', { style: 'text-align: center' }, ui.mascot('name', { size: 112 })),
       h('h3', {}, 'Имя ассистента'),
       h('p', { class: 'small muted' }, 'Так ассистент называется в чате, так он знает себя сам и на это имя откликается голосом. Длинное и ни на что не похожее — «Марфа», «Джарвис» — слышно увереннее, чем короткое вроде «Асси», которое прячется в обычных словах.'),
       field('Имя, на которое откликаться', name),
@@ -1032,6 +1062,10 @@
     language.onchange = () => assi.native('lang.set', language.value);
     document.getElementById('lang').replaceChildren(h('label', {}, h('span', { class: 'grow' }, 'Язык интерфейса'), language));
 
+    const face = document.getElementById('mascot-face');
+    if (!face.firstChild) face.append(ui.mascot('head', { size: 36 }));
+    document.getElementById('mascot-open').onclick = () => assi.open('ui/mascot/index.html');
+
     const themes = await assi.native('theme.list');
     const none = !themes.some(theme => theme.active);
     const themeRow = (theme, active) =>
@@ -1115,7 +1149,7 @@
       h('h3', {}, isNew ? 'Новая тема' : draft.name),
       field('Название', name),
       h('div', { class: 'section' }, pickers),
-      h('p', { class: 'small muted' }, 'Тема — файл themes/' + draft.id + '.json. Остальное в ней (скругления, шрифт, любые стили) может дописать Assi.'),
+      h('p', { class: 'small muted' }, 'Тема — файл themes/' + draft.id + '.json. Остальное в ней (скругления, шрифт, любые стили) может дописать Аксико.'),
       h('div', { class: 'actions' },
         !isNew && h('button', { class: 'btn danger', onclick: async () => {
           if (!(await ui.confirm('Удалить тему «' + draft.name + '»?', 'Удалить', true))) return;
@@ -1226,10 +1260,10 @@
 
   /** Shizuku gives the app the rights of ADB; with them it switches everything above on by itself. */
   function shizukuRow(state) {
-    const about = !state.installed ? 'Не установлен. С ним Assi сам включает себе все чувства и разрешения и получает права ADB'
+    const about = !state.installed ? 'Не установлен. С ним Аксико сам включает себе все чувства и разрешения и получает права ADB'
       : !state.running ? 'Установлен, но служба не запущена: откройте Shizuku и запустите её'
-        : !state.granted ? 'Запущен. Нажмите, чтобы разрешить Assi им пользоваться и выдать себе всё'
-          : 'Работает. Нажмите, чтобы Assi заново выдал себе все разрешения';
+        : !state.granted ? 'Запущен. Нажмите, чтобы разрешить Аксико им пользоваться и выдать себе всё'
+          : 'Работает. Нажмите, чтобы Аксико заново выдал себе все разрешения';
     const act = async () => {
       if (!state.installed) { assi.eval("require('lib/assi').openUrl('https://shizuku.rikka.app/')"); return; }
       try {
@@ -1272,7 +1306,7 @@
       row('Системный ассистент', 'Вызов жестом ассистента поверх любого приложения, с его экраном', sense.assistant, () => assi.native('sense.open', 'assistant')),
       h('label', {},
         h('span', { class: 'grow' }, 'Плавающая кнопка',
-          h('div', { class: 'value' }, 'Поверх других приложений: нажали — и спрашиваете Assi об этом экране')),
+          h('div', { class: 'value' }, 'Поверх других приложений: нажали — и спрашиваете Аксико об этом экране')),
         bubble),
       shizukuRow(await assi.native('shizuku.status')),
       h('button', { onclick: () => assi.native('sense.open', 'app') },
@@ -1329,7 +1363,18 @@
   renderLinux();
   renderLocal();
   renderLook();
-  load().then(renderUsage).catch(error => ui.toast(error.message));
+  document.getElementById('tours').onclick = async () => {
+    await ui.tour.reset();
+    ui.toast('Подсказки появятся снова — на каждом экране по разу');
+    showAround();
+  };
+  // The first time the settings are opened they are shown around.
+  const showAround = () => ui.tour.offer('settings', [
+    { target: '#checklist', title: 'Настройка по шагам', text: 'Что осталось сделать, чтобы приложение заработало. Нажмите на шаг — откроется нужное место.' },
+    { target: '#tabs', title: 'Разделы', text: 'Модели — на чём думает приложение. Агенты — кто в нём работает и по каким инструкциям. Голос — как оно слушает и говорит. Вид — язык, тема, меню и маскот. Телефон — что ему разрешено видеть и делать. Связи — внешние инструменты и доступ с компьютера. Система — безопасный режим и сброс.' },
+    { target: '.tab:not([hidden])', title: 'Всё это — тоже файлы', text: 'Любую настройку можно поменять и просьбой в чате: «сделай тему потемнее», «зови себя Марфой», «включи озвучку ответов».' },
+  ]);
+  load().then(renderUsage).then(showAround).catch(error => ui.toast(error.message));
 </script>
 </body>
 </html>

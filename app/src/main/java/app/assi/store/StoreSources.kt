@@ -45,7 +45,7 @@ class StoreHttpTransport(client: OkHttpClient = OkHttpClient()) : StoreTransport
         val visited = HashSet<String>()
         repeat(5) { hop ->
             require(visited.add(current)) { "Источник перенаправляет запрос по кругу." }
-            val request = Request.Builder().url(current).header("User-Agent", "Assi-Store/1")
+            val request = Request.Builder().url(current).header("User-Agent", "Axiko-Store/1")
                 .header("Accept", "application/json, application/zip, application/octet-stream")
             // Conditional validators belong to the original origin; no header is forwarded to a new one.
             if (sameOrigin(url, current)) {

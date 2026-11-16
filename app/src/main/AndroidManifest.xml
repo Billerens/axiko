@@ -103,10 +103,7 @@
             android:exported="true"
             android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
+            <!-- The entry on the phone's home screen is one of the two aliases below, not this. -->
             <!-- "Share" from any app: text, pictures, files go to the chat. -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
@@ -121,7 +118,36 @@
             </intent-filter>
         </activity>
 
-        <!-- Health Connect shows this when the owner asks why Assi wants health data; without it
+        <!-- The icon on the phone's home screen. Android takes an app's icon from the component
+             that is launched, so there are two entries and exactly one of them is enabled: with
+             the mascot, or the plain spark for an owner who has put the mascot away. Switched by
+             Launcher (Native "launcher.icon.set"); the chosen one survives updates of the app. -->
+        <activity-alias
+            android:name=".IconMascot"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="${assiLabel}"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".IconPlain"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_plain"
+            android:label="${assiLabel}"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <!-- Health Connect shows this when the owner asks why Axiko wants health data; without it
              the system refuses access without a word. It opens ui/health-rationale/. -->
         <activity-alias
             android:name=".HealthRationale"
@@ -148,7 +174,7 @@
             android:name=".sense.AskTile"
             android:exported="true"
             android:icon="@drawable/ic_spark"
-            android:label="Спросить Assi"
+            android:label="Спросить Аксико"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE" />
@@ -157,7 +183,7 @@
         <receiver
             android:name=".sense.BoardWidget"
             android:exported="true"
-            android:label="Assi: модуль">
+            android:label="Аксико: модуль">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
@@ -204,7 +230,7 @@
         <service
             android:name=".sense.ScreenService"
             android:exported="true"
-            android:label="Assi: видеть экран"
+            android:label="Аксико: видеть экран"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
@@ -218,7 +244,7 @@
         <service
             android:name=".sense.NoticeService"
             android:exported="true"
-            android:label="Assi: читать уведомления"
+            android:label="Аксико: читать уведомления"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
@@ -229,7 +255,7 @@
         <service
             android:name=".sense.AssistService"
             android:exported="true"
-            android:label="Assi"
+            android:label="Аксико"
             android:permission="android.permission.BIND_VOICE_INTERACTION">
             <meta-data
                 android:name="android.voice_interaction"
@@ -245,7 +271,7 @@
         <service
             android:name=".sense.AssistRecognitionService"
             android:exported="true"
-            android:label="Assi">
+            android:label="Аксико">
             <intent-filter>
                 <action android:name="android.speech.RecognitionService" />
             </intent-filter>

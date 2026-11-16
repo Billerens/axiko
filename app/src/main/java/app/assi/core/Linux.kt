@@ -241,7 +241,7 @@ object Linux {
     // ---- running ------------------------------------------------------------------------------
 
     private fun process(command: String): ProcessBuilder {
-        if (!installed) error("Linux-окружение не установлено. Откройте «Настройки» Assi, раздел «Linux-окружение».")
+        if (!installed) error("Linux-окружение не установлено. Откройте «Настройки» Аксико, раздел «Linux-окружение».")
         if (!supported) error("Linux-окружение не работает на этом устройстве: у него страницы памяти по 16 КБ, а встроенный PRoot собран под 4 КБ.")
         val libs = App.instance.applicationInfo.nativeLibraryDir
         val tmp = File(base, "tmp").apply { mkdirs() }

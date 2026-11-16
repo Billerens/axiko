@@ -416,6 +416,10 @@
       try { sessionStorage.setItem('assi.lang.tried', now.language); } catch (error) { /* private mode */ }
       location.reload();
     }).catch(function () {});
+    // The mascot was recoloured, replaced or turned off: what is drawn of it on this screen follows.
+    window.assi.on('mascot', function () {
+      mascotReady(true).then(function () { document.querySelectorAll('.mascot').forEach(mascotDraw); });
+    });
     window.assi.on('theme', function () {
       document.querySelectorAll('link[rel="stylesheet"]').forEach(function (link) {
         if (link.href.indexOf('/ui/kit/kit.css') >= 0) link.href = '/ui/kit/kit.css?' + Date.now();
@@ -485,9 +489,331 @@
     else setTimeout(guideButton, 0);
   }
 
+  // ---- the mascot ---------------------------------------------------------------------------------
+  // The app's character lives in the workspace like everything else: ui/mascot/mascot.json names
+  // its poses (SVG files or pictures), its own colours and its phrases. The owner or the agent can
+  // recolour it, put any other character in its place or turn it off ("enabled": false). So no
+  // screen may depend on it: with the mascot off, ui.mascot() gives a hidden empty element and
+  // ui.mascot.say() gives the plain text.
+  var MASCOT = '/ui/mascot/';
+  var LIGHTS = ['l1', 'r1', 'l2', 'r2', 'l3', 'r3'];
+  var mascotConfig = null;
+  var mascotArt = {};
+
+  /** mascot.json, or null when there is no mascot (turned off, removed, broken). */
+  function mascotReady(again) {
+    if (!mascotConfig || again) {
+      if (again) mascotArt = {};
+      mascotConfig = fetch(MASCOT + 'mascot.json?' + Date.now())
+        .then(function (response) { return response.ok ? response.json() : null; })
+        .then(function (config) { return config && config.enabled !== false && config.poses && Object.keys(config.poses).length ? config : null; })
+        .catch(function () { return null; });
+    }
+    return mascotConfig;
+  }
+
+  function mascotFile(file) {
+    if (!mascotArt[file]) {
+      mascotArt[file] = fetch(MASCOT + file + '?' + Date.now())
+        .then(function (response) { return response.ok ? response.text() : null; })
+        .catch(function () { return null; });
+    }
+    return mascotArt[file];
+  }
+
+  function mascotLights(node) {
+    var count = Math.max(0, Math.min(LIGHTS.length, Number(node.dataset.lights) || 0));
+    var fronds = node.querySelectorAll('[data-gill]');
+    fronds.forEach(function (frond) { frond.classList.toggle('lit', LIGHTS.indexOf(frond.getAttribute('data-gill')) < count && LIGHTS.indexOf(frond.getAttribute('data-gill')) >= 0); });
+    // A character without gills shows the same count as dots under it.
+    var dots = node.querySelector('.mascot-dots');
+    if (dots) dots.remove();
+    if (count && !fronds.length && node.firstChild) {
+      dots = h('span', { class: 'mascot-dots' });
+      for (var i = 0; i < count; i++) dots.appendChild(h('i', {}));
+      node.appendChild(dots);
+    }
+  }
+
+  function mascotDraw(node) {
+    var asked = node.dataset.pose;
+    return mascotReady().then(function (config) {
+      if (!config) { node.hidden = true; node.replaceChildren(); return null; }
+      var file = config.poses[asked] || config.poses.idle || config.poses[Object.keys(config.poses)[0]];
+      // The mascot's own colours go over whatever the theme gives it.
+      Object.keys(config.colors || {}).forEach(function (key) {
+        if (/^[a-z][a-z0-9-]*$/.test(key) && config.colors[key]) node.style.setProperty('--mascot-' + key, String(config.colors[key]));
+      });
+      var drawn = /\.svg$/i.test(file) ? mascotFile(file) : Promise.resolve(null);
+      return drawn.then(function (svg) {
+        if (node.dataset.pose !== asked) return config;
+        if (svg && svg.indexOf('<svg') >= 0) {
+          var holder = document.createElement('span');
+          holder.innerHTML = svg;
+          holder.querySelectorAll('script').forEach(function (script) { script.remove(); });
+          node.replaceChildren(holder.querySelector('svg'));
+        } else {
+          node.replaceChildren(h('img', { src: MASCOT + file, alt: '' }));
+        }
+        node.hidden = false;
+        // "alive": false in mascot.json leaves a still picture: no blinking, breathing or hopping.
+        node.classList.toggle('alive', config.alive !== false);
+        node.classList.remove('pop');
+        void node.offsetWidth;
+        node.classList.add('pop');
+        mascotLights(node);
+        return config;
+      });
+    });
+  }
+
+  /** A tap on a lively mascot: a happy pose and a wiggle for a moment, then back to what it was. */
+  function mascotReact(node) {
+    if (node.dataset.reacting || !node.classList.contains('alive')) return;
+    var back = node.dataset.pose;
+    var moods = ['love', 'celebrating', 'hello'].filter(function (pose) { return pose !== back; });
+    node.dataset.reacting = '1';
+    mascot.pose(node, moods[Math.floor(Math.random() * moods.length)]).then(function () { node.classList.add('wiggle'); });
+    setTimeout(function () {
+      delete node.dataset.reacting;
+      node.classList.remove('wiggle');
+      mascot.pose(node, back);
+    }, 1800);
+  }
+
+  /**
+   * The mascot in a pose: ui.mascot('hello', { size: 120 }). Poses of the factory character:
+   * idle, hello, point, listening, thinking, searching, working, building, plan, asking, oops,
+   * celebrating, love, sleeping, safe, name, head, peek (a pose the character lacks falls back
+   * to idle). `lights` (0–6) lights its gills one by one — how many agents are at work.
+   * `lively: true` lets it answer a tap. The element is hidden until drawn and stays hidden with
+   * the mascot off.
+   */
+  function mascot(pose, options) {
+    options = options || {};
+    var node = h('span', { class: 'mascot', hidden: true, 'data-pose': pose || 'idle', 'data-lights': options.lights || 0 });
+    if (options.size) node.style.width = options.size + 'px';
+    if (options.lively) node.addEventListener('click', function () { mascotReact(node); });
+    mascotDraw(node);
+    return node;
+  }
+
+  /**
+   * The mascot climbing up from behind an edge and holding on to it: two layers, the body that
+   * rises behind the edge (pose "peek-body") and the paws that stay on it ("peek-paw", drawn
+   * twice). The edge is the bottom of the element — put it on top of a card, a bar, the screen's
+   * rim. States (ui.mascot.climb(node, state)): 'hidden', 'peek' — just its eyes over the edge, 'up' —
+   * out to the shoulders (its paws are short). `node.ready` resolves to false, and the element stays hidden, when the mascot is
+   * off or has no such poses: then the place is simply empty.
+   */
+  mascot.climber = function (options) {
+    options = options || {};
+    var body = mascot('peek-body');
+    var node = h('span', { class: 'climber', hidden: true, 'data-state': options.state || 'peek' },
+      h('span', { class: 'climber-body' }, body),
+      h('span', { class: 'climber-paw left' }, mascot('peek-paw')),
+      h('span', { class: 'climber-paw right' }, mascot('peek-paw')));
+    if (options.width) node.style.setProperty('--climber', options.width + 'px');
+    node.body = body;
+    node.ready = mascotReady().then(function (config) {
+      var has = Boolean(config && config.poses['peek-body'] && config.poses['peek-paw']);
+      node.hidden = !has;
+      node.classList.toggle('alive', has && config.alive !== false);
+      return has;
+    });
+    return node;
+  };
+  mascot.climb = function (node, state) { node.dataset.state = state; };
+
+  mascot.ready = mascotReady;
+  /** Changes the pose of a mascot element; resolves when it is drawn. */
+  mascot.pose = function (node, pose) {
+    if (node.dataset.pose === pose && node.firstChild) return Promise.resolve();
+    node.dataset.pose = pose;
+    return mascotDraw(node);
+  };
+  mascot.lights = function (node, count) {
+    node.dataset.lights = count || 0;
+    mascotLights(node);
+  };
+  /** The mascot's phrase for the occasion — or `plain`, the screen's own words, when it has none. */
+  mascot.say = function (key, plain) {
+    return mascotReady().then(function (config) {
+      var phrase = config && config.phrases && config.phrases[key];
+      return typeof phrase === 'string' && phrase.trim() ? phrase : plain;
+    });
+  };
+
+  // ---- a tour of a screen ---------------------------------------------------------------------------
+  // The screen goes dim except for the thing being explained, and a card beside it says what it
+  // is — step by step. With a mascot, it holds on to the card's edge.
+
+  // Where the chat button is on every screen: the shell draws it over the page's bottom right corner.
+  var CHAT_BUTTON = { right: 2, bottom: 0, width: 120, height: 100 };
+  var TOURS_DONE = 'tours.done';
+
+  /** What a step points at, as a box in the window — or null for a step about nothing in particular. */
+  function tourBox(step) {
+    var target = typeof step.target === 'function' ? step.target() : step.target;
+    if (typeof target === 'string') target = document.querySelector(target);
+    if (!target) return null;
+    if (target.getBoundingClientRect) {
+      if (target.scrollIntoView) target.scrollIntoView({ block: 'center' });
+      var box = target.getBoundingClientRect();
+      return box.width || box.height ? { x: box.left, y: box.top, w: box.width, h: box.height } : null;
+    }
+    // A place given by its distance from the window's sides.
+    var w = target.width === undefined ? window.innerWidth - (target.left || 0) - (target.right || 0) : target.width;
+    var hgt = target.height === undefined ? window.innerHeight - (target.top || 0) - (target.bottom || 0) : target.height;
+    return {
+      x: target.left !== undefined ? target.left : window.innerWidth - target.right - w,
+      y: target.top !== undefined ? target.top : window.innerHeight - target.bottom - hgt, w: w, h: hgt
+    };
+  }
+
+  /**
+   * Shows the steps one by one: ui.tour([{ target: '#modules', title: 'Модули', text: '…' }, …]).
+   * `target` is a selector, an element, a function that gives one, a place by its distance from
+   * the window's sides ({ right: 0, bottom: 0, width: 120, height: 100 }), or nothing — then the
+   * card stands in the middle. Resolves to true when the owner reached the end, false when they
+   * skipped it.
+   */
+  function tour(steps, options) {
+    options = options || {};
+    // A step about something that is not on the screen now (a hidden section, an empty list) is
+    // left out; so is a step about the phone's own parts (phone: true — the chat button, the
+    // menu bar) when the screen is shown in the hub on a computer.
+    var web = Boolean(window.assi && window.assi.platform === 'web');
+    steps = steps.filter(function (step) {
+      if (step.phone && web) return false;
+      if (typeof step.target !== 'string') return true;
+      var found = document.querySelector(step.target);
+      return Boolean(found && (found.offsetWidth || found.offsetHeight));
+    });
+    return new Promise(function (resolve) {
+      if (!steps.length) return resolve(true);
+      var index = 0;
+      var hole = h('div', { class: 'tour-hole' });
+      var title = h('h3', {});
+      var text = h('p', {});
+      var count = h('span', { class: 'tour-count' });
+      var back = h('button', { class: 'btn small', onclick: function () { go(index - 1); } }, 'Назад');
+      var next = h('button', { class: 'btn primary small', onclick: function () { go(index + 1); } }, 'Далее');
+      var skip = h('button', { class: 'tour-skip', onclick: function () { end(false); } }, 'Пропустить');
+      var climber = mascot.climber({ width: 82, state: 'hidden' });
+      var card = h('div', { class: 'tour-card' }, climber, title, text,
+        h('div', { class: 'tour-row' }, skip, count, h('span', { class: 'grow' }), back, next));
+      var layer = h('div', { class: 'tour', role: 'dialog', 'aria-modal': 'true' }, hole, card);
+      var hop = null;
+
+      function place() {
+        var box = tourBox(steps[index]);
+        var pad = 6;
+        var view = { w: window.innerWidth, h: window.innerHeight };
+        if (box) {
+          hole.style.cssText = 'left:' + (box.x - pad) + 'px;top:' + (box.y - pad) + 'px;width:' + (box.w + 2 * pad) + 'px;height:' + (box.h + 2 * pad) + 'px';
+        } else {
+          hole.style.cssText = 'left:' + view.w / 2 + 'px;top:' + view.h / 2 + 'px;width:0;height:0';
+        }
+        // The card goes under what it explains when there is room, over it otherwise; the mascot
+        // on the card's top edge needs its own room above.
+        var room = climber.hidden ? 12 : 58;
+        var height = card.offsetHeight;
+        var top = (view.h - height) / 2;
+        if (box) {
+          var under = box.y + box.h + pad + 14 + (climber.hidden ? 0 : 46);
+          var over = box.y - pad - 14 - height;
+          top = under + height + 12 <= view.h ? under : over >= room ? over : Math.max(room, view.h - height - 12);
+        }
+        card.style.top = Math.max(room, Math.min(top, view.h - height - 12)) + 'px';
+      }
+
+      function go(to) {
+        if (to < 0) return;
+        if (to >= steps.length) return end(true);
+        index = to;
+        var step = steps[index];
+        title.textContent = step.title || '';
+        title.hidden = !step.title;
+        text.textContent = step.text;
+        count.textContent = (index + 1) + ' / ' + steps.length;
+        back.hidden = index === 0;
+        next.textContent = index === steps.length - 1 ? (options.done || 'Понятно') : 'Далее';
+        place();
+        // What scrolled into view settles in the next frame.
+        requestAnimationFrame(place);
+        // The mascot leans on the card all along; with every step it ducks and comes up again.
+        mascot.climb(climber, 'peek');
+        clearTimeout(hop);
+        hop = setTimeout(function () { mascot.climb(climber, 'up'); }, 180);
+      }
+
+      function end(reached) {
+        clearTimeout(hop);
+        window.removeEventListener('resize', place);
+        layer.remove();
+        resolve(reached);
+      }
+
+      document.body.appendChild(layer);
+      window.addEventListener('resize', place);
+      climber.ready.then(place);
+      go(0);
+    });
+  }
+
+  function toursDone() {
+    return window.assi.native('pref.get', TOURS_DONE, '').then(function (done) { return String(done || '').split(',').filter(Boolean); });
+  }
+
+  /**
+   * The tour of a screen for an owner who has not seen it: ui.tour.offer('home', steps). It is
+   * shown once; its last step always says that anything unclear can be asked in the chat
+   * (`askAt` — what that step points at; the chat button by default). An owner who skips a tour
+   * is not offered the others; "Обучение" in the settings brings them all back.
+   */
+  tour.offer = function (key, steps, options) {
+    options = options || {};
+    // Not for a page framed in another — a card of the home screen. The hub on a computer frames
+    // screens too, but there they are the screen itself: its own two frames do get their tours.
+    var web = Boolean(window.assi && window.assi.platform === 'web');
+    var framed = window.top !== window;
+    var inHub = false;
+    try { inHub = framed && web && window.parent === window.top && Boolean(window.top.__assiTransportRoot); } catch (error) { /* another origin */ }
+    if (!window.assi || (framed && !inHub)) return Promise.resolve(false);
+    // One tour at a time: a screen inside the hub waits until the hub has finished its own.
+    var turn = !inHub ? Promise.resolve() : new Promise(function (resolve) {
+      (function wait() {
+        var busy = false;
+        try { busy = Boolean(window.top.document.querySelector('.tour')); } catch (error) { /* another origin */ }
+        if (busy) setTimeout(wait, 1000); else resolve();
+      })();
+    });
+    // The hub asks first: its frames give it a moment to start.
+    return (inHub ? new Promise(function (resolve) { setTimeout(resolve, 1500); }) : Promise.resolve()).then(function () { return turn; }).then(toursDone).then(function (done) {
+      if (done.indexOf(key) >= 0 || done.indexOf('*') >= 0) return false;
+      var ask = {
+        // In the hub the chat is a panel beside the screen, not a button over it.
+        target: options.askAt === undefined ? (web ? null : CHAT_BUTTON) : options.askAt,
+        title: 'Остались вопросы?',
+        text: 'Если что-то непонятно — спросите в чате: про любой экран и любую кнопку. Там же можно попросить переделать то, что неудобно.'
+      };
+      return tour(steps.concat([ask]), options).then(function (reached) {
+        return toursDone().then(function (now) {
+          var list = reached ? now.concat(key) : ['*'];
+          if (!reached) toast('Обучение можно пройти заново в настройках');
+          return window.assi.native('pref.set', TOURS_DONE, list.join(','));
+        }).then(function () { return reached; });
+      });
+    }).catch(function () { return false; });
+  };
+  /** Every screen offers its tour again. */
+  tour.reset = function () { return window.assi.native('pref.set', TOURS_DONE, ''); };
+  tour.chatButton = CHAT_BUTTON;
+
   window.ui = {
     h: h, esc: esc, md: md, toast: toast, sheet: sheet, confirm: confirm, ago: ago, tabs: tabs, t: t, raw: raw,
     icon: icon, icons: icons, iconNames: Object.keys(ICONS), mark: mark, squareImage: squareImage,
-    guide: guide, guideExists: guideExists
+    guide: guide, guideExists: guideExists, mascot: mascot, tour: tour
   };
 })();

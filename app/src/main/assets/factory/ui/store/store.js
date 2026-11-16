@@ -74,14 +74,14 @@
     const installed = installedView ? item : installedFor(item);
     const title = item.title || packageId(item), card = h('article', { class: 'store-card', 'data-package': packageId(item), 'data-source': item.sourceId });
     card.append(h('div', { class: 'store-card-top' }, icon(item.kind || 'module'), h('div', { class: 'grow' }, h('h3', {}, raw(title)), h('div', { class: 'store-meta' }, h('span', {}, tr(item.kind === 'game' ? 'Игра' : 'Модуль')), h('span', {}, raw(item.version || ''))))));
-    card.append(h('p', { class: 'store-description' }, raw(item.summary || (installedView ? tr('Установлено через каталог Assi') : ''))));
+    card.append(h('p', { class: 'store-description' }, raw(item.summary || (installedView ? tr('Установлено через каталог Аксико') : ''))));
     const badges = h('div', { class: 'store-meta' });
     if (item.status === 'update' || item.updateAvailable) badges.append(h('span', { class: 'store-chip update' }, tr('Есть обновление')));
     else if (installed) badges.append(h('span', { class: 'store-chip success' }, tr('Установлено')));
     if (item.localModified || installed && installed.localModified) badges.append(h('span', { class: 'store-chip changed' }, tr('Есть свои правки')));
     if (item.status === 'sourceConflict') badges.append(h('span', { class: 'store-chip problem' }, tr('Конфликт источников')));
     else if (item.status === 'changedRelease') badges.append(h('span', { class: 'store-chip problem' }, tr('Выпуск изменён')));
-    else if (item.compatible === false || item.status === 'incompatible') badges.append(h('span', { class: 'store-chip problem' }, tr('Нужна другая версия Assi')));
+    else if (item.compatible === false || item.status === 'incompatible') badges.append(h('span', { class: 'store-chip problem' }, tr('Нужна другая версия Аксико')));
     if (item.archive && item.archive.size) badges.append(h('span', {}, bytes(item.archive.size)));
     card.append(badges, h('div', { class: 'store-source-line' }, raw(item.sourceTitle || sourceName(item.sourceId))));
     const actions = h('div', { class: 'store-card-actions' }, button(tr('Подробнее'), () => showPackage(item, installed), { 'data-details': packageId(item) }));
@@ -130,7 +130,7 @@
         if (!/^https:\/\//i.test(url)) throw new Error(tr('Укажите HTTPS-ссылку на репозиторий или index.json.'));
         const source = await api('source.add', url); state.sourceUrl = ''; await load({ keepStatus: true }); status(tr('Источник «{}» добавлен', source.title || source.repositoryId || ''));
       });
-    } }, h('h3', {}, tr('Подключить репозиторий')), h('p', {}, tr('В репозитории обязателен index.json по правилам Assi. Подойдут GitHub и другие HTTPS-источники.')), h('div', { class: 'store-source-inputs' }, input, submit));
+    } }, h('h3', {}, tr('Подключить репозиторий')), h('p', {}, tr('В репозитории обязателен index.json по правилам Аксико. Подойдут GitHub и другие HTTPS-источники.')), h('div', { class: 'store-source-inputs' }, input, submit));
     content.replaceChildren(h('div', { class: 'store-sources' }, form, state.sources.map(source => sourceCard(source))));
     if (!state.sources.length) content.firstChild.append(note(tr('Источников пока нет. Установка публичных пакетов не требует GitHub-аккаунта.')));
   }
@@ -187,8 +187,8 @@
     current.body.append(h('p', {}, raw(display.summary || '')), facts([
       ['Тип', tr(display.kind === 'game' ? 'Игра' : 'Модуль')], ['Версия', display.version], ['Установлена', installed && installed.version], ['Автор', display.publisher], ['Лицензия', display.license], ['Источник', display.sourceTitle || sourceName(item.sourceId)], ['Загрузка', display.archive && bytes(display.archive.size)], ['После распаковки', display.archive && bytes(display.archive.unpackedSize)]
     ]));
-    if (display.compatibility) current.body.append(note(tr('API Assi: от {}', display.compatibility.minAssiApi) + (display.compatibility.gamesEngine ? ' · ' + tr('Движок игр: {}', display.compatibility.gamesEngine) : '')));
-    if (!compatible) current.body.append(h('p', { class: 'store-notice danger' }, raw(display.compatibilityError || tr('Пакет несовместим с установленной версией Assi.'))));
+    if (display.compatibility) current.body.append(note(tr('API Аксико: от {}', display.compatibility.minAssiApi) + (display.compatibility.gamesEngine ? ' · ' + tr('Движок игр: {}', display.compatibility.gamesEngine) : '')));
+    if (!compatible) current.body.append(h('p', { class: 'store-notice danger' }, raw(display.compatibilityError || tr('Пакет несовместим с установленной версией Аксико.'))));
     if (installed && installed.localModified) current.body.append(h('p', { class: 'store-notice' }, tr('В пакете есть ваши доработки. Перед обновлением покажем изменения и возможные конфликты.')));
     if (display.screenshots && display.screenshots.length) {
       const links = display.screenshots.map(safeHttps).filter(Boolean).map((url,index) => h('a', { href: url, target: '_blank', rel: 'noopener noreferrer', referrerpolicy: 'no-referrer' }, tr('Снимок {}', index + 1)));
@@ -267,7 +267,7 @@
     current.body.append(fileList);
     const requests = (manifest.capabilities || []).concat((manifest.networkDomains || []).map(domain => 'https://' + domain));
     if (requests.length) current.body.append(h('details', {}, h('summary', {}, tr('Заявленные возможности и сеть: {}', requests.length)), h('ul', { class: 'store-plain-list' }, requests.map(item => h('li', {}, raw(item))))));
-    current.body.append(h('p', { class: 'store-notice' }, tr('Этот пакет выполняется с возможностями Assi. Изоляция доступа модулей пока не включена. Проверка агентом помогает изучить код, но не создаёт такую изоляцию.')));
+    current.body.append(h('p', { class: 'store-notice' }, tr('Этот пакет выполняется с возможностями Аксико. Изоляция доступа модулей пока не включена. Проверка агентом помогает изучить код, но не создаёт такую изоляцию.')));
     const task = plan.reviewTask || (state.reviewTask && state.reviewTask.planId === plan.id ? state.reviewTask : null);
     const currentReport = report || plan.review;
     const agentRunning = !!task && task.status !== 'stopped' && (!currentReport || currentReport.agentStatus !== 'stopped');
@@ -291,7 +291,7 @@
       if (ack.checked) state.acknowledged.add(ackKey); else state.acknowledged.delete(ackKey);
       direct.disabled = blocked || agentRunning || !ack.checked || conflicts.length > 0 || currentReport && currentReport.status === 'reject'; agent.disabled = blocked || !ack.checked || agentRunning;
     });
-    current.footer.append(h('label', { class: 'store-trust' }, ack, h('span', {}, tr('Разрешаю запуск этого пакета с возможностями Assi'), h('small', {}, tr('Для этой версии и показанного плана установки.')))), h('div', { class: 'store-dialog-actions' }, direct, agent));
+    current.footer.append(h('label', { class: 'store-trust' }, ack, h('span', {}, tr('Разрешаю запуск этого пакета с возможностями Аксико'), h('small', {}, tr('Для этой версии и показанного плана установки.')))), h('div', { class: 'store-dialog-actions' }, direct, agent));
   }
   function visible() { return state.visible && !document.hidden; }
   function schedulePoll() {
@@ -334,5 +334,9 @@
     assi.on('app.visible', event => { state.visible = !event || event.on !== false; schedulePoll(); });
     assi.on('store.changed', () => { if (visible()) load({ keepStatus: true }).catch(error => status(errorText(error), true)); });
   }
-  load().catch(error => { state.loaded = true; render(); status(errorText(error), true, () => load()); });
+  load().catch(error => { state.loaded = true; render(); status(errorText(error), true, () => load()); }).then(() => ui.tour && ui.tour.offer('store', [
+    { target: '#store-tab-catalog', title: 'Каталог', text: 'Готовые модули и игры из подключённых источников. Установка идёт через план: сначала видно, какие файлы изменятся, и только потом что-то меняется.' },
+    { target: '#store-tab-sources', title: 'Источники', text: 'Откуда берётся каталог. Источник — это репозиторий с модулями; добавляйте только те, авторам которых доверяете: пакеты работают с возможностями всего приложения.' },
+    { target: '#store-tab-updates', title: 'Обновления и откат', text: 'Новые версии установленного. Ваши данные и ваши правки сохраняются, а прежнюю версию можно вернуть.' },
+  ]));
 })();

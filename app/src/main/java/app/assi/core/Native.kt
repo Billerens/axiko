@@ -50,7 +50,7 @@ object Native {
     val FEATURES = listOf(
         "notice.full", "notice.removed", "notice.open", "notify.actions", "dnd", "off", "job.once",
         "vibrate.pattern", "app.visible", "speech.stream", "transcribe.segments", "speech.render",
-        "theme.decor", "widget.image", "home.cards", "usage", "store.v1",
+        "theme.decor", "widget.image", "home.cards", "usage", "store.v1", "button.face", "launcher.icon",
     )
 
     fun call(method: String, args: JSONArray): Any? = when (method) {
@@ -288,7 +288,7 @@ object Native {
             Widgets.refresh(text(args, 0))
             true
         }
-        // (on) — listening all the time for the name "Асси".
+        // (on) — listening all the time for the name "Аксико".
         "wake.set" -> {
             Wake.set(args.getBoolean(0))
             true
@@ -351,6 +351,12 @@ object Native {
         }
         "nav.changed" -> {
             Pages.broadcast("nav", "null")
+            true
+        }
+        // The mascot's files changed (ui/mascot/, ui/button/): screens draw it anew. After fs_write
+        // this happens by itself.
+        "mascot.changed" -> {
+            Pages.broadcast("mascot", "null")
             true
         }
         // Attachments waiting to go with the next message.
@@ -542,6 +548,15 @@ object Native {
         "ui.eval" -> app.assi.agent.Tools.pageEval(args.getString(0), args.optLong(1, 400))
         // (on) — the whole display for the current screen: a game, a scene, a presentation.
         "ui.stage" -> MainActivity.current?.setStage(args.optBoolean(0, true)) != null
+
+        // (on) — the chat button's page (ui/button/) says whether it has drawn a look for the
+        // button; without one the native round button shows. Answers {bar}: whether the edge
+        // under the button is the menu bar (the page also hears "button.edge" when that changes).
+        "button.face" -> MainActivity.current?.setFace(args.optBoolean(0, false)) ?: JSONObject().put("bar", false)
+        // The icon on the phone's home screen: "mascot" or "plain". (Not "icon.set": that one gives
+        // a module or an agent its icon.)
+        "launcher.icon" -> Launcher.icon()
+        "launcher.icon.set" -> Launcher.setIcon(args.getString(0))
 
         "safe.set" -> MainActivity.current?.setSafeMode(args.getBoolean(0)) != null
         "safe.resetUi" -> {

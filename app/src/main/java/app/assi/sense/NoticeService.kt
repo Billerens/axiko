@@ -169,7 +169,7 @@ object Notices {
     /** What is in the notification shade right now. */
     fun active(): JSONArray {
         val service = NoticeService.instance
-            ?: error("Доступ к уведомлениям выключен. Откройте «Настройки» Assi, раздел «Чувства телефона», и включите «Читать уведомления».")
+            ?: error("Доступ к уведомлениям выключен. Откройте «Настройки» Аксико, раздел «Чувства телефона», и включите «Читать уведомления».")
         return JSONArray(service.activeNotifications.mapNotNull { describe(it) }.sortedByDescending { it.getLong("time") })
     }
 
@@ -181,7 +181,7 @@ object Notices {
         val live = NoticeService.instance?.activeNotifications?.firstOrNull { it.key == key }?.notification?.contentIntent
         val pending = live ?: synchronized(this) { opens[key] } ?: return false
         return try {
-            // A tap the owner makes in Assi starts the other app's screen; Android 14 wants that said out loud.
+            // A tap the owner makes in Axiko starts the other app's screen; Android 14 wants that said out loud.
             val options = if (Build.VERSION.SDK_INT >= 34) {
                 ActivityOptions.makeBasic().setPendingIntentBackgroundActivityStartMode(ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED).toBundle()
             } else {

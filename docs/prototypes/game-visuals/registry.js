@@ -1,4 +1,4 @@
-/* Shared only by the standalone visual studies, independent of the Assi runtime. */
+/* Shared only by the standalone visual studies, independent of the Axiko runtime. */
 window.AssiVisuals = {
   games: new Map(),
   register(game) {

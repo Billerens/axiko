@@ -2,7 +2,7 @@
 <html lang="ru">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Assi</title>
+<title>Аксико</title>
 <link rel="stylesheet" href="/ui/kit/kit.css">
 <style>
   .hello {
@@ -14,6 +14,25 @@
 
   .hello p {
     color: var(--ink-2);
+  }
+
+  #mascot:empty, #mascot:has(> [hidden]) {
+    display: none;
+  }
+
+  #mascot .mascot {
+    width: 68px;
+    margin-top: 6px;
+  }
+
+  .says {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .says .mascot {
+    width: 92px;
   }
 
   .ideas {
@@ -205,8 +224,9 @@
 <body>
 <main class="page">
   <header class="row" style="align-items: flex-start">
+    <span id="mascot"></span>
     <div class="hello grow">
-      <h1 id="greeting">Assi</h1>
+      <h1 id="greeting">Аксико</h1>
       <p>Попросите — и приложение изменится.</p>
     </div>
     <button class="icon-btn" id="history" aria-label="История изменений" data-icon="history" hidden></button>
@@ -256,12 +276,40 @@
     await assi.native('agent.send', 'assi', text);
   }
 
-  function notice(kind, title, text, action, onAction) {
-    return h('div', { class: 'card ' + kind },
+  /**
+   * A card with something the owner should know. With `says` ([pose, phrase]) the mascot says
+   * it in its own words — when there is a mascot; without one the card reads as written here.
+   */
+  function notice(kind, title, text, action, onAction, says) {
+    const words = h('p', { class: 'muted' }, text);
+    const card = h('div', { class: 'card ' + kind },
       h('div', { class: 'section' },
         h('h3', {}, title),
-        h('p', { class: 'muted' }, text),
+        words,
         action && h('div', {}, h('button', { class: 'btn primary small', onclick: onAction }, action))));
+    if (!says) return card;
+    ui.mascot.say(says[1], text).then(phrase => { words.textContent = phrase; });
+    return h('div', { class: 'says' }, ui.mascot(says[0]), h('div', { class: 'grow' }, card));
+  }
+
+  // The mascot by the greeting: asleep at night, on its pebbles in safe mode, and busy with
+  // whatever an agent is doing right now.
+  const mascot = ui.mascot('idle', { lively: true });
+  document.getElementById('mascot').append(mascot);
+  let resting = 'idle';       // its pose when nothing is going on
+  let cheer = null;
+  const TOOL_POSE = { web_search: 'searching', web_read: 'searching', fs_read: 'searching', fs_list: 'searching', base_find: 'searching',
+    agent_run: 'building', subtasks: 'building', draft_begin: 'building', ask_owner: 'asking', plan_propose: 'plan', plan_step: 'plan' };
+  function follow(event) {
+    clearTimeout(cheer);
+    if (event.type === 'idle') {
+      // The work is done: a moment of joy, then back to rest.
+      ui.mascot.pose(mascot, 'celebrating');
+      cheer = setTimeout(() => ui.mascot.pose(mascot, resting), 2600);
+    } else if (event.type === 'error') ui.mascot.pose(mascot, 'oops');
+    else if (event.type === 'ask') ui.mascot.pose(mascot, 'asking');
+    else if (event.type === 'tool' && event.status === 'run') ui.mascot.pose(mascot, TOOL_POSE[event.name] || 'working');
+    else if (event.type === 'user' || event.type === 'thought') ui.mascot.pose(mascot, 'thinking');
   }
 
   /**
@@ -561,16 +609,24 @@
 
     const notices = document.getElementById('notices');
     notices.replaceChildren();
+    const setup = !providers.length || !(roles.main && roles.main.model);
+    resting = info.safeMode ? 'safe' : new Date().getHours() < 5 ? 'sleeping' : 'idle';
+    ui.mascot.pose(mascot, resting);
+    // While the mascot speaks from a card below, it is not shown by the greeting as well.
+    document.getElementById('mascot').hidden = info.safeMode || setup;
     if (info.safeMode) {
       notices.append(notice('danger', 'Безопасный режим',
-        'Показан заводской интерфейс. Откатите последнее изменение или попросите Assi починить экраны.',
-        'Выйти из безопасного режима', () => assi.native('safe.set', false)));
+        'Показан заводской интерфейс. Откатите последнее изменение или попросите Аксико починить экраны.',
+        'Выйти из безопасного режима', () => assi.native('safe.set', false), ['safe', 'safe']));
     }
     if (info.engineError) notices.append(notice('danger', 'Движок не запустился', info.engineError));
-    if (!providers.length || !(roles.main && roles.main.model)) {
-      notices.append(notice('accent', 'Подключите модель',
-        'Assi нужен доступ к языковой модели: адрес провайдера, ключ и название модели.',
-        'Настроить', () => assi.open('ui/settings/index.html?setup=1')));
+    if (setup) {
+      // The first meeting: the mascot says hello, then asks for what it cannot work without.
+      const hello = h('p', { hidden: true });
+      ui.mascot.say('hello', '').then(phrase => { hello.textContent = phrase; hello.hidden = !phrase; });
+      notices.append(hello, notice('accent', 'Подключите модель',
+        'Аксико нужен доступ к языковой модели: адрес провайдера, ключ и название модели.',
+        'Настроить', () => assi.open('ui/settings/index.html?setup=1'), ['hello', 'model']));
     }
 
     await readLayout();
@@ -585,8 +641,10 @@
         () => assi.open(module.entry),
         () => manage('module', module))));
     if (!modules.length) {
-      grid.replaceChildren(h('div', { class: 'empty', style: 'grid-column: 1 / -1' },
-        'Модулей пока нет. Опишите Assi, что вам нужно, — и здесь появится экран.'));
+      const none = h('div', { class: 'empty', style: 'grid-column: 1 / -1' },
+        'Модулей пока нет. Опишите Аксико, что вам нужно, — и здесь появится экран.');
+      ui.mascot.say('empty', none.textContent).then(phrase => { none.textContent = phrase; });
+      grid.replaceChildren(none);
     }
 
     const others = agents.filter(agent => agent.id !== 'assi');
@@ -612,9 +670,22 @@
   document.getElementById('settings').onclick = () => assi.open('ui/settings/index.html');
   document.getElementById('history').onclick = () => assi.open('ui/history/index.html');
   // The workspace may change while this screen is open: redraw when an agent finishes.
-  assi.on('agent', event => { if (event.type === 'idle') render(); });
+  assi.on('agent', event => { follow(event); if (event.type === 'idle') render(); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
-  render().catch(error => ui.toast(error.message));
+
+  // The first time the app is opened it is shown around, step by step.
+  const showAround = () => ui.tour.offer('home', [
+    { title: 'Добро пожаловать', text: 'Это приложение меняется по вашей просьбе: в нём появляются экраны, функции и помощники, которых вы попросите. Короткая экскурсия — где что находится.' },
+    { target: '.hello', title: 'Главный экран', text: 'Отсюда всё начинается. Вернуться сюда можно из меню — пункт «Главная».' },
+    { target: '#modules', title: 'Модули', text: 'Экраны и функции, которые появляются по вашим просьбам: заметки, трекеры, что угодно. Нажатие открывает модуль, долгое нажатие — меняет его значок или убирает с экрана.' },
+    { target: '#store-open', title: 'Магазин', text: 'Готовые модули и игры. Перед установкой видно, какие файлы изменятся, а проверку можно поручить ассистенту.' },
+    { target: '#ideas-section', title: 'С чего начать', text: 'Нажмите на любую идею — она уйдёт в чат как просьба. Так проще всего увидеть, как приложение меняется.' },
+    { phone: true, target: ui.tour.chatButton, title: 'Кнопка чата', text: 'Главное место в приложении. Здесь вы говорите, что сделать или изменить, — текстом или голосом. Долгое нажатие открывает меню восстановления: оно выручит, если экраны сломались.' },
+    { phone: true, target: { left: 0, right: 0, bottom: 0, height: 3 }, title: 'Меню экранов', text: 'Внизу (на широком экране — слева): Главная, Задачи, Рутины, История и Настройки. Свои экраны туда тоже можно добавить.' },
+    { title: 'Ничего не страшно сломать', text: 'Перед каждой переделкой приложение сохраняет прежнее состояние. Не понравилось — верните его в «Истории»; ваши данные при этом не пропадут.' },
+    { target: '#notices .card.accent', title: 'Первый шаг', text: 'Чтобы приложение могло отвечать, ему нужна языковая модель. Нажмите «Настроить» — там список шагов.' },
+  ]);
+  render().then(showAround).catch(error => ui.toast(error.message));
 </script>
 </body>
 </html>

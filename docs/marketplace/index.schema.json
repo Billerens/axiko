@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.org/assi-marketplace/schema/v1/index.schema.json",
-  "title": "Assi marketplace index v1",
+  "title": "Axiko marketplace index v1",
   "description": "Example schema namespace is a placeholder. The index file has an additional 1 MiB UTF-8 byte limit. Client hard limits cannot be raised by repository metadata.",
   "type": "object",
   "additionalProperties": false,

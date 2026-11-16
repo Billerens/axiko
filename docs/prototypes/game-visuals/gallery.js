@@ -118,7 +118,7 @@
       });
       return button;
     }));
-    document.title = current.title + ' — Миры Assi';
+    document.title = current.title + ' — Миры Аксико';
     $('overview-button').innerHTML = 'Все концепции <span aria-hidden="true">↗</span>';
     nav(); stats(); updateFavorite(); updateMotionButton(); resize(); start();
     if (pendingTabFocus !== null) { $(pendingTabFocus ? 'variant-b':'variant-a').focus({preventScroll:true}); pendingTabFocus = null; }
@@ -151,7 +151,7 @@
     buildOverview();
     document.querySelectorAll('[data-choice]').forEach(card => { const [id,v] = card.dataset.choice.split('/'); card.querySelector('.choice-mark').textContent = choices[id] === Number(v) ? '♥' : '↗'; });
     $('overview-button').innerHTML = 'Вернуться к сцене <span aria-hidden="true">↙</span>';
-    document.title = '26 визуальных концепций — Миры Assi'; nav();
+    document.title = '26 визуальных концепций — Миры Аксико'; nav();
   }
   function route() {
     const hash = location.hash.slice(1);

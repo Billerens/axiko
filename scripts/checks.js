@@ -76,7 +76,7 @@ function failure(fn) {
 // ---- the engine and the workspace ---------------------------------------------------------------
 
 check('engine: Android from JavaScript', function () {
-  expect(String(context.getPackageName()) === 'app.assi', 'нет контекста приложения');
+  expect(String(context.getPackageName()) === 'app.axiko', 'нет контекста приложения');
   return 'SDK ' + Packages.android.os.Build.VERSION.SDK_INT;
 });
 
@@ -797,7 +797,7 @@ check('shell.features: what this shell can do', function () {
 });
 
 check('notify: buttons call a module, a reply brings its text, cancel takes it away', function () {
-  if (!context.getSystemService('notification').areNotificationsEnabled()) skip('уведомления Assi выключены');
+  if (!context.getSystemService('notification').areNotificationsEnabled()) skip('уведомления Аксико выключены');
   var assi = require('lib/assi');
   var path = 'modules/zz-check-notify/main.js';
   assi.files.write(path, 'exports.got = []; exports.press = function () { exports.got.push(Array.prototype.slice.call(arguments)); };');
@@ -851,14 +851,14 @@ check('notify: buttons call a module, a reply brings its text, cancel takes it a
 
 check('notifications: a chat read whole — messages, whose, the conversation', function () {
   var manager = context.getSystemService('notification');
-  if (!manager.areNotificationsEnabled()) skip('уведомления Assi выключены');
+  if (!manager.areNotificationsEnabled()) skip('уведомления Аксико выключены');
   var Style = android.app.Notification.MessagingStyle;
   var me = new android.app.Person.Builder().setName('Я').setKey('me').build();
   var anna = new android.app.Person.Builder().setName('Аня').setKey('anna').build();
   var style = new Style(me).setConversationTitle('Семья').setGroupConversation(true);
   style.addMessage(new Style.Message('Привет', Date.now() - 1000, anna));
   style.addMessage(new Style.Message('И тебе', Date.now(), me));
-  manager.createNotificationChannel(new android.app.NotificationChannel('assi', 'Assi', 3));
+  manager.createNotificationChannel(new android.app.NotificationChannel('assi', 'Axiko', 3));
   manager.notify('check-chat', 0, new android.app.Notification.Builder(context, 'assi')
     .setSmallIcon(context.getApplicationInfo().icon).setStyle(style).build());
   try {
@@ -897,7 +897,7 @@ check('notifications: another app\'s chat heard and its removal told', function 
   return 'причина ' + gone[0].reason;
 });
 
-check('notifications: a tap made from Assi opens what the notification opens', function () {
+check('notifications: a tap made from Axiko opens what the notification opens', function () {
   needScreen();
   if (!P.sense.Notices.INSTANCE.getOn()) skip('чтение уведомлений выключено');
   var assi = require('lib/assi');
@@ -905,7 +905,7 @@ check('notifications: a tap made from Assi opens what the notification opens', f
   try {
     native('ui.openWait', 'ui/home/index.html');
     var id = assi.notify({ id: 'check-open', text: 'Открыть настройки', open: 'ui/settings/index.html' });
-    var shown = postedNotification(id, 'app.assi');
+    var shown = postedNotification(id, String(context.getPackageName()));
     expect(shown, 'слушатель не видит уведомление');
     expect(native('notices.open', String(shown.getKey())) === true, 'не открыто');
     expect(waitFor(function () { return native('ui.where').path.indexOf('ui/settings') >= 0; }, 6000), 'открыт не тот экран: ' + native('ui.where').path);
@@ -1028,7 +1028,7 @@ check('widget: a module\'s picture beside its text', function () {
       try { drawn = views.apply(context, new android.widget.FrameLayout(context)); } finally { done.countDown(); }
     });
     done.await(5, java.util.concurrent.TimeUnit.SECONDS);
-    return drawn.findViewById(context.getResources().getIdentifier('widget_image', 'id', 'app.assi'));
+    return drawn.findViewById(context.getResources().getIdentifier('widget_image', 'id', String(context.getPackageName())));
   };
   try {
     var shown = image();
@@ -1070,13 +1070,13 @@ check('home: a module\'s card in a frame, hearing events', function () {
 
 check('health: the screen Health Connect opens to say why', function () {
   needScreen();
-  var asked = context.getPackageManager().getPackageInfo('app.assi', 4096).requestedPermissions;
+  var asked = context.getPackageManager().getPackageInfo(String(context.getPackageName()), 4096).requestedPermissions;
   var wanted = ['android.permission.health.READ_STEPS', 'android.permission.health.READ_SLEEP', 'android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND'];
   var have = [];
   for (var i = 0; i < asked.length; i++) have.push(String(asked[i]));
   wanted.forEach(function (name) { expect(have.indexOf(name) >= 0, 'не заявлено ' + name); });
   var intent = new android.content.Intent('android.intent.action.VIEW_PERMISSION_USAGE').addCategory('android.intent.category.HEALTH_PERMISSIONS');
-  var found = context.getPackageManager().queryIntentActivities(intent.setPackage('app.assi'), 0);
+  var found = context.getPackageManager().queryIntentActivities(intent.setPackage(String(context.getPackageName())), 0);
   expect(found.size() === 1, 'Health Connect не найдёт экран объяснения: ' + found.size());
   var was = native('ui.where').path;
   try {
@@ -1108,7 +1108,7 @@ check('usage: time in apps and the screen\'s sessions', function () {
   if (!usage.access()) return 'на примере; к настоящей статистике доступа нет';
   var now = Date.now();
   var real = usage.daily(now - 3600000, now);
-  expect(real.some(function (app) { return app.package === 'app.assi'; }), 'Assi нет среди приложений за час: ' + shape(real));
+  expect(real.some(function (app) { return app.package === String(context.getPackageName()); }), 'Аксико нет среди приложений за час: ' + shape(real));
   return 'за час: ' + real.slice(0, 3).map(function (app) { return app.app + ' ' + Math.round(app.ms / 1000) + ' с'; }).join(', ') +
     '; сеансов ' + usage.sessions(now - 3600000, now).length;
 });

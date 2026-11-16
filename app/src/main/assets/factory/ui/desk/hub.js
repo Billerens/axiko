@@ -35,7 +35,7 @@
 
   function fanout(event) {
     [...subscribers].forEach(callback => {
-      try { callback(event); } catch (error) { console.error('Assi frame event:', error); }
+      try { callback(event); } catch (error) { console.error('Аксико frame event:', error); }
     });
   }
   function visibilityChanged() {
@@ -67,7 +67,7 @@
   }
   function validPath(raw, allowDesk) {
     if (typeof raw !== 'string' || !raw.trim() || /[\u0000-\u001f\\]/.test(raw)) throw new Error('Некорректный адрес экрана');
-    if (/^[a-z][a-z0-9+.-]*:/i.test(raw) || raw.startsWith('//')) throw new Error('Откройте локальный экран Assi');
+    if (/^[a-z][a-z0-9+.-]*:/i.test(raw) || raw.startsWith('//')) throw new Error('Откройте локальный экран Аксико');
     const path = raw.replace(/^\/+/, '');
     const pathname = path.split(/[?#]/)[0];
     const parts = pathname.split('/').map(part => decodeURIComponent(part));
@@ -491,13 +491,13 @@
     const active = state.tasks.filter(task => task.state === 'run' && !task.parent).length;
     const connection = state.status?.state;
     status.textContent = connection === 'online' ? (active ? 'В работе: ' + active : 'На связи с вашим телефоном') :
-      connection === 'auth-required' ? 'Нужно войти снова' : connection === 'offline' || connection === 'closed' ? 'Жду соединения с телефоном' : 'Подключаюсь к Assi…';
+      connection === 'auth-required' ? 'Нужно войти снова' : connection === 'offline' || connection === 'closed' ? 'Жду соединения с телефоном' : 'Подключаюсь к Аксико…';
     status.dataset.state = connection || 'connecting';
   }
   function setIdentity(status) {
     state.factory = !!status.factory;
-    $('brand-name').textContent = status.name || 'Assi';
-    document.title = (status.name || 'Assi') + ' — ваше пространство';
+    $('brand-name').textContent = status.name || 'Аксико';
+    document.title = (status.name || 'Аксико') + ' — ваше пространство';
     $('factory-label').hidden = !state.factory;
     $('factory-switch').textContent = state.factory ? 'Вернуться к своей версии' : 'Заводской интерфейс';
   }
@@ -762,6 +762,40 @@
     });
   });
 
+  // ---- the mascot: in the brand mark and in the middle of the overview, where it shows what an
+  // agent is doing right now. With the mascot off both places keep their spark.
+  const TOOL_POSE = { web_search: 'searching', web_read: 'searching', fs_read: 'searching', fs_list: 'searching', base_find: 'searching',
+    agent_run: 'building', subtasks: 'building', draft_begin: 'building', ask_owner: 'asking', plan_propose: 'plan', plan_step: 'plan' };
+  let heroMascot = null;
+  let cheer = null;
+  function drawMascot(config) {
+    [['.brand-mark', 'head', false], ['.core-center', 'hello', true]].forEach(([place, pose, hero]) => {
+      const holder = document.querySelector(place);
+      if (!holder) return;
+      holder.querySelectorAll('.mascot').forEach(old => old.remove());
+      holder.classList.toggle('has-mascot', Boolean(config));
+      const spark = holder.querySelector('svg.i');
+      if (spark) spark.style.display = config ? 'none' : '';
+      if (!config) { if (hero) heroMascot = null; return; }
+      const figure = ui.mascot(pose);
+      holder.append(figure);
+      if (hero) heroMascot = figure;
+    });
+  }
+  function followAgent(event) {
+    if (!heroMascot) return;
+    clearTimeout(cheer);
+    const show = pose => ui.mascot.pose(heroMascot, pose);
+    if (event.type === 'idle') {
+      // The work is done: a moment of joy, then back to the greeting.
+      show('celebrating');
+      cheer = setTimeout(() => show('hello'), 2600);
+    } else if (event.type === 'error') show('oops');
+    else if (event.type === 'ask') show('asking');
+    else if (event.type === 'tool' && event.status === 'run') show(TOOL_POSE[event.name] || 'working');
+    else if (event.type === 'user' || event.type === 'thought') show('thinking');
+  }
+
   T.onStatus(onStatus);
   T.subscribe(event => {
     if (!event || !event.event) return;
@@ -769,6 +803,8 @@
     if (['nav', 'modules', 'workspace.changed', 'desk.reconnected'].includes(event.event)) scheduleRefresh();
     if (event.event === 'tasks') refreshDataSource('tasks');
     if (event.event === 'agent' && event.data?.type === 'changes') scheduleRefresh();
+    if (event.event === 'agent' && event.data) followAgent(event.data);
+    if (event.event === 'mascot') ui.mascot.ready(true).then(drawMascot);
     if (event.event === 'ui.opened' && $('follow-agent').checked) {
       const path = typeof event.data === 'string' ? event.data : event.data?.path;
       if (path) openScreen(path);
@@ -791,4 +827,16 @@
   chatFrame.src = '/ui/chat/index.html';
   refreshData();
   ui.icons(document);
+  ui.mascot.ready().then(drawMascot);
+  // The first time the hub is opened it is shown around.
+  ui.tour.offer('desk', [
+    { title: 'Рабочее место на компьютере', text: 'Это то же приложение, что на телефоне, — на большом экране. Всё, что вы делаете здесь, происходит на телефоне, и наоборот.' },
+    { target: '#create-prompt', title: 'С чего начать', text: 'Нажмите — и откроется чат. Скажите, что сделать или изменить, и приложение изменится.' },
+    { target: '#search-open', title: 'Быстрый переход', text: 'Ctrl+K открывает поиск по модулям, разделам и действиям.' },
+    { target: '#primary-nav', title: 'Разделы', text: 'Экраны самого приложения: домашний экран, задачи, история изменений, настройки.' },
+    { target: '.sidebar-modules', title: 'Модули', text: 'Всё, что появилось в приложении по вашим просьбам или из магазина. Нажатие открывает модуль прямо здесь.' },
+    { target: '#studio-open', title: 'Студия', text: 'Файлы приложения, просмотр экранов в размере телефона и журнал. Здесь можно править приложение руками — каждая правка сохраняется в истории.' },
+    { target: '#chat-panel', title: 'Чат всегда рядом', text: 'Разговор с ассистентом идёт сбоку от экрана. «Следовать» открывает экраны, которые он проверяет, пока работает.' },
+    { target: '#connection', title: 'Связь с телефоном', text: 'Хаб работает, пока приложение на телефоне открыто и оба устройства в одной сети.' },
+  ], { askAt: '#chat-panel' });
 })();

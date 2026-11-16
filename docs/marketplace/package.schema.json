@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.org/assi-marketplace/schema/v1/package.schema.json",
-  "title": "Assi readable package manifest v1",
+  "title": "Axiko readable package manifest v1",
   "description": "Manifest metadata only; validity does not establish archive integrity, readable code, enforced permissions or safety. package.json is excluded from files; archive total including it must be at most 512 files.",
   "type": "object",
   "additionalProperties": false,

@@ -2,8 +2,8 @@
 
 Репозитории созданы от аккаунта Billerens:
 
-- [Assi](https://github.com/Billerens/assi) — PRIVATE.
-- [Assi Store](https://github.com/Billerens/assi-store) — PUBLIC.
+- [Axiko](https://github.com/Billerens/assi) — PRIVATE.
+- [Axiko Store](https://github.com/Billerens/assi-store) — PUBLIC.
 - [Выпуск пакетов v0.1.0](https://github.com/Billerens/assi-store/releases/tag/v0.1.0) — 40 ZIP и 40 внешних манифестов.
 
 Публикация выполнена свежими снимками исходников. Старые локальные Git-истории сохранены в локальных ветках `local/pre-marketplace-2026-11-16` и не отправлены на GitHub. Основные рабочие папки связаны с опубликованными `origin/main`; файлы рабочего дерева сохранены. Ключи, `.env`, локальные настройки SDK, бэкапы, логи/БД/снимки экрана и персональные отчёты не включены в публикацию.

@@ -53,7 +53,7 @@ test('темп: числа бота для обеих игр', () => {
 });
 
 test('id игры из папки', () => {
-  assert.strictEqual(kit.idOf('/data/user/0/app.assi/files/workspace/modules/games/zz-check'), 'zz-check');
+  assert.strictEqual(kit.idOf('/data/user/0/app.axiko/files/workspace/modules/games/zz-check'), 'zz-check');
   assert.strictEqual(kit.idOf('modules/games/fixture/'), 'fixture');
   assert.strictEqual(kit.idOf('C:\\ws\\modules\\games\\daily\\2026-11-14'), 'daily/2026-11-14');
   assert.throws(() => kit.idOf('/somewhere/else'), /Не папка игры/);

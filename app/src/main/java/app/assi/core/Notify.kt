@@ -88,7 +88,7 @@ object Notify {
         options.optString("open").takeIf { it.isNotBlank() }?.let { open.putExtra("open", it) }
         val builder = Notification.Builder(app, channel(kind))
             .setSmallIcon(R.drawable.ic_spark)
-            .setContentTitle(options.optString("title").ifBlank { "Assi" })
+            .setContentTitle(options.optString("title").ifBlank { "Аксико" })
             .setContentText(text)
             .setStyle(Notification.BigTextStyle().bigText(text))
             .setContentIntent(PendingIntent.getActivity(app, id.hashCode(), open, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
@@ -122,11 +122,11 @@ object Notify {
         val manager = App.instance.getSystemService(NotificationManager::class.java)
         // The first two keep the ids lib/assi.js gave them, so the owner's settings for them stay.
         val channel = when (kind) {
-            "quiet" -> NotificationChannel("assi-quiet", "Assi: тихие", NotificationManager.IMPORTANCE_LOW)
-            "normal" -> NotificationChannel("assi", "Assi", NotificationManager.IMPORTANCE_DEFAULT)
+            "quiet" -> NotificationChannel("assi-quiet", "Аксико: тихие", NotificationManager.IMPORTANCE_LOW)
+            "normal" -> NotificationChannel("assi", "Аксико", NotificationManager.IMPORTANCE_DEFAULT)
             // Sounds through "do not disturb": the system honours that only with access to the
             // notification policy, and takes it up when the channel is made again after access is given.
-            "alarm" -> NotificationChannel("assi-alarm", "Assi: будильники", NotificationManager.IMPORTANCE_HIGH).apply {
+            "alarm" -> NotificationChannel("assi-alarm", "Аксико: будильники", NotificationManager.IMPORTANCE_HIGH).apply {
                 setBypassDnd(true)
                 setSound(
                     Settings.System.DEFAULT_NOTIFICATION_URI,

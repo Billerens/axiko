@@ -23,7 +23,7 @@ import app.assi.core.Workspace
 import org.json.JSONObject
 import java.io.File
 
-/** The tile in the quick settings shade: one tap to ask Assi about whatever is on the screen. */
+/** The tile in the quick settings shade: one tap to ask Axiko about whatever is on the screen. */
 class AskTile : TileService() {
     override fun onClick() {
         val open = Intent(this, MainActivity::class.java).putExtra("assist", true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -80,7 +80,7 @@ object Widgets {
         var open = MainActivity.HOME
         var picture: Bitmap? = null
         if (module == null) {
-            views.setTextViewText(R.id.widget_title, "Assi")
+            views.setTextViewText(R.id.widget_title, "Аксико")
             views.setTextViewText(R.id.widget_text, "Удерживайте виджет и выберите модуль")
         } else {
             val content = runCatching { JSONObject(Engine.rpc("modules/$module/main.js", "widget", "[]") ?: "{}") }
@@ -137,7 +137,7 @@ class WidgetChoice : Activity() {
         val sources = Widgets.sources()
         if (sources.isEmpty()) {
             AlertDialog.Builder(this)
-                .setMessage("Пока ни один модуль не умеет показывать себя в виджете. Попросите Assi: «сделай виджет для модуля …».")
+                .setMessage("Пока ни один модуль не умеет показывать себя в виджете. Попросите Аксико: «сделай виджет для модуля …».")
                 .setPositiveButton("Понятно", null)
                 .setOnDismissListener { finish() }
                 .show()

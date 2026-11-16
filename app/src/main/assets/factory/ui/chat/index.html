@@ -718,6 +718,52 @@
     height: 14px;
   }
 
+  /* With a mascot it shows the work instead of the spinner: a pose for what is being done and a
+  lit gill for each agent at it. */
+  .status .mascot {
+    width: 54px;
+    margin: -8px 0 -6px -6px;
+  }
+
+  /* The mascot on the edge of a card that waits for the owner: a question, a plan, a draft. */
+  .ask.card {
+    position: relative;
+  }
+
+  .ask.card > .mascot {
+    position: absolute;
+    right: 10px;
+    top: -40px;
+    width: 62px;
+  }
+
+  .ask.card:has(> .mascot:not([hidden])) {
+    margin-top: 46px;
+  }
+
+  .fail .mascot {
+    float: right;
+    width: 52px;
+    margin: -6px -4px 0 8px;
+  }
+
+  .changed-head .mascot {
+    width: 42px;
+    margin: -10px 0 -10px -6px;
+  }
+
+  .changed-head .mascot:not([hidden]) + svg {
+    display: none;
+  }
+
+  .status .mascot:not([hidden]) + .spinner, .blank .mascot:not([hidden]) + .well {
+    display: none;
+  }
+
+  .blank .mascot {
+    width: 104px;
+  }
+
   .thought {
     align-self: stretch;
     border-left: 2px solid var(--line);
@@ -741,7 +787,7 @@
 <header class="bar">
   <div class="who">
     <button class="well" id="mark" aria-label="Выбрать агента"></button>
-    <button class="name truncate" id="pick" aria-label="Выбрать агента"><span id="name">Assi</span></button>
+    <button class="name truncate" id="pick" aria-label="Выбрать агента"><span id="name">Аксико</span></button>
     <button class="model" id="model" aria-label="Модель этого чата"><span class="truncate" id="model-text" data-raw></span><span data-icon="down"></span></button>
   </div>
   <button class="icon-btn" id="voice" aria-label="Озвучивать ответы"></button>
@@ -806,7 +852,7 @@
   const narrow = () => matchMedia('(max-width: 520px)').matches;
   const nearBottom = () => log.scrollHeight - log.scrollTop - log.clientHeight < 160;
   const toBottom = () => { log.scrollTop = log.scrollHeight; };
-  const current = () => agents.find(agent => agent.id === agentId) || { id: 'assi', title: 'Assi', icon: 'spark', description: '' };
+  const current = () => agents.find(agent => agent.id === agentId) || { id: 'assi', title: 'Аксико', icon: 'spark', description: '' };
 
   function setBusy(value) {
     busy = value;
@@ -817,6 +863,18 @@
   // ---- what is going on ---------------------------------------------------------------------
 
   const statusRow = document.getElementById('status');
+  const statusMascot = ui.mascot('thinking');
+  statusRow.prepend(statusMascot);
+  // What the mascot does while each tool runs; anything else is "working".
+  const TOOL_POSE = {
+    web_search: 'searching', web_read: 'searching', fs_list: 'searching', fs_read: 'searching', base_find: 'searching',
+    snapshot_list: 'searching', ui_screenshot: 'searching', ui_console: 'searching', routine_list: 'searching',
+    agent_run: 'building', subtasks: 'building', draft_begin: 'building',
+    ask_owner: 'asking', plan_propose: 'plan', plan_step: 'plan',
+  };
+  const mood = pose => ui.mascot.pose(statusMascot, pose);
+  /** One light for the agent itself, one more for each piece of handed-out work still going. */
+  const lights = () => ui.mascot.lights(statusMascot, Math.max(1, log.querySelectorAll('.part.run').length));
   let statusSince = 0;
   let statusTimer = null;
   let step = 1;
@@ -830,6 +888,7 @@
     clearInterval(statusTimer);
     if (!text) return;
     document.getElementById('status-text').textContent = text + (step > 1 ? ' · шаг ' + step : '');
+    lights();
     statusSince = Date.now();
     const tick = () => {
       const seconds = Math.round((Date.now() - statusSince) / 1000);
@@ -903,6 +962,8 @@
       : 'Опишите, что добавить или изменить в приложении.';
     if (log.children.length && !log.querySelector('.blank')) return;
     log.replaceChildren(h('div', { class: 'blank' },
+      // The main agent is met by the mascot; with the mascot off, by its icon like any other agent.
+      agent.id === 'assi' && ui.mascot(hearing ? 'listening' : 'idle', { lively: true }),
       h('div', { class: 'well' }, ui.mark(agent)),
       h('div', {},
         h('h3', {}, agent.id === 'assi' ? 'Чем помочь?' : agent.title),
@@ -996,6 +1057,7 @@
       ui.toast(take ? 'Черновик принят: изменения в приложении' : 'Черновик отклонён');
     };
     const card = h('div', { class: 'ask card', id: 'draft-' + draft.id },
+      ui.mascot('building'),
       h('div', {}, h('div', { class: 'small muted' }, 'Черновик'), h('h3', { 'data-raw': '' }, draft.title)),
       h('p', { class: 'small muted' }, 'Приложение пока не изменилось. Посмотрите, что получилось, и решите.'),
       h('div', { class: 'changed' },
@@ -1055,6 +1117,7 @@
       toBottom();
     };
     const card = h('div', { class: 'ask card', id: event.id },
+      ui.mascot('plan'),
       h('h3', { 'data-raw': '' }, event.plan.title || ui.t('План')),
       planSteps(event.plan),
       change,
@@ -1089,6 +1152,7 @@
       event.state === 'run' ? h('span', { class: 'spinner' }) : h('span', { class: 'dot' }),
       h('span', { class: 'name', 'data-raw': '' }, event.name),
       h('span', { class: 'truncate muted' }, event.note));
+    lights();
   }
 
   /**
@@ -1103,6 +1167,7 @@
     const send = h('button', { class: 'btn primary wide', disabled: true }, 'Ответить');
     const ready = () => { send.disabled = !state.every(item => item.picked.length || item.own.trim()); };
     const card = h('div', { class: 'ask card', id: event.id },
+      ui.mascot('asking'),
       form.title && h('h3', { 'data-raw': '' }, form.title),
       questions.map((question, index) => {
         const many = Boolean(question.multiple);
@@ -1165,7 +1230,8 @@
   const KINDS = { added: '+', changed: '~', removed: '−' };
 
   /** What an answer changed in the app, with a look at each file and a way to take it all back. */
-  function changesRow(mark) {
+  /** resh — the change has just been made (not read from the history): the mascot is glad of it. */
+  function changesRow(mark, fresh) {
     const files = mark.files || [];
     const undo = h('button', { class: 'btn small' }, ui.icon('undo'), 'Отменить эти изменения');
     const list = h('div', { class: 'changed-list', hidden: true },
@@ -1174,7 +1240,7 @@
         h('span', { class: 'grow truncate mono' }, file.path))),
       h('div', { style: 'padding: 6px 6px 0' }, undo));
     const head = h('button', { class: 'changed-head', onclick: () => { list.hidden = !list.hidden; } },
-      ui.icon('edit'), h('span', { class: 'grow' }, 'Изменено файлов: ' + files.length), ui.icon('down'));
+      fresh && ui.mascot('celebrating'), ui.icon('edit'), h('span', { class: 'grow' }, 'Изменено файлов: ' + files.length), ui.icon('down'));
     undo.onclick = async () => {
       const sure = await ui.confirm('Вернуть приложение к состоянию до этого ответа? Изменения, сделанные позже, тоже отменятся. Данные модулей не пострадают.', 'Отменить', true);
       if (sure) assi.native('snap.restore', mark.snapshot);
@@ -1203,7 +1269,7 @@
 
   function failRow(message) {
     const needsSetup = /Настройки/.test(message);
-    add(h('div', { class: 'fail' }, h('div', {}, message),
+    add(h('div', { class: 'fail' }, ui.mascot('oops'), h('div', {}, message),
       needsSetup && h('button', { class: 'btn small', onclick: openSettings }, 'Открыть настройки')));
   }
 
@@ -1226,7 +1292,7 @@
     switch (event.type) {
       case 'user':
         // What the owner said in the middle of the work joins it; anything else starts a new one.
-        if (!event.steer) { step = 1; setStatus('Отправляю запрос'); }
+        if (!event.steer) { step = 1; setStatus('Отправляю запрос'); mood('thinking'); }
         setBusy(true);
         userRow(event.text);
         toBottom();
@@ -1236,11 +1302,11 @@
         setStatus(loadingModel ? 'Загружаю модель «' + loadingModel + '» в память' : event.local ? 'Модель читает запрос' : 'Жду ответа модели');
         break;
       case 'thought':
-        if (!thought) setStatus('Размышляет');
+        if (!thought) { setStatus('Размышляет'); mood('thinking'); }
         thinking(event.text);
         break;
       case 'usage': setMeter(event.used, event.window); break;
-      case 'ask': askRow(event); break;
+      case 'ask': askRow(event); mood('asking'); break;
       case 'draft': draftRow(event.draft); break;
       case 'drafted': {
         // The card leaves a line behind, so the chat shows what was decided.
@@ -1248,22 +1314,22 @@
         if (card) card.replaceWith(h('div', { class: 'aside' }, event.taken ? 'Черновик принят: изменения в приложении' : 'Черновик отклонён'));
         break;
       }
-      case 'plan': if (event.id) planRow(event); else setPlan(event.plan); break;
-      case 'part': partLine(event); break;
+      case 'plan': if (event.id) { planRow(event); mood('plan'); } else setPlan(event.plan); break;
+      case 'part': partLine(event); mood('building'); break;
       case 'queue': showQueue(event.items); break;
       case 'model': showModel(event.model); break;
       case 'asked': { const form = document.getElementById(event.id); if (form) form.remove(); break; }
       case 'delta':
-        if (!bubble) { thoughtDone(); setStatus('Пишет ответ'); bubble = answerRow(''); written = ''; }
+        if (!bubble) { thoughtDone(); setStatus('Пишет ответ'); mood('point'); bubble = answerRow(''); written = ''; }
         written += event.text;
         if (!drawing) { drawing = true; requestAnimationFrame(draw); }
         break;
       case 'message': draw(); thoughtDone(); bubble = null; written = ''; break;
       case 'attach': attachRow(event.text); break;
-      case 'changes': changesRow(event); break;
+      case 'changes': changesRow(event, true); break;
       case 'tool':
         toolRow(Object.assign({ live: true }, event));
-        if (event.status === 'run') setStatus('Выполняю: ' + event.name);
+        if (event.status === 'run') { setStatus('Выполняю: ' + event.name); mood(TOOL_POSE[event.name] || 'working'); }
         break;
       case 'error': failRow(event.message); break;
       case 'done': foldTools(); break;
@@ -1758,6 +1824,9 @@
     if (hearing) { assi.native('speech.stopListening'); return; }
     hearing = true;
     mic.classList.add('live');
+    // On an empty chat the mascot is there to listen.
+    const face = log.querySelector('.blank .mascot');
+    if (face) ui.mascot.pose(face, 'listening');
     try {
       const text = await assi.native('speech.listen');
       if (!text) {
@@ -1772,6 +1841,7 @@
       failRow(error.message);
     }
     hearing = false;
+    if (log.querySelector('.blank .mascot')) ui.mascot.pose(log.querySelector('.blank .mascot'), 'idle');
     mic.classList.remove('live', 'wait');
     mic.style.removeProperty('--level');
   }
@@ -1844,14 +1914,26 @@
 
   assi.on('agent', onAgent);
   assi.on('chat.agent', id => switchTo(id));
+  // The first time the chat is opened it is shown around.
+  const showAround = () => ui.tour.offer('chat', [
+    { target: '#input', title: 'Просьба', text: 'Сюда пишут, что сделать, изменить или узнать. Пока идёт работа, можно писать ещё — сообщение дойдёт между шагами.' },
+    { target: '#mic', title: 'Голосом', text: 'Нажмите и говорите. Распознавание работает на самом телефоне.' },
+    { target: '#clip', title: 'Вложения', text: 'Файл или картинка к просьбе. То, чем поделились из другого приложения, тоже попадает сюда.' },
+    { target: '#model', title: 'Модель этого чата', text: 'Её можно сменить в любой момент, даже посреди работы.' },
+    { target: '#threads', title: 'Чаты', text: 'У каждого разговора своя история. Новый чат начинается с чистого листа.' },
+    { target: '#voice', title: 'Ответы вслух', text: 'Включите, чтобы ответы зачитывались голосом.' },
+    { title: 'Что бы ни изменилось — можно вернуть', text: 'Под ответом, который что-то поменял, есть список изменённых файлов и кнопка отмены. Большую переделку вам покажут черновиком: приложение не изменится, пока вы её не примете.' },
+  ], { askAt: '#input' });
   assi.on('chat.visible', async visible => {
+    if (visible) showAround();
     if (!visible) return;
     // Another screen may have started a new chat or sent a request while this one was hidden.
     if ((await assi.native('agent.thread', agentId)) !== threadId) load();
     else { header().then(toBottom); refreshModel(); }
   });
   refreshSend();
-  load().catch(error => failRow(error.message));
+  // In the hub on a computer the chat is always in sight: it is shown around as it loads.
+  load().then(() => { if (assi.platform === 'web') showAround(); }).catch(error => failRow(error.message));
 </script>
 </body>
 </html>

@@ -36,7 +36,7 @@ object Llm {
     private fun post(target: Models.Target, path: String, body: JSONObject): Request =
         Request.Builder().url(target.baseUrl + path).apply {
             if (target.key.isNotEmpty()) header("Authorization", "Bearer ${target.key}")
-            header("X-Title", "Assi")
+            header("X-Title", "Axiko")
         }.post(body.toString().toRequestBody(json)).build()
 
     private val THOUGHT_KEYS = listOf("reasoning", "reasoning_content")

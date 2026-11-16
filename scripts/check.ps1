@@ -12,7 +12,7 @@ $code = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'checks.js'), [Text.Enco
 $file = Join-Path ([IO.Path]::GetTempPath()) ("assi-checks-" + [guid]::NewGuid().ToString('N') + '.js')
 [IO.File]::WriteAllText($file, "var ONLY = " + (ConvertTo-Json $Only) + ";`n" + $code, [Text.UTF8Encoding]::new($false))
 # Another app's chat notification for the listener to hear: the shell posts one as a messenger would.
-& $adb -s $Serial shell "cmd notification post -t 'Assi check' -S messaging --conversation Family --message 'Anna:Hello there' --message ':Hi' assi-check 'Assi check'" | Out-Null
+& $adb -s $Serial shell "cmd notification post -t 'Axiko check' -S messaging --conversation Family --message 'Anna:Hello there' --message ':Hi' assi-check 'Axiko check'" | Out-Null
 try {
     & (Join-Path $PSScriptRoot 'eval.ps1') $file -Serial $Serial -WaitSeconds $WaitSeconds | Where-Object { $_ -notmatch 'file pushed|Activity not started' }
 } finally {

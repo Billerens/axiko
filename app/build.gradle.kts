@@ -15,8 +15,10 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = if (cleanPreview) "app.assi.cleanpreview" else "app.assi"
-        manifestPlaceholders["assiLabel"] = if (cleanPreview) "Assi · чистая" else "Assi"
+        // The install id is the product name; Kotlin classes stay in `app.assi` (namespace above),
+        // because modules reach them by name (`Packages.app.assi.…`) and must keep working.
+        applicationId = if (cleanPreview) "app.axiko.cleanpreview" else "app.axiko"
+        manifestPlaceholders["assiLabel"] = if (cleanPreview) "Аксико · чистая" else "Аксико"
         minSdk = 30
         // Deliberately below the device's level: restrictions that Android 14+ switches on
         // only for apps targeting it (typed foreground services, read-only dynamic code,

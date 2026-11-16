@@ -110,7 +110,7 @@ object Mcp {
             val hello = post(
                 server, session, "initialize",
                 JSONObject().put("protocolVersion", VERSION).put("capabilities", JSONObject())
-                    .put("clientInfo", JSONObject().put("name", "Assi").put("version", "0.1")),
+                    .put("clientInfo", JSONObject().put("name", "Axiko").put("version", "0.1")),
             )
             session.version = hello?.optString("protocolVersion").orEmpty().ifBlank { VERSION }
             session.ready = true

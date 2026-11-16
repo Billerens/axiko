@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate local Assi marketplace metadata; never download, unpack or execute it."""
+"""Validate local Axiko marketplace metadata; never download, unpack or execute it."""
 from __future__ import annotations
 
 import argparse

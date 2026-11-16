@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Emulator-only deterministic OpenAI SSE provider for the real Assi audit conversation.
+ * Emulator-only deterministic OpenAI SSE provider for the real Axiko audit conversation.
  * Run explicitly; this file never changes provider settings or starts an Android app.
  * Example: node scripts/store/mock-review-llm.mjs --plan <prepared-plan-id>
  * The report contains tool names, assertions and test-file metadata, never prompts,
@@ -117,7 +117,7 @@ function advance(message) {
     check(result.dataPreserved === true && result.packageCodeStarted === false, 'store_apply:invalid-safety-result');
     state.pending = null; state.complete = true; state.phase = 'done';
     event('installation-completed', { status: result.status, dataPreserved: result.dataPreserved, packageCodeStarted: result.packageCodeStarted });
-    return { text: 'Тестовый пакет установлен через реальный разговор Assi. Ограничение инструментов проверено, все исходники переданы полностью, сохранения не затронуты. Это детерминированный тест маршрута, а не ИИ-аудит безопасности.' };
+    return { text: 'Тестовый пакет установлен через реальный разговор Аксико. Ограничение инструментов проверено, все исходники переданы полностью, сохранения не затронуты. Это детерминированный тест маршрута, а не ИИ-аудит безопасности.' };
   }
   check(false, 'protocol:unexpected-tool-result');
 }

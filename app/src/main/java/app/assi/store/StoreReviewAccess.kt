@@ -85,7 +85,7 @@ class StoreReviewAccess(private val directory: File) {
     }
 
     @Synchronized fun create(agent: String, thread: String, plan: JSONObject, consent: Boolean): JSONObject {
-        require(consent) { "Для установки нужно разрешение на запуск кода с возможностями Assi." }
+        require(consent) { "Для установки нужно разрешение на запуск кода с возможностями Аксико." }
         val state = JSONObject().put("agent", agent).put("thread", thread).put("planId", plan.getString("id"))
             .put("digest", plan.getString("digest")).put("artifactSha256", plan.getString("artifactSha256"))
             .put("consent", true).put("createdAt", System.currentTimeMillis()).put("coverage", JSONObject())

@@ -1,4 +1,4 @@
-/* Concept paintings for Assi's editable game gallery. Canvas coordinates: 1000 × 620. */
+/* Concept paintings for Axiko's editable game gallery. Canvas coordinates: 1000 × 620. */
 (function () {
   'use strict';
   const TAU = Math.PI * 2;

@@ -1,4 +1,4 @@
-"""Emulator-only helpers for exercising the real Assi Native/store path.
+"""Emulator-only helpers for exercising the real Axiko Native/store path.
 
 No credentials are printed or exported. Fixtures use an injected transport;
 production HTTPS remains unchanged. Invoke operations explicitly from Python.
@@ -19,7 +19,8 @@ OUT = ROOT / 'build/artifacts/store-2026-11-16'
 ADB = Path(os.environ.get('ANDROID_HOME', str(Path.home() / 'AppData/Local/Android/Sdk'))) / 'platform-tools/adb.exe'
 DEVICE = 'emulator-5554'
 PORT = 18765
-REMOTE = '/data/user/0/app.assi/files/state/store-fixtures'
+PACKAGE = 'app.axiko'
+REMOTE = f'/data/user/0/{PACKAGE}/files/state/store-fixtures'
 
 
 def adb(*args, **kwargs):
@@ -36,7 +37,7 @@ def backup():
     target = OUT / 'emulator-before.tar'
     if not target.exists():
         with target.open('wb') as stream:
-            subprocess.run([str(ADB), '-s', DEVICE, 'exec-out', 'run-as', 'app.assi', 'tar', '-cf', '-', 'files/assi', 'files/data', 'files/state', 'shared_prefs'], stdout=stream, check=True, timeout=180)
+            subprocess.run([str(ADB), '-s', DEVICE, 'exec-out', 'run-as', PACKAGE, 'tar', '-cf', '-', 'files/assi', 'files/data', 'files/state', 'shared_prefs'], stdout=stream, check=True, timeout=180)
         with tarfile.open(target) as archive:
             assert archive.getmembers()
     return {'backupBytes': target.stat().st_size, 'device': DEVICE}
@@ -45,7 +46,7 @@ def backup():
 def rpc(payload):
     guard()
     adb('forward', f'tcp:{PORT}', 'tcp:8765')
-    prefs = ET.fromstring(adb('exec-out', 'run-as', 'app.assi', 'cat', 'shared_prefs/assi.xml'))
+    prefs = ET.fromstring(adb('exec-out', 'run-as', PACKAGE, 'cat', 'shared_prefs/assi.xml'))
     key = next(item.text for item in prefs if item.get('name') == 'lan.code')
     token = hashlib.sha256(('assi:' + key).encode()).hexdigest()[:32]
     request = urllib.request.Request(f'http://127.0.0.1:{PORT}/__assi/rpc', data=json.dumps(payload, ensure_ascii=False).encode(), headers={'Content-Type': 'application/json', 'Cookie': f'assi={token}'})
@@ -119,7 +120,7 @@ def fixtures():
         for path in output.iterdir():
             archive.add(path, arcname='store-fixtures/' + path.name, recursive=False)
     adb('push', str(payload), '/data/local/tmp/assi-store-fixtures.tar')
-    adb('shell', 'run-as', 'app.assi', 'tar', '-xf', '/data/local/tmp/assi-store-fixtures.tar', '-C', 'files/state')
+    adb('shell', 'run-as', PACKAGE, 'tar', '-xf', '/data/local/tmp/assi-store-fixtures.tar', '-C', 'files/state')
     code = '''(function () {
       var W = Packages.app.assi.core.Workspace.INSTANCE;
       var mapping = JSON.parse(String(host.readText("REMOTE/mapping.json")));

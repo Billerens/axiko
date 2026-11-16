@@ -33,7 +33,7 @@ const server = http.createServer((req, res) => {
     let body = ''; req.on('data', chunk => body += chunk);
     req.on('end', () => {
       const request = JSON.parse(body);
-      if (request.op === 'desk.status') return metadata(res, { name: 'Assi', factory: false });
+      if (request.op === 'desk.status') return metadata(res, { name: 'Axiko', factory: false });
       if (request.op === 'desk.read') {
         reads.push(request);
         return reply(res, { path: request.path, text: 'contents of ' + request.path, revision: 'r1', exists: true });
@@ -44,6 +44,8 @@ const server = http.createServer((req, res) => {
       }
       if (request.op === 'native' && request.method === 'modules.list') { moduleCalls++; return reply(res, modules); }
       if (request.op === 'native' && request.method === 'tasks.list') return metadata(res, []);
+      // The owner of this hub has seen the tours: they would stand over what the test clicks.
+      if (request.op === 'native' && request.method === 'pref.get' && String(request.args).includes('tours.done')) return reply(res, '*');
       reply(res, []);
     }); return;
   }

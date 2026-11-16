@@ -121,7 +121,7 @@ object Bubble {
                 setColor(context.getColor(R.color.accent))
             }
             alpha = 0.92f
-            contentDescription = "Спросить Assi об этом экране"
+            contentDescription = "Спросить Аксико об этом экране"
         }
         val params = WindowManager.LayoutParams(
             size, size,
