@@ -146,7 +146,11 @@ class JobReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         EngineService.start(context)
         when (intent.action) {
-            Jobs.ACTION -> intent.getStringExtra("key")?.let { Jobs.fired(it) }
+            Jobs.ACTION -> intent.getStringExtra("key")?.let {
+                Jobs.fired(it)
+                // The scheduled backup is the shell's own job: it must not depend on workspace scripts.
+                if (it == app.assi.backup.Backup.JOB) app.assi.backup.Backup.due()
+            }
             Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED -> Jobs.rearm()
         }
     }

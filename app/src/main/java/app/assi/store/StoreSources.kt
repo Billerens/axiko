@@ -223,6 +223,26 @@ class StoreSources(private val stateDir: File, private val transport: StoreTrans
         item.put("enabled", enabled); save(all); publicRecord(item)
     }
 
+    /**
+     * What went wrong on the source's side with one package: an archive that does not match the
+     * index, a manifest that disagrees with it. Shown with the source; the package is not banned for it.
+     */
+    fun note(id: String, packageId: String, version: String, message: String) = synchronized(lock) {
+        val all = records(); val item = all.firstOrNull { it.getString("id") == id } ?: return@synchronized
+        val kept = (item.optJSONArray("problems") ?: JSONArray()).let { list -> (0 until list.length()).map { list.getJSONObject(it) } }
+            .filterNot { it.optString("packageId") == packageId }
+        val problem = JSONObject().put("packageId", packageId).put("version", version).put("message", message.take(600)).put("at", System.currentTimeMillis())
+        item.put("problems", JSONArray((listOf(problem) + kept).take(10))); save(all)
+    }
+
+    /** The package was fetched and verified again: an earlier complaint about it is over. */
+    fun settle(id: String, packageId: String) = synchronized(lock) {
+        val all = records(); val item = all.firstOrNull { it.getString("id") == id } ?: return@synchronized
+        val list = item.optJSONArray("problems") ?: return@synchronized
+        val kept = (0 until list.length()).map { list.getJSONObject(it) }.filterNot { it.optString("packageId") == packageId }
+        if (kept.size != list.length()) { item.put("problems", JSONArray(kept)); save(all) }
+    }
+
     fun remove(id: String): JSONObject = synchronized(lock) {
         val all = records(); require(all.any { it.getString("id") == id }) { "Источник не найден." }
         save(all.filterNot { it.getString("id") == id })

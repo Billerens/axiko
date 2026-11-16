@@ -1,0 +1,97 @@
+// The page client for a browser on the local network: the same window.assi as on the phone,
+// but reaching the app over HTTP. Served by the app itself (see Lan.kt) into every page.
+(function () {
+  if (window.assi) return;
+  var listeners = {};
+  var desk = window.parent !== window && window.parent.assiDesk ? window.parent.assiDesk : null;
+
+  function send(payload) {
+    if (desk) payload.where = desk.where();
+    return fetch('/__assi/rpc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      .then(function (response) {
+        if (response.status === 401) { top.location.reload(); throw new Error('Нужно войти заново'); }
+        return response.json();
+      })
+      .then(function (answer) {
+        if (answer.error) throw new Error(answer.error);
+        return answer.result === undefined ? undefined : JSON.parse(answer.result);
+      });
+  }
+
+  var rest = function (args, from) { return Array.prototype.slice.call(args, from); };
+
+  // Navigation belongs to the browser here, not to the phone's screen.
+  var local = {
+    'ui.open': function (path) {
+      if (desk) desk.open(path); else location.href = '/' + String(path).replace(/^\//, '');
+      return true;
+    },
+    'ui.back': function () { if (desk) desk.back(); else history.back(); return true; },
+    'ui.chat': function (open, agent) { if (desk) desk.chat(open !== false, agent); return true; },
+    'ui.ready': function () { return true; },
+    'ui.reload': function () { location.reload(); return true; },
+    'ui.where': function () {
+      var path = desk ? desk.where() : '';
+      return send({ op: 'eval', code: '(function (p) { if (p.indexOf("modules/") !== 0) return { path: p, title: "" }; var id = p.split("/")[1]; try { return { path: p, title: JSON.parse(String(host.readText("modules/" + id + "/module.json"))).title || id }; } catch (e) { return { path: p, title: id }; } })(' + JSON.stringify(path) + ')' });
+    }
+  };
+
+  window.assi = {
+    call: function (path, fn) { return send({ op: 'call', path: path, fn: fn, args: JSON.stringify(rest(arguments, 2)) }); },
+    eval: function (code) { return send({ op: 'eval', code: code }); },
+    native: function (method) {
+      var args = rest(arguments, 1);
+      if (local[method]) return Promise.resolve(local[method].apply(null, args));
+      return send({ op: 'native', method: method, args: JSON.stringify(args) });
+    },
+    on: function (event, fn) {
+      (listeners[event] = listeners[event] || []).push(fn);
+      return function () { window.assi.off(event, fn); };
+    },
+    off: function (event, fn) {
+      listeners[event] = (listeners[event] || []).filter(function (item) { return item !== fn; });
+    },
+    open: function (path) { return window.assi.native('ui.open', path); },
+    back: function () { return window.assi.native('ui.back'); },
+    chat: function (open) { return window.assi.native('ui.chat', open !== false); }
+  };
+
+  // Lets the surrounding frame hand an event to this page (which agent the chat should show).
+  window.__assiEmit = function (event, data) {
+    (listeners[event] || []).slice().forEach(function (fn) { fn(data); });
+  };
+
+  var events = new EventSource('/__assi/events');
+  events.onmessage = function (message) {
+    var event = JSON.parse(message.data);
+    (listeners[event.event] || []).slice().forEach(function (fn) {
+      try { fn(event.data); } catch (error) { console.error(error); }
+    });
+  };
+
+  // A screen that throws offers to be mended, as on the phone.
+  var faults = [];
+  function fault(text) {
+    console.error(text);
+    if (location.pathname.indexOf('/ui/chat/') === 0) return;
+    faults.push(text);
+    if (faults.length > 1 || !document.body) return;
+    var button = document.createElement('button');
+    button.textContent = 'Экран работает с ошибкой — починить';
+    button.style.cssText = 'position:fixed;left:16px;bottom:22px;z-index:2147483647;min-height:44px;padding:0 16px;border:0;' +
+      'border-radius:22px;background:#3A1F21;color:#FF7B72;font:600 14px system-ui,sans-serif;cursor:pointer';
+    button.onclick = function () {
+      button.remove();
+      if (desk) desk.chat(true, 'assi');
+      window.assi.native('ui.fix', location.pathname.replace(/^\//, ''), faults.slice(0, 8).join('\n'));
+    };
+    document.body.appendChild(button);
+  }
+  window.addEventListener('error', function (event) {
+    fault('Ошибка страницы: ' + event.message + ' (' + (event.filename || '').replace(location.origin + '/', '') + ':' + event.lineno + ')');
+  });
+  window.addEventListener('unhandledrejection', function (event) {
+    var reason = event.reason;
+    fault('Необработанная ошибка: ' + (reason && reason.message ? reason.message : reason));
+  });
+})();

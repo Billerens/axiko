@@ -32,7 +32,7 @@ object Dnd {
             }
         }
         if (!manager.isNotificationPolicyAccessGranted) {
-            error("Режим тишины не переключился: включите Аксико доступ к режиму «Не беспокоить» (dnd.request) или чтение уведомлений")
+            error("Режим тишины не переключился: включите Axiko доступ к режиму «Не беспокоить» (dnd.request) или чтение уведомлений")
         }
         manager.setInterruptionFilter(wanted)
         return true

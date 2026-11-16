@@ -19,8 +19,15 @@ class StoreServiceTest {
     private fun service() = StoreService(workspace, state, transport) { snapshots++; "snapshot-$snapshots" }
     private fun add(service: StoreService) = service.sources.add(StoreServiceFixtures.INDEX).getString("id")
     private fun apply(service: StoreService, plan: JSONObject) = service.apply(plan.getString("id"), plan.getString("digest"), true)
-    private fun pass(plan: JSONObject, status: String = "pass") = JSONObject().put("status", status).put("summary", "Read the exact prepared candidate.")
-        .put("findings", JSONArray()).put("reviewedFiles", JSONArray().put("code/main.js"))
+    /** The status is no longer the reviewer's to give: a finding decides it. [status] only picks which finding the fixture reports. */
+    private fun pass(plan: JSONObject, status: String = "pass") = JSONObject().put("summary", "Read the exact prepared candidate.")
+        .put("findings", JSONArray().apply {
+            if (status != "pass") put(JSONObject().put("rule", if (status == "reject") "data.exfiltration" else "network.undeclared")
+                .put("severity", if (status == "reject") "violation" else "suspicious").put("certainty", "observed")
+                .put("evidence", JSONObject().put("path", "code/main.js").put("line", 1))
+                .put("explanation", "Fixture finding.").put("resolution", "Fixture resolution."))
+        })
+        .put("coverage", JSONObject().put("complete", true).put("filesReviewed", JSONArray().put("code/main.js")).put("unreviewedFiles", JSONArray()))
         .put("planDigest", plan.getString("digest")).put("artifactSha256", plan.getString("artifactSha256"))
 
     @Test fun addCatalogPrepareReadAndInstallUseVerifiedBytesWithoutTouchingData() {
@@ -93,7 +100,8 @@ class StoreServiceTest {
         val waiting = service.prepare(source, "demo.counter")
         assertEquals("blocked", waiting.getString("status")); assertTrue(waiting.getJSONArray("blockers").length() > 0)
         assertThrows(IllegalArgumentException::class.java) { apply(service, waiting) }
-        service.submitReview(waiting.getString("id"), waiting.getString("digest"), pass(waiting, "needsAttention"))
+        // Nothing was found in the code; the missing dependency alone keeps the report from being a pass.
+        assertEquals("needsAttention", service.submitReview(waiting.getString("id"), waiting.getString("digest"), pass(waiting)).getString("status"))
         apply(service, service.prepare(source, "demo.helper"))
         val ready = service.plan(waiting.getString("id"))
         assertEquals("ready", ready.getString("status")); assertNotEquals(waiting.getString("digest"), ready.getString("digest"))
@@ -146,11 +154,23 @@ class StoreServiceTest {
         val bad = pass(plan).put("artifactSha256", "f".repeat(64))
         assertThrows(IllegalArgumentException::class.java) { service.submitReview(plan.getString("id"), plan.getString("digest"), bad) }
         val rejected = service.submitReview(plan.getString("id"), plan.getString("digest"), pass(plan, "reject"))
+        assertEquals("reject", rejected.getString("status"))
         assertEquals(plan.getString("artifactSha256"), rejected.getString("artifactSha256"))
         assertFalse(rejected.getBoolean("capabilitiesEnforced"))
         assertThrows(IllegalArgumentException::class.java) { apply(service, plan) }
-        service.submitReview(plan.getString("id"), plan.getString("digest"), pass(plan))
+        // A reject is final for this archive: a later "pass" cannot be filed over it.
+        assertThrows(IllegalArgumentException::class.java) { service.submitReview(plan.getString("id"), plan.getString("digest"), pass(plan)) }
+        assertThrows(IllegalArgumentException::class.java) { apply(service, plan) }
+        assertEquals(0, service.installed().length())
+    }
+
+    @Test fun passReviewOfTheExactDigestLetsThePlanBeApplied() {
+        transport.publish(StoreServiceFixtures.bundle())
+        val service = service(); val source = add(service); val plan = service.prepare(source, "demo.counter")
+        val saved = service.submitReview(plan.getString("id"), plan.getString("digest"), pass(plan).put("status", "reject"))
+        assertEquals("pass", saved.getString("status")); assertEquals("reject", saved.getString("claimedStatus"))
         apply(service, plan)
+        assertEquals("pass", service.installed().getJSONObject(0).getJSONObject("review").getString("verdict"))
     }
 
     @Test fun incompatiblePackageStaysDiscoverableButDoesNotDownloadItsArchive() {

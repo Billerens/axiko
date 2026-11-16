@@ -39,7 +39,7 @@ exports.access = function () {
 
 exports.events = function (since, until) {
   if (!exports.access()) {
-    throw new Error('Нет доступа к статистике использования: владелец даёт его в системных настройках («Доступ к истории использования» → Аксико)');
+    throw new Error('Нет доступа к статистике использования: владелец даёт его в системных настройках («Доступ к истории использования» → Axiko)');
   }
   var list = context.getSystemService('usagestats').queryEvents(since, until || Date.now());
   var event = new android.app.usage.UsageEvents.Event();

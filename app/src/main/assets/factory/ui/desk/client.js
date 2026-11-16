@@ -84,9 +84,9 @@
         script.src = '/ui/desk/transport.js';
         script.onload = function () {
           if (window.AssiTransport) resolve(window.AssiTransport);
-          else { scriptPromise = null; reject(new Error('Транспорт Аксико не загрузился.')); }
+          else { scriptPromise = null; reject(new Error('Транспорт Axiko не загрузился.')); }
         };
-        script.onerror = function () { scriptPromise = null; reject(new Error('Не удалось подключиться к Аксико.')); };
+        script.onerror = function () { scriptPromise = null; reject(new Error('Не удалось подключиться к Axiko.')); };
         (document.head || document.documentElement).appendChild(script);
       });
     }
@@ -133,7 +133,7 @@
 
   function emit(name, data) {
     (listeners[name] || []).slice().forEach(function (listener) {
-      try { listener(data); } catch (error) { console.error('Аксико page listener:', error); }
+      try { listener(data); } catch (error) { console.error('Axiko page listener:', error); }
     });
   }
 
@@ -170,7 +170,7 @@
     (listeners['app.visible'] || []).slice().forEach(function (listener) {
       if (!force && visibilityValues.has(listener) && visibilityValues.get(listener) === on) return;
       visibilityValues.set(listener, on);
-      try { listener({ on: on }); } catch (error) { console.error('Аксико visibility listener:', error); }
+      try { listener({ on: on }); } catch (error) { console.error('Axiko visibility listener:', error); }
     });
   }
 
@@ -214,7 +214,7 @@
         emit(event.event, event.data);
       });
     }).catch(function (error) {
-      if (!disposed) console.warn('Аксико: ' + error.message);
+      if (!disposed) console.warn('Axiko: ' + error.message);
     });
   }
 

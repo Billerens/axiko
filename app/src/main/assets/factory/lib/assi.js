@@ -210,7 +210,7 @@ exports.clipboard = {
   },
   set: function (text) {
     ui(function () {
-      context.getSystemService('clipboard').setPrimaryClip(android.content.ClipData.newPlainText('Аксико', String(text)));
+      context.getSystemService('clipboard').setPrimaryClip(android.content.ClipData.newPlainText('Axiko', String(text)));
     });
   }
 };

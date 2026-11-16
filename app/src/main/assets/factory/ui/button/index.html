@@ -8,8 +8,9 @@
   /* The look of the chat button. This page is drawn by the shell over the bottom right corner of
   every screen, and it only draws: the press and the long press belong to the shell's own button
   that lies over it, so nothing here can leave the owner without a way into the chat. When this
-  page has nothing to show (the mascot is off, or "button" is off in mascot.json), it says so
-  and the shell shows its plain round button. */
+  page has nothing to show (the mascot is off, or "button" is "round" in mascot.json), it says so
+  and the shell shows its plain round button. The looks drawn here ("button" in mascot.json):
+  "peek" — the mascot climbs out from behind the edge; "badge" — its head in a round button. */
   html, body {
     background: transparent;
     overflow: hidden;
@@ -34,16 +35,46 @@
     background: var(--surface-2);
     box-shadow: 0 0 0 1px var(--line);
   }
+
+  /* The round button with the mascot's head: where the shell's own round button stands, 22px
+  above the edge. With the menu bar below, the edge is 14px above the bottom of this page. */
+  .badge {
+    position: fixed;
+    right: 18px;
+    bottom: 22px;
+    display: grid;
+    place-items: center;
+    width: 56px;
+    height: 56px;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    background: var(--surface-2);
+  }
+
+  .badge.over-bar {
+    bottom: 36px;
+  }
+
+  .badge .mascot {
+    width: 44px;
+  }
+
+  .badge.called {
+    border-color: var(--accent);
+  }
 </style>
 <body>
 <div class="shelf" id="shelf" hidden></div>
 <div class="edge" id="edge"></div>
+<div class="badge" id="badge" hidden></div>
 <script src="/ui/kit/kit.js"></script>
 <script>
   const climber = ui.mascot.climber({ width: 96, state: 'hidden' });
   document.getElementById('edge').append(climber);
 
   let shown = false;      // this page has a look for the button
+  let look = 'round';     // which one: 'peek', 'badge', or 'round' — the shell's own button
+  let head = null;        // the mascot's head in the badge
   let chatOpen = false;
   let lively = true;
   const working = {};     // chats where an agent is at work -> the pieces of handed-out work running there
@@ -53,23 +84,46 @@
     if (!shown) return;
     const busy = Object.keys(working);
     const lights = busy.reduce((sum, key) => sum + Math.max(1, Object.keys(working[key]).length), 0);
+    if (look === 'badge') {
+      ui.mascot.lights(head, lights);
+      document.getElementById('badge').classList.toggle('called', Boolean(chatOpen || lights));
+      return;
+    }
     ui.mascot.lights(climber.body, lights);
     ui.mascot.climb(climber, chatOpen || lights ? 'up' : 'peek');
   }
 
   function edge(info) {
     // No menu bar under the button: the mascot holds on to a shelf of its own.
-    document.getElementById('shelf').hidden = !shown || Boolean(info && info.bar);
+    const bar = Boolean(info && info.bar);
+    document.getElementById('shelf').hidden = !shown || look !== 'peek' || bar;
+    document.getElementById('badge').classList.toggle('over-bar', bar);
+  }
+
+  /** "button" in mascot.json: true and false are the old spelling of 'peek' and 'round'. */
+  function wanted(config) {
+    if (!config || config.button === false || config.button === 'round') return 'round';
+    return config.button === 'badge' ? 'badge' : 'peek';
   }
 
   async function start() {
     const config = await ui.mascot.ready();
     const has = await climber.ready;
-    shown = Boolean(has && config && config.button !== false);
+    look = wanted(config);
+    // A character without the two layers of the climb cannot peek: its head in a badge instead.
+    if (look === 'peek' && !has) look = 'badge';
+    shown = look !== 'round';
     lively = Boolean(config && config.alive !== false);
+    document.getElementById('edge').hidden = look !== 'peek';
+    const badge = document.getElementById('badge');
+    badge.hidden = look !== 'badge';
+    if (look === 'badge') {
+      head = ui.mascot('head', { lively: false });
+      badge.replaceChildren(head);
+    }
     const info = await assi.native('button.face', shown);
     edge(info);
-    if (!shown) return;
+    if (!shown || look === 'badge') return;
     // Called into being: first the paws catch the edge, then it pulls itself up for a look.
     ui.mascot.climb(climber, lively ? 'up' : 'peek');
     setTimeout(settle, 1400);
@@ -92,7 +146,7 @@
 
   // Now and then, with nothing going on, it pulls itself up to look around.
   setInterval(() => {
-    if (!shown || !lively || chatOpen || Object.keys(working).length || document.hidden) return;
+    if (!shown || look !== 'peek' || !lively || chatOpen || Object.keys(working).length || document.hidden) return;
     ui.mascot.climb(climber, 'up');
     setTimeout(settle, 1600);
   }, 41000);

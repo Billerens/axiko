@@ -2,7 +2,7 @@
 <html lang="ru">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Аксико</title>
+<title>Axiko</title>
 <link rel="stylesheet" href="/ui/kit/kit.css">
 <style>
   .hello {
@@ -226,7 +226,7 @@
   <header class="row" style="align-items: flex-start">
     <span id="mascot"></span>
     <div class="hello grow">
-      <h1 id="greeting">Аксико</h1>
+      <h1 id="greeting">Axiko</h1>
       <p>Попросите — и приложение изменится.</p>
     </div>
     <button class="icon-btn" id="history" aria-label="История изменений" data-icon="history" hidden></button>
@@ -616,7 +616,7 @@
     document.getElementById('mascot').hidden = info.safeMode || setup;
     if (info.safeMode) {
       notices.append(notice('danger', 'Безопасный режим',
-        'Показан заводской интерфейс. Откатите последнее изменение или попросите Аксико починить экраны.',
+        'Показан заводской интерфейс. Откатите последнее изменение или попросите Axiko починить экраны.',
         'Выйти из безопасного режима', () => assi.native('safe.set', false), ['safe', 'safe']));
     }
     if (info.engineError) notices.append(notice('danger', 'Движок не запустился', info.engineError));
@@ -625,7 +625,7 @@
       const hello = h('p', { hidden: true });
       ui.mascot.say('hello', '').then(phrase => { hello.textContent = phrase; hello.hidden = !phrase; });
       notices.append(hello, notice('accent', 'Подключите модель',
-        'Аксико нужен доступ к языковой модели: адрес провайдера, ключ и название модели.',
+        'Axiko нужен доступ к языковой модели: адрес провайдера, ключ и название модели.',
         'Настроить', () => assi.open('ui/settings/index.html?setup=1'), ['hello', 'model']));
     }
 
@@ -642,7 +642,7 @@
         () => manage('module', module))));
     if (!modules.length) {
       const none = h('div', { class: 'empty', style: 'grid-column: 1 / -1' },
-        'Модулей пока нет. Опишите Аксико, что вам нужно, — и здесь появится экран.');
+        'Модулей пока нет. Опишите Axiko, что вам нужно, — и здесь появится экран.');
       ui.mascot.say('empty', none.textContent).then(phrase => { none.textContent = phrase; });
       grid.replaceChildren(none);
     }

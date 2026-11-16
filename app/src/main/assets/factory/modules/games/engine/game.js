@@ -397,7 +397,7 @@
     var el = buildFrame(opts.root || document.body);
     el.field.appendChild(h('div', { class: 'g-wait' }, 'Загрузка…'));
     if (!window.assi) {
-      el.field.replaceChildren(h('div', { class: 'g-error' }, 'Игра открывается только внутри Аксико.'));
+      el.field.replaceChildren(h('div', { class: 'g-error' }, 'Игра открывается только внутри Axiko.'));
       throw new Error('нет window.assi');
     }
     // Browser games stay in their hub pane; its fullscreen button is the owner's choice.

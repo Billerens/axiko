@@ -3,7 +3,7 @@
   'use strict';
   const h = ui.h, tr = (...args) => ui.t(...args), raw = value => ui.raw(String(value == null ? '' : value));
   const $ = id => document.getElementById(id);
-  const state = { tab: 'catalog', sources: [], catalog: [], installed: [], plans: [], query: '', kind: 'all', source: 'all', sourceUrl: '', loaded: false, operations: new Set(), pending: null, reviewTask: null, dialog: null, token: 0, acknowledged: new Set(), poll: null, visible: true, loadSerial: 0 };
+  const state = { tab: 'catalog', sources: [], catalog: [], installed: [], plans: [], bans: [], query: '', kind: 'all', source: 'all', sourceUrl: '', loaded: false, operations: new Set(), pending: null, reviewTask: null, dialog: null, token: 0, acknowledged: new Set(), poll: null, visible: true, loadSerial: 0 };
   const api = (method, ...args) => assi.native('store.' + method, ...args);
   const listOf = (value, key) => Array.isArray(value) ? value : value && Array.isArray(value[key]) ? value[key] : [];
   const packageId = item => item.packageId || item.id;
@@ -12,6 +12,41 @@
   function errorText(error) { return error && error.message ? error.message : String(error || tr('Не удалось выполнить действие')); }
   function button(text, fn, options) { return h('button', Object.assign({ class: 'btn small', type: 'button', onclick: fn }, options || {}), text); }
   function note(text) { return h('p', { class: 'store-note' }, text); }
+  // What a review found, one item per rule: the level, where it is in the code, what it means and what is proposed.
+  // Titles are the shell's own words; explanations are a model's or the installer's and are shown as written.
+  function findingItem(finding) {
+    if (typeof finding === 'string') return h('li', { class: 'store-finding' }, h('p', {}, raw(finding)));
+    const evidence = finding.evidence || {}, place = evidence.path ? evidence.path + (evidence.line ? ':' + evidence.line : '') : '';
+    return h('li', { class: 'store-finding', 'data-finding': finding.rule || '', 'data-severity': finding.severity || '' },
+      h('div', { class: 'store-finding-head' },
+        finding.severity ? h('span', { class: 'store-chip ' + (finding.severity === 'violation' ? 'problem' : 'changed') }, tr(finding.severity === 'violation' ? 'Нарушение' : 'Подозрение')) : null,
+        h('strong', {}, finding.title ? tr(finding.title) : raw(finding.rule || finding.code || ''))),
+      h('p', {}, raw(finding.explanation || finding.message || '')),
+      place ? h('code', { class: 'store-finding-place' }, raw(place)) : null,
+      finding.resolution ? h('p', { class: 'store-note' }, tr('Что предлагается:'), ' ', raw(finding.resolution)) : null);
+  }
+  function findingList(findings) { return h('ul', { class: 'store-findings' }, findings.map(findingItem)); }
+  function banNotice(ban, earlier) {
+    const violations = Array.isArray(ban.violations) ? ban.violations : [];
+    return h('div', { class: 'store-notice danger', 'data-ban': ban.artifactSha256 || '', 'data-ban-earlier': earlier ? 'true' : 'false' },
+      h('strong', {}, earlier ? tr('Версия {} этого пакета была забанена', ban.version || '') : tr('Этот выпуск забанен за нарушение правил магазина')),
+      violations.length ? findingList(violations) : ban.reason ? h('p', {}, raw(ban.reason)) : null,
+      note(earlier ? tr('Новая версия — другой архив: она проверяется заново.') : tr('Подготовить, проверить повторно и установить его нельзя. Снять бан может только владелец в разделе «Источники».')));
+  }
+  function installReview(review) {
+    const findings = Array.isArray(review.findings) ? review.findings : [], unknowns = Array.isArray(review.unknowns) ? review.unknowns : [];
+    if (review.ownerDecision) return h('div', { class: 'store-notice', 'data-install-review': 'warnings' },
+      h('strong', {}, tr('Установлен с предупреждениями')), note(tr('Проверка нашла подозрительные места, и вы решили установить пакет: {}', ui.ago(Number(review.ownerDecision.at)))),
+      findings.length ? findingList(findings) : null, unknowns.length ? note(tr('Не проверено:'), ' ', raw(unknowns.join('; '))) : null);
+    return h('p', { class: 'store-note', 'data-install-review': review.verdict || 'none' }, tr(review.verdict === 'pass' ? 'Перед установкой агент проверил пакет по правилам магазина: находок нет.' : 'Установлен без проверки агентом.'));
+  }
+  // The review's conversation opens in the chat panel over this screen, as any other chat does:
+  // the phone slides it up, the web hub shows its own side panel. Closing it returns here.
+  async function openReviewChat(task) {
+    const agent = task.agent || 'assi';
+    if (task.thread) await assi.native('agent.openThread', agent, task.thread);
+    await assi.native('ui.chat', true, agent);
+  }
   function icon(kind) {
     const paths = kind === 'game' ? '<rect x="3" y="6" width="18" height="12" rx="5"/><path d="M7 12h6m-3-3v6m7-4h.1m2 3h.1"/>' : kind === 'source' ? '<path d="m12 3 9 5v8l-9 5-9-5V8l9-5Zm-9 5 9 5 9-5m-9 5v8"/>' : '<rect x="4" y="4" width="7" height="7" rx="2"/><rect x="14" y="4" width="6" height="7" rx="2"/><rect x="4" y="14" width="7" height="6" rx="2"/><path d="M14 17h7m-3.5-3.5v7"/>';
     // All markup below is a local constant. Repository SVG/HTML is never inserted here.
@@ -74,25 +109,28 @@
     const installed = installedView ? item : installedFor(item);
     const title = item.title || packageId(item), card = h('article', { class: 'store-card', 'data-package': packageId(item), 'data-source': item.sourceId });
     card.append(h('div', { class: 'store-card-top' }, icon(item.kind || 'module'), h('div', { class: 'grow' }, h('h3', {}, raw(title)), h('div', { class: 'store-meta' }, h('span', {}, tr(item.kind === 'game' ? 'Игра' : 'Модуль')), h('span', {}, raw(item.version || ''))))));
-    card.append(h('p', { class: 'store-description' }, raw(item.summary || (installedView ? tr('Установлено через каталог Аксико') : ''))));
+    card.append(h('p', { class: 'store-description' }, raw(item.summary || (installedView ? tr('Установлено через каталог Axiko') : ''))));
     const badges = h('div', { class: 'store-meta' });
     if (item.status === 'update' || item.updateAvailable) badges.append(h('span', { class: 'store-chip update' }, tr('Есть обновление')));
     else if (installed) badges.append(h('span', { class: 'store-chip success' }, tr('Установлено')));
     if (item.localModified || installed && installed.localModified) badges.append(h('span', { class: 'store-chip changed' }, tr('Есть свои правки')));
+    if (item.ban || item.status === 'banned') badges.append(h('span', { class: 'store-chip problem', 'data-banned': '' }, tr('Забанен')));
+    else if (Array.isArray(item.previousBans) && item.previousBans.length) badges.append(h('span', { class: 'store-chip changed', 'data-previous-ban': '' }, tr('Прежняя версия забанена')));
+    if (installedView && item.review && item.review.ownerDecision) badges.append(h('span', { class: 'store-chip changed', 'data-installed-warnings': '' }, tr('Установлен с предупреждениями')));
     if (item.status === 'sourceConflict') badges.append(h('span', { class: 'store-chip problem' }, tr('Конфликт источников')));
     else if (item.status === 'changedRelease') badges.append(h('span', { class: 'store-chip problem' }, tr('Выпуск изменён')));
-    else if (item.compatible === false || item.status === 'incompatible') badges.append(h('span', { class: 'store-chip problem' }, tr('Нужна другая версия Аксико')));
+    else if (item.status !== 'banned' && (item.compatible === false || item.status === 'incompatible')) badges.append(h('span', { class: 'store-chip problem' }, tr('Нужна другая версия Axiko')));
     if (item.archive && item.archive.size) badges.append(h('span', {}, bytes(item.archive.size)));
     card.append(badges, h('div', { class: 'store-source-line' }, raw(item.sourceTitle || sourceName(item.sourceId))));
     const actions = h('div', { class: 'store-card-actions' }, button(tr('Подробнее'), () => showPackage(item, installed), { 'data-details': packageId(item) }));
     if (installedView && entryPath(item)) actions.append(button(tr('Открыть'), () => openInstalled(item), { class: 'btn primary', 'data-open-package': packageId(item) }));
-    else if (!installed || item.status === 'update' || item.updateAvailable) actions.append(button(tr(installed ? 'Обновить' : 'Установить'), event => prepare(item, event.currentTarget), { class: 'btn primary', disabled: item.compatible === false || item.status === 'incompatible', 'data-install': packageId(item) }));
+    else if (!installed || item.status === 'update' || item.updateAvailable) actions.append(button(tr(installed ? 'Обновить' : 'Установить'), event => prepare(item, event.currentTarget), { class: 'btn primary', disabled: item.compatible === false || item.status === 'incompatible' || item.status === 'banned', 'data-install': packageId(item) }));
     else if (entryPath(installed)) actions.append(button(tr('Открыть'), () => openInstalled(installed), { class: 'btn primary' }));
     card.append(actions); return card;
   }
   async function load(options) {
     const serial = ++state.loadSerial;
-    const results = await Promise.allSettled([api('sources'), api('catalog'), api('installed'), api('plans')]);
+    const results = await Promise.allSettled([api('sources'), api('catalog'), api('installed'), api('plans'), api('bans')]);
     if (serial !== state.loadSerial) return;
     const fields = [['sources','sources'],['catalog','packages'],['installed','installed']];
     results.slice(0, 3).forEach((result, index) => { if (result.status === 'fulfilled') state[fields[index][0]] = listOf(result.value, fields[index][1]); });
@@ -104,6 +142,7 @@
       else if (!state.pending) state.pending = plans.find(plan => ['ready','conflicts','blocked'].includes(plan.status)) || null;
       if (state.pending && state.pending.reviewTask && state.pending.reviewTask.status === 'running' && state.pending.status !== 'applied') state.reviewTask = Object.assign({ planId: state.pending.id }, state.pending.reviewTask);
     }
+    if (results[4].status === 'fulfilled') state.bans = listOf(results[4].value, 'bans');
     state.loaded = true; render();
     const failed = results.find(result => result.status === 'rejected');
     if (failed) status(errorText(failed.reason), true, () => load());
@@ -130,15 +169,33 @@
         if (!/^https:\/\//i.test(url)) throw new Error(tr('Укажите HTTPS-ссылку на репозиторий или index.json.'));
         const source = await api('source.add', url); state.sourceUrl = ''; await load({ keepStatus: true }); status(tr('Источник «{}» добавлен', source.title || source.repositoryId || ''));
       });
-    } }, h('h3', {}, tr('Подключить репозиторий')), h('p', {}, tr('В репозитории обязателен index.json по правилам Аксико. Подойдут GitHub и другие HTTPS-источники.')), h('div', { class: 'store-source-inputs' }, input, submit));
+    } }, h('h3', {}, tr('Подключить репозиторий')), h('p', {}, tr('В репозитории обязателен index.json по правилам Axiko. Подойдут GitHub и другие HTTPS-источники.')), h('div', { class: 'store-source-inputs' }, input, submit));
     content.replaceChildren(h('div', { class: 'store-sources' }, form, state.sources.map(source => sourceCard(source))));
     if (!state.sources.length) content.firstChild.append(note(tr('Источников пока нет. Установка публичных пакетов не требует GitHub-аккаунта.')));
+    if (state.bans.length) content.firstChild.append(h('section', { class: 'store-bans', id: 'store-bans', 'aria-label': tr('Забаненные выпуски') },
+      h('h3', {}, tr('Забаненные выпуски')), note(tr('Эти выпуски нарушили правила магазина. Их нельзя подготовить, проверить повторно и установить, пока вы сами не снимете бан.')),
+      state.bans.map(ban => banCard(ban))));
+  }
+  function banCard(ban) {
+    const sha = ban.artifactSha256;
+    return h('article', { class: 'store-ban', 'data-ban-card': sha },
+      h('div', { class: 'grow' }, h('h4', {}, raw((ban.title || ban.packageId || '') + ' · ' + (ban.version || ''))),
+        h('div', { class: 'store-meta' }, h('span', {}, raw(ban.sourceTitle || '')), h('span', {}, tr(ban.origin === 'validator' ? 'Отклонён установщиком' : 'Отклонён проверкой агента')), ban.bannedAt ? h('span', {}, ui.ago(Number(ban.bannedAt))) : null),
+        findingList(Array.isArray(ban.violations) ? ban.violations : [])),
+      h('div', { class: 'store-source-actions' }, button(tr('Снять бан'), event => operation('unban-' + sha, event.currentTarget, async () => {
+        status(tr('Подтвердите решение в окне Axiko на экране телефона.'));
+        const result = await api('unban', sha); await load({ keepStatus: true });
+        status(result && result.status === 'lifted' ? tr('Бан снят. Выпуск можно подготовить и проверить заново.') : tr('Бан не снят: решение не подтверждено.'));
+      }), { 'data-unban': sha })));
   }
   function sourceCard(source) {
     const address = source.indexUrl || source.url || '';
     const details = h('div', { class: 'grow' }, h('h3', {}, raw(source.title || source.repositoryId || source.id)), h('p', { class: 'store-source-address' }, raw(address)),
       h('div', { class: 'store-meta' }, h('span', {}, tr(source.enabled === false ? 'Выключен' : 'Подключён')), h('span', {}, tr('Пакетов: {}', source.packageCount || 0)), h('span', {}, source.lastSuccess ? tr('Обновлено: {}', ui.ago(Number(source.lastSuccess))) : tr('Ещё не обновлялся'))));
     if (source.error) details.append(h('p', { class: 'store-source-error' }, raw(source.error)), note(tr('Последний полученный каталог сохранён.')));
+    if (Array.isArray(source.problems) && source.problems.length) details.append(h('div', { class: 'store-notice', 'data-source-problems': source.id }, h('strong', {}, tr('Замечания к источнику')),
+      h('ul', { class: 'store-plain-list' }, source.problems.map(problem => h('li', {}, raw((problem.packageId || '') + ' ' + (problem.version || '') + ': ' + (problem.message || ''))))),
+      note(tr('Архив или манифест не совпали с каталогом источника. Пакет за это не банится: обновите источник или сообщите его автору.'))));
     const actions = h('div', { class: 'store-source-actions' },
       button(tr('Обновить'), event => operation('source-' + source.id, event.currentTarget, async () => { try { await api('source.refresh', source.id); } finally { await load({ keepStatus: true }); } }), { 'data-refresh-source': source.id }),
       button(tr(source.enabled === false ? 'Включить' : 'Выключить'), event => operation('source-' + source.id, event.currentTarget, async () => { await api('source.enable', source.id, source.enabled === false); await load(); }), { 'data-enable-source': source.id }),
@@ -183,12 +240,16 @@
     const catalogEntry = state.catalog.find(entry => entry.sourceId === item.sourceId && packageId(entry) === packageId(item));
     const display = catalogEntry || item;
     const current = dialog(display.title || packageId(item));
-    const compatible = display.compatible !== false && display.status !== 'incompatible';
+    const banned = display.status === 'banned' || !!display.ban && !installed;
+    const compatible = !banned && display.compatible !== false && display.status !== 'incompatible';
     current.body.append(h('p', {}, raw(display.summary || '')), facts([
       ['Тип', tr(display.kind === 'game' ? 'Игра' : 'Модуль')], ['Версия', display.version], ['Установлена', installed && installed.version], ['Автор', display.publisher], ['Лицензия', display.license], ['Источник', display.sourceTitle || sourceName(item.sourceId)], ['Загрузка', display.archive && bytes(display.archive.size)], ['После распаковки', display.archive && bytes(display.archive.unpackedSize)]
     ]));
-    if (display.compatibility) current.body.append(note(tr('API Аксико: от {}', display.compatibility.minAssiApi) + (display.compatibility.gamesEngine ? ' · ' + tr('Движок игр: {}', display.compatibility.gamesEngine) : '')));
-    if (!compatible) current.body.append(h('p', { class: 'store-notice danger' }, raw(display.compatibilityError || tr('Пакет несовместим с установленной версией Аксико.'))));
+    if (display.compatibility) current.body.append(note(tr('API Axiko: от {}', display.compatibility.minAssiApi) + (display.compatibility.gamesEngine ? ' · ' + tr('Движок игр: {}', display.compatibility.gamesEngine) : '')));
+    if (display.ban) current.body.append(banNotice(display.ban));
+    else if (!compatible) current.body.append(h('p', { class: 'store-notice danger' }, raw(display.compatibilityError || tr('Пакет несовместим с установленной версией Axiko.'))));
+    (Array.isArray(display.previousBans) ? display.previousBans : []).forEach(ban => current.body.append(banNotice(ban, true)));
+    if (installed && installed.review) current.body.append(installReview(installed.review));
     if (installed && installed.localModified) current.body.append(h('p', { class: 'store-notice' }, tr('В пакете есть ваши доработки. Перед обновлением покажем изменения и возможные конфликты.')));
     if (display.screenshots && display.screenshots.length) {
       const links = display.screenshots.map(safeHttps).filter(Boolean).map((url,index) => h('a', { href: url, target: '_blank', rel: 'noopener noreferrer', referrerpolicy: 'no-referrer' }, tr('Снимок {}', index + 1)));
@@ -209,7 +270,9 @@
       dialogStatus(tr('Загружаем и проверяем пакет. Это может занять немного времени.'));
       const token = current.token;
       const plan = await api('prepare', item.sourceId, packageId(item)); state.pending = plan; renderPending();
-      if (state.dialog && state.dialog.token === token) showPlan(plan); else status(tr('Пакет подготовлен. Можно продолжить установку.'));
+      // An archive that was already reviewed brings its warnings along: a new plan is not a clean slate.
+      const report = await api('review', plan.id).catch(() => null);
+      if (state.dialog && state.dialog.token === token) showPlan(plan, report || undefined); else status(tr('Пакет подготовлен. Можно продолжить установку.'));
     });
   }
   function renderPending() {
@@ -218,18 +281,20 @@
     node.replaceChildren(h('div', { class: 'store-pending' }, h('div', {}, h('strong', {}, tr(state.reviewTask && state.reviewTask.planId === plan.id ? 'Агент проверяет пакет' : 'Подготовленная установка')), h('p', {}, raw((plan.title || plan.manifest && plan.manifest.id || plan.packageId || '') + ' · ' + (plan.version || '')))),
       button(tr('Продолжить'), event => operation('resume-plan', event.currentTarget, async () => { const [fresh, report] = await Promise.all([api('plan', plan.id), api('review', plan.id)]); showPlan(fresh, report); }), { id: 'store-resume-plan' })));
   }
-  function readableStatus(value) { return tr(({ pass: 'Проверка завершена', needsAttention: 'Нужно ваше внимание', reject: 'Пакет отклонён', running: 'Агент проверяет пакет', pending: 'Проверка ещё не завершена', applied: 'Установка завершена' })[value] || value || 'Проверка ещё не завершена'); }
-  function reviewCard(report, task) {
+  function readableStatus(value) { return tr(({ pass: 'Проверка завершена: находок нет', needsAttention: 'Найдены подозрения: решение за вами', reject: 'Нарушение правил: выпуск забанен', running: 'Агент проверяет пакет', pending: 'Проверка ещё не завершена', applied: 'Установка завершена' })[value] || value || 'Проверка ещё не завершена'); }
+  function reviewCard(report, task, brief) {
     const stopped = report.agentStatus === 'stopped' || task && task.status === 'stopped';
-    const card = h('section', { class: 'store-review ' + (report.status || ''), 'data-review-status': report.status || 'pending' }, h('strong', {}, stopped && ['pending','running'].includes(report.status) ? tr('Проверка остановлена') : readableStatus(report.status)));
-    if (stopped && ['pending','running'].includes(report.status)) card.append(note(tr('Можно открыть диалог или запустить проверку заново. Пакет пока не установлен.')));
-    if (report.summary) card.append(note(raw(report.summary)));
-    const findings = Array.isArray(report.findings) ? report.findings : [];
-    if (findings.length) card.append(h('ul', { class: 'store-plain-list' }, findings.map(f => h('li', {}, raw(f.explanation || f.message || f.code || String(f))))));
-    if (Array.isArray(report.unknowns) && report.unknowns.length) card.append(note(tr('Не проверено: {}', report.unknowns.join('; '))));
-    if (task && task.thread) card.append(button(tr('Открыть диалог с агентом'), () => operation('open-review', null, async () => {
-      await assi.native('agent.openThread', task.agent || 'assi', task.thread); assi.open('ui/chat/index.html?agent=' + encodeURIComponent(task.agent || 'assi'));
-    }), { id: 'store-open-review' }));
+    const waiting = ['pending','running'].includes(report.status), earlier = waiting && report.inherited && report.inherited.status === 'needsAttention' ? report.inherited : null;
+    const shown = earlier || report;
+    const card = h('section', { class: 'store-review ' + (shown.status || ''), 'data-review-status': report.status || 'pending', 'data-review-inherited': earlier ? 'true' : 'false' },
+      h('strong', {}, earlier ? tr('Прежняя проверка этого выпуска нашла подозрения') : stopped && waiting ? tr('Проверка остановлена') : readableStatus(report.status)));
+    if (stopped && waiting && !earlier) card.append(note(tr('Можно открыть диалог или запустить проверку заново. Пакет пока не установлен.')));
+    if (shown.summary) card.append(note(raw(shown.summary)));
+    const findings = Array.isArray(shown.findings) ? shown.findings : [];
+    if (findings.length && !brief) card.append(findingList(findings));
+    if (Array.isArray(shown.unknowns) && shown.unknowns.length) card.append(h('div', { class: 'store-unknowns' }, h('strong', {}, tr('Не проверено')), h('ul', { class: 'store-plain-list' }, shown.unknowns.map(text => h('li', {}, raw(text))))));
+    if (shown.ownerDecision) card.append(note(tr('Вы решили установить этот выпуск, несмотря на предупреждения: {}', ui.ago(Number(shown.ownerDecision.at)))));
+    if (task && task.thread) card.append(button(tr('Открыть диалог с агентом'), () => operation('open-review', null, () => openReviewChat(task)), { id: 'store-open-review' }));
     return card;
   }
   function showPlan(plan, report) {
@@ -241,7 +306,8 @@
     const blockers = Array.isArray(plan.blockers) ? plan.blockers : [];
     const blocked = plan.status === 'blocked' || blockers.length > 0;
     const changes = Array.isArray(plan.changes) ? plan.changes : [];
-    current.body.append(facts([['Пакет', plan.title || manifest.id || plan.packageId], ['Версия', plan.version || manifest.version], ['Автор', manifest.publisher], ['Лицензия', manifest.license]]));
+    const about = facts([['Пакет', plan.title || manifest.id || plan.packageId], ['Версия', plan.version || manifest.version], ['Автор', manifest.publisher], ['Лицензия', manifest.license]]);
+    current.body.append(about);
     if (plan.status === 'applied') {
       current.body.append(h('p', { class: 'store-notice' }, tr('Пакет установлен. Сохранения, настройки и сохранённые локальные правки остались на месте.')));
       const completedReport = report || plan.review;
@@ -249,6 +315,21 @@
       const installed = state.installed.find(item => installationKey(item) === plan.installationKey);
       current.footer.append(entryPath(installed || plan) ? button(tr('Открыть пакет'), () => { closeDialog(); openInstalled(installed || plan); }, { class: 'btn primary' }) : button(tr('Готово'), closeDialog, { class: 'btn primary' })); return;
     }
+    const task = plan.reviewTask || (state.reviewTask && state.reviewTask.planId === plan.id ? state.reviewTask : null);
+    const currentReport = report || plan.review;
+    const discard = (text, options) => button(text, event => operation('discard-' + plan.id, event.currentTarget, async () => {
+      await api('discard', plan.id); state.pending = null; state.reviewTask = null; closeDialog(); await load({ keepStatus: true });
+      status(tr('Пакет не установлен. Подготовленный план убран.'));
+    }), options);
+    if (plan.status === 'banned' || plan.ban) {
+      // A banned release has one way out of this dialog: away. Lifting the ban is in «Источники».
+      current.root.setAttribute('data-plan-banned', '');
+      if (currentReport && currentReport.status === 'reject') current.body.append(reviewCard(currentReport, task, true));
+      current.body.append(banNotice(plan.ban || {}));
+      current.footer.append(h('div', { class: 'store-dialog-actions' }, discard(tr('Убрать подготовленный план'), { class: 'btn primary', id: 'store-discard' })));
+      return;
+    }
+    (Array.isArray(plan.previousBans) ? plan.previousBans : []).forEach(ban => current.body.append(banNotice(ban, true)));
     current.body.append(note(tr('Обновляется код пакета. Личные данные и сохранения не заменяются.')));
     if (blocked) current.body.append(h('div', { class: 'store-notice danger', 'data-plan-blocked': '' }, h('strong', {}, tr('Сначала нужно устранить препятствия')), h('ul', { class: 'store-plain-list' }, blockers.length ? blockers.map(reason => h('li', {}, raw(typeof reason === 'string' ? reason : reason.message || reason.reason || JSON.stringify(reason)))) : h('li', {}, tr('Подготовьте пакет заново после обновления источника.')))));
     if (Array.isArray(plan.dependencies) && plan.dependencies.length) current.body.append(h('details', { open: blocked }, h('summary', {}, tr('Зависимости: {}', plan.dependencies.length)), h('ul', { class: 'store-plain-list' }, plan.dependencies.map(item => h('li', {}, raw(item.id + ' ' + (item.version || '')), ' · ', tr(item.satisfied ? 'Установлено' : item.optional ? 'Необязательная связь' : 'Не установлено'))))));
@@ -267,11 +348,16 @@
     current.body.append(fileList);
     const requests = (manifest.capabilities || []).concat((manifest.networkDomains || []).map(domain => 'https://' + domain));
     if (requests.length) current.body.append(h('details', {}, h('summary', {}, tr('Заявленные возможности и сеть: {}', requests.length)), h('ul', { class: 'store-plain-list' }, requests.map(item => h('li', {}, raw(item))))));
-    current.body.append(h('p', { class: 'store-notice' }, tr('Этот пакет выполняется с возможностями Аксико. Изоляция доступа модулей пока не включена. Проверка агентом помогает изучить код, но не создаёт такую изоляцию.')));
-    const task = plan.reviewTask || (state.reviewTask && state.reviewTask.planId === plan.id ? state.reviewTask : null);
-    const currentReport = report || plan.review;
+    current.body.append(h('p', { class: 'store-notice' }, tr('Этот пакет выполняется с возможностями Axiko. Изоляция доступа модулей пока не включена. Проверка агентом помогает изучить код, но не создаёт такую изоляцию.')));
     const agentRunning = !!task && task.status !== 'stopped' && (!currentReport || currentReport.agentStatus !== 'stopped');
-    if (currentReport || task) current.body.append(reviewCard(currentReport || { status: 'running' }, task));
+    // Suspicions leave the decision to the owner: the report itself, or the last one made about this same archive.
+    const verdict = currentReport && currentReport.status === 'pending' && currentReport.inherited ? currentReport.inherited : currentReport;
+    const warned = !!verdict && verdict.status === 'needsAttention';
+    if (currentReport && (currentReport.status !== 'pending' || currentReport.inherited || task) || task) {
+      const card = reviewCard(currentReport || { status: 'running' }, task);
+      // What the owner has to decide about is read first, before the lists of files.
+      if (warned) about.after(card); else current.body.append(card);
+    }
     const ackKey = plan.id + ':' + plan.digest;
     const ack = h('input', { type: 'checkbox', id: 'store-trust-ack', checked: state.acknowledged.has(ackKey) });
     const direct = button(tr(plan.rollback || plan.operation === 'rollback' ? 'Вернуть версию' : 'Установить'), event => operation('apply-' + plan.id, event.currentTarget, async () => {
@@ -283,15 +369,35 @@
         current.locked = false; current.close.disabled = false; await load({ keepStatus: true }); showPlan(state.pending); status(tr('Установка завершена'));
       } finally { current.locked = false; current.close.disabled = false; }
     }), { class: 'btn primary', id: 'store-apply', disabled: blocked || agentRunning || !ack.checked || conflicts.length > 0 || currentReport && currentReport.status === 'reject' });
-    const agent = button(tr('Проверить и установить с агентом'), event => operation('review-' + plan.id, event.currentTarget, async () => {
+    const agent = button(tr(warned ? 'Проверить заново с агентом' : 'Проверить и установить с агентом'), event => operation('review-' + plan.id, event.currentTarget, async () => {
       if (!state.acknowledged.has(ackKey) || blocked) return;
-      const task = await api('reviewStart', plan.id, true); state.reviewTask = Object.assign({ planId: plan.id }, task); showPlan(plan, { status: 'running' }); schedulePoll();
+      const started = await api('reviewStart', plan.id, true); state.reviewTask = Object.assign({ planId: plan.id }, started); showPlan(plan, { status: 'running' }); schedulePoll();
+      // The conversation is shown at once, over this dialog; the card under it keeps the status.
+      try { await openReviewChat(started); } catch (error) { dialogStatus(tr('Проверка идёт, но чат открыть не удалось: {}', errorText(error)), true); }
     }), { id: 'store-review-agent', disabled: blocked || !ack.checked || agentRunning });
     ack.addEventListener('change', () => {
       if (ack.checked) state.acknowledged.add(ackKey); else state.acknowledged.delete(ackKey);
       direct.disabled = blocked || agentRunning || !ack.checked || conflicts.length > 0 || currentReport && currentReport.status === 'reject'; agent.disabled = blocked || !ack.checked || agentRunning;
     });
-    current.footer.append(h('label', { class: 'store-trust' }, ack, h('span', {}, tr('Разрешаю запуск этого пакета с возможностями Аксико'), h('small', {}, tr('Для этой версии и показанного плана установки.')))), h('div', { class: 'store-dialog-actions' }, direct, agent));
+    const trust = h('label', { class: 'store-trust' }, ack, h('span', {}, tr('Разрешаю запуск этого пакета с возможностями Axiko'), h('small', {}, tr('Для этой версии и показанного плана установки.'))));
+    if (!warned) { current.footer.append(trust, h('div', { class: 'store-dialog-actions' }, direct, agent)); return; }
+    // The agent does not install a release it has doubts about, and no page or model can say yes for the owner:
+    // the shell asks in its own dialog, bound to this plan and digest.
+    const accept = button(tr('Установить, несмотря на предупреждения'), event => operation('accept-' + plan.id, event.currentTarget, async () => {
+      if (conflicts.length || blocked || agentRunning) return;
+      current.locked = true; current.close.disabled = true; dialogStatus(tr('Подтвердите решение в окне Axiko на экране телефона.'));
+      try {
+        const result = await api('acceptWarnings', plan.id, plan.digest);
+        if (!result || result.ok === false || result.status === 'cancelled') { dialogStatus(tr('Пакет не установлен: решение не подтверждено.')); return; }
+        state.reviewTask = null; current.locked = false; current.close.disabled = false;
+        await load({ keepStatus: true });
+        const [fresh, done] = await Promise.all([api('plan', plan.id), api('review', plan.id)]);
+        showPlan(fresh, done); status(tr('Пакет установлен с предупреждениями'));
+      } finally { current.locked = false; current.close.disabled = false; }
+    }), { class: 'btn danger', id: 'store-accept-warnings', disabled: blocked || agentRunning || conflicts.length > 0 });
+    current.footer.append(h('p', { class: 'store-note', id: 'store-warned-note' }, tr('Агент не устанавливает пакет с подозрениями. Решение за вами.')),
+      h('div', { class: 'store-dialog-actions' }, discard(tr('Не устанавливать'), { class: 'btn primary', id: 'store-decline' }), accept),
+      h('details', { class: 'store-recheck' }, h('summary', {}, tr('Проверить ещё раз')), trust, h('div', { class: 'store-dialog-actions' }, agent)));
   }
   function visible() { return state.visible && !document.hidden; }
   function schedulePoll() {
@@ -308,6 +414,7 @@
       state.pending = plan;
       if (plan.status === 'applied') { state.reviewTask = null; await load({ keepStatus: true }); status(tr('Агент проверил и установил пакет')); }
       else if (['reject','needsAttention'].includes(report.status) || report.agentStatus === 'stopped') state.reviewTask = null;
+      if (plan.status === 'banned' && !state.bans.some(ban => ban.artifactSha256 === plan.artifactSha256)) await load({ keepStatus: true });
       if (state.dialog && state.dialog.planId === task.planId) {
         // Poll results only replace the dialog when report or plan materially changed.
         const signature = JSON.stringify([plan.digest,plan.status,report]);

@@ -797,7 +797,7 @@ check('shell.features: what this shell can do', function () {
 });
 
 check('notify: buttons call a module, a reply brings its text, cancel takes it away', function () {
-  if (!context.getSystemService('notification').areNotificationsEnabled()) skip('уведомления Аксико выключены');
+  if (!context.getSystemService('notification').areNotificationsEnabled()) skip('уведомления Axiko выключены');
   var assi = require('lib/assi');
   var path = 'modules/zz-check-notify/main.js';
   assi.files.write(path, 'exports.got = []; exports.press = function () { exports.got.push(Array.prototype.slice.call(arguments)); };');
@@ -851,7 +851,7 @@ check('notify: buttons call a module, a reply brings its text, cancel takes it a
 
 check('notifications: a chat read whole — messages, whose, the conversation', function () {
   var manager = context.getSystemService('notification');
-  if (!manager.areNotificationsEnabled()) skip('уведомления Аксико выключены');
+  if (!manager.areNotificationsEnabled()) skip('уведомления Axiko выключены');
   var Style = android.app.Notification.MessagingStyle;
   var me = new android.app.Person.Builder().setName('Я').setKey('me').build();
   var anna = new android.app.Person.Builder().setName('Аня').setKey('anna').build();
@@ -1108,7 +1108,7 @@ check('usage: time in apps and the screen\'s sessions', function () {
   if (!usage.access()) return 'на примере; к настоящей статистике доступа нет';
   var now = Date.now();
   var real = usage.daily(now - 3600000, now);
-  expect(real.some(function (app) { return app.package === String(context.getPackageName()); }), 'Аксико нет среди приложений за час: ' + shape(real));
+  expect(real.some(function (app) { return app.package === String(context.getPackageName()); }), 'Axiko нет среди приложений за час: ' + shape(real));
   return 'за час: ' + real.slice(0, 3).map(function (app) { return app.app + ' ' + Math.round(app.ms / 1000) + ' с'; }).join(', ') +
     '; сеансов ' + usage.sessions(now - 3600000, now).length;
 });

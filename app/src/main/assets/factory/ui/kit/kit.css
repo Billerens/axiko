@@ -38,7 +38,9 @@ body {
   color: var(--ink);
   font: 16px/1.45 system-ui, Roboto, sans-serif;
   -webkit-text-size-adjust: 100%;
-  overflow-wrap: anywhere;
+  /* A word is split only when it alone is wider than its box. With `anywhere` a squeezed label
+     in a row shrank to one letter per line; now it keeps its longest word and the row gives way. */
+  overflow-wrap: break-word;
 }
 
 h1, h2, h3, p {
@@ -121,6 +123,25 @@ button {
   min-width: 0;
 }
 
+/* A row with a text that takes what is left: when the things beside it leave the text less
+   than a few words' width, they drop under it instead of squeezing it into a column of letters.
+   An empty .grow is a spacer and an input has no words to keep: both may still shrink to nothing. */
+.row:has(> .grow:not(:empty)),
+.list > *:has(> .grow:not(:empty)) {
+  flex-wrap: wrap;
+}
+
+.row > .grow:not(:empty),
+.list > * > .grow:not(:empty) {
+  min-width: min(100%, 7.5em);
+}
+
+.list > * > select.input {
+  flex: 0 1 auto;
+  width: auto;
+  max-width: 100%;
+}
+
 .muted {
   color: var(--ink-2);
 }
@@ -132,6 +153,8 @@ button {
 .mono {
   font-family: var(--mono);
   font-size: 13px;
+  /* Paths, ids and hashes have no natural break; let them shrink inside a row. */
+  overflow-wrap: anywhere;
 }
 
 .truncate {
@@ -239,13 +262,18 @@ button {
   align-items: center;
   justify-content: center;
   gap: 8px;
+  /* In a row a button keeps its words on one line and its neighbours give way; only a label
+     wider than the whole container wraps inside the button — it is never cut or pushed off-screen. */
+  flex-shrink: 0;
+  max-width: 100%;
   min-height: 44px;
-  padding: 0 18px;
+  padding: 6px 18px;
   border-radius: 999px;
   border: 1px solid var(--line);
   background: var(--surface);
   font-weight: 600;
-  white-space: nowrap;
+  line-height: 1.2;
+  text-align: center;
 }
 
 .btn:active {
@@ -270,7 +298,7 @@ button {
 
 .btn.small {
   min-height: 34px;
-  padding: 0 12px;
+  padding: 4px 12px;
   font-size: 14px;
 }
 
@@ -316,12 +344,15 @@ svg.i {
   align-items: center;
   gap: 6px;
   min-height: 36px;
-  padding: 0 14px;
   border-radius: 999px;
   border: 1px solid var(--line);
   background: var(--surface);
   font-size: 14px;
-  white-space: nowrap;
+  /* Like a button: one line beside its neighbours, wrapped inside only when wider than its container. */
+  flex-shrink: 0;
+  max-width: 100%;
+  padding: 4px 14px;
+  line-height: 1.2;
 }
 
 .chip.on {
@@ -1095,6 +1126,15 @@ a peek is cut right under the eyes, never across them or across the mouth. */
   color: var(--ink-2);
 }
 
+.tour-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 44px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
 .tour-card .climber {
   position: absolute;
   right: 18px;
@@ -1103,9 +1143,39 @@ a peek is cut right under the eyes, never across them or across the mouth. */
 
 .tour-row {
   display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   margin-top: 6px;
+}
+
+.tour-meta, .tour-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.tour-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  margin-left: auto;
+}
+
+.tour-row .btn, .tour-row .tour-skip {
+  min-height: 44px;
+  min-width: 0;
+}
+
+.tour-compact {
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.tour-compact .climber {
+  visibility: hidden;
 }
 
 .tour-skip {

@@ -392,11 +392,11 @@ object Lan {
                 "result",
                 JSONObject().put("protocolVersion", params.optString("protocolVersion").ifBlank { MCP_VERSION })
                     .put("capabilities", JSONObject().put("tools", JSONObject()))
-                    .put("serverInfo", JSONObject().put("name", "assi-phone").put("title", "Аксико на телефоне").put("version", "1"))
+                    .put("serverInfo", JSONObject().put("name", "assi-phone").put("title", "Axiko на телефоне").put("version", "1"))
                     .put(
                         "instructions",
-                        "Телефон владельца и приложение Аксико на нём. Инструменты phone_* читают экран и уведомления и действуют в приложениях, " +
-                            "fs_* и js_eval работают с рабочей папкой Аксико (модули, данные), shell выполняет команды на телефоне, " +
+                        "Телефон владельца и приложение Axiko на нём. Инструменты phone_* читают экран и уведомления и действуют в приложениях, " +
+                            "fs_* и js_eval работают с рабочей папкой Axiko (модули, данные), shell выполняет команды на телефоне, " +
                             "base_find отвечает по личным данным владельца, assi_ask поручает задачу агенту на телефоне.",
                     ),
             )
@@ -405,7 +405,7 @@ object Lan {
                 val tools = JSONArray()
                 tools.put(
                     JSONObject().put("name", "assi_ask")
-                        .put("description", "Поручить задачу агенту Аксико на телефоне и получить его ответ. Он знает приложение, его модули и данные владельца и сам пользуется инструментами телефона.")
+                        .put("description", "Поручить задачу агенту Axiko на телефоне и получить его ответ. Он знает приложение, его модули и данные владельца и сам пользуется инструментами телефона.")
                         .put(
                             "inputSchema",
                             JSONObject("""{"type":"object","properties":{"task":{"type":"string","description":"Что сделать или узнать"},"agent":{"type":"string","description":"Кому; по умолчанию основной агент"}},"required":["task"]}"""),

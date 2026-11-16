@@ -1,4 +1,4 @@
-# Задание: Аксико выглядывает из-за края — два слоя
+# Задание: Axiko выглядывает из-за края — два слоя
 
 The attached image is the approved design of Axiko. These two pictures are two LAYERS of one
 animation: the character climbs up from behind the bottom edge of a phone screen, holding on to the

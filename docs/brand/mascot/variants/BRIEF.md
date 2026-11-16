@@ -1,4 +1,4 @@
-# Задание: варианты маскота Аксико
+# Задание: варианты маскота Axiko
 
 Use your image generation tool to create EIGHT separate images, one per variant below, in this
 order. Do not write code and do not try to move or save files yourself — just generate. In your

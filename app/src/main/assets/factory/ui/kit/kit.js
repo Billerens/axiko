@@ -650,6 +650,9 @@
 
   // Where the chat button is on every screen: the shell draws it over the page's bottom right corner.
   var CHAT_BUTTON = { right: 2, bottom: 0, width: 120, height: 100 };
+  // The shell's native hit area is above this WebView, so CSS z-index cannot cover it.
+  // Reserve the full 132dp face, including the plain button's margin, on phone pages.
+  var CHAT_CLEARANCE = 132;
   var TOURS_DONE = 'tours.done';
 
   /** What a step points at, as a box in the window — or null for a step about nothing in particular. */
@@ -701,10 +704,13 @@
       var next = h('button', { class: 'btn primary small', onclick: function () { go(index + 1); } }, 'Далее');
       var skip = h('button', { class: 'tour-skip', onclick: function () { end(false); } }, 'Пропустить');
       var climber = mascot.climber({ width: 82, state: 'hidden' });
-      var card = h('div', { class: 'tour-card' }, climber, title, text,
-        h('div', { class: 'tour-row' }, skip, count, h('span', { class: 'grow' }), back, next));
+      var copy = h('div', { class: 'tour-copy', tabindex: '0' }, title, text);
+      var card = h('div', { class: 'tour-card' }, climber, copy,
+        h('div', { class: 'tour-row' }, h('div', { class: 'tour-meta' }, skip, count),
+          h('div', { class: 'tour-actions' }, back, next)));
       var layer = h('div', { class: 'tour', role: 'dialog', 'aria-modal': 'true' }, hole, card);
       var hop = null;
+      var resize = null;
 
       function place() {
         var box = tourBox(steps[index]);
@@ -715,17 +721,29 @@
         } else {
           hole.style.cssText = 'left:' + view.w / 2 + 'px;top:' + view.h / 2 + 'px;width:0;height:0';
         }
-        // The card goes under what it explains when there is room, over it otherwise; the mascot
-        // on the card's top edge needs its own room above.
+        // Keep every control outside the native chat button, not just the highlighted target.
+        // A centred desktop/tablet card may already stand to its left and needs no lower inset.
+        var width = Math.min(420, view.w - 28);
+        var chatOverlaps = !web && (view.w + width) / 2 > view.w - CHAT_CLEARANCE;
+        var bottom = view.h - 12 - (chatOverlaps ? CHAT_CLEARANCE : 0);
         var room = climber.hidden ? 12 : 58;
+        var compact = bottom - room < 160;
+        var beside = compact && chatOverlaps && view.w - CHAT_CLEARANCE - 26 >= 160;
+        card.classList.toggle('tour-compact', compact);
+        card.style.right = (beside ? CHAT_CLEARANCE + 12 : 14) + 'px';
+        card.style.marginLeft = beside ? '0' : '';
+        card.style.marginRight = beside ? '0' : '';
+        if (beside) bottom = view.h - 12;
+        if (compact) room = 12;
+        card.style.maxHeight = Math.max(44, bottom - room) + 'px';
         var height = card.offsetHeight;
-        var top = (view.h - height) / 2;
+        var top = room + (bottom - room - height) / 2;
         if (box) {
-          var under = box.y + box.h + pad + 14 + (climber.hidden ? 0 : 46);
+          var under = box.y + box.h + pad + 14 + (climber.hidden || compact ? 0 : 46);
           var over = box.y - pad - 14 - height;
-          top = under + height + 12 <= view.h ? under : over >= room ? over : Math.max(room, view.h - height - 12);
+          top = under + height <= bottom ? under : over >= room ? over : bottom - height;
         }
-        card.style.top = Math.max(room, Math.min(top, view.h - height - 12)) + 'px';
+        card.style.top = Math.max(room, Math.min(top, bottom - height)) + 'px';
       }
 
       function go(to) {
@@ -736,6 +754,7 @@
         title.textContent = step.title || '';
         title.hidden = !step.title;
         text.textContent = step.text;
+        copy.scrollTop = 0;
         count.textContent = (index + 1) + ' / ' + steps.length;
         back.hidden = index === 0;
         next.textContent = index === steps.length - 1 ? (options.done || 'Понятно') : 'Далее';
@@ -751,12 +770,17 @@
       function end(reached) {
         clearTimeout(hop);
         window.removeEventListener('resize', place);
+        if (resize) resize.disconnect();
         layer.remove();
         resolve(reached);
       }
 
       document.body.appendChild(layer);
       window.addEventListener('resize', place);
+      if (window.ResizeObserver) {
+        resize = new ResizeObserver(place);
+        resize.observe(card);
+      }
       climber.ready.then(place);
       go(0);
     });

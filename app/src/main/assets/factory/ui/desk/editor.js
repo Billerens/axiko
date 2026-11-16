@@ -36,9 +36,9 @@
     var trouble = el('div', { class: 'ae-trouble', hidden: true });
     var code = el('textarea', { class: 'ae-code', spellcheck: false, wrap: 'off', disabled: true, 'aria-label': 'Код файла', 'aria-description': 'Tab — отступ, Shift+Tab — перейти к панели редактора', autocapitalize: 'off', autocomplete: 'off' });
     var lines = el('pre', { class: 'ae-lines', 'aria-hidden': 'true' }, '1');
-    var footer = el('div', { class: 'ae-footer' }, 'Файлы из рабочей папки Аксико');
+    var footer = el('div', { class: 'ae-footer' }, 'Файлы из рабочей папки Axiko');
     var empty = el('div', { class: 'ae-empty' }, [
-      el('strong', {}, 'Здесь можно менять Аксико'),
+      el('strong', {}, 'Здесь можно менять Axiko'),
       el('p', {}, 'Откройте файл слева. Правки остаются в своих вкладках, пока вы их не сохраните.'),
       button('Открыть файлы web-хаба', function () { expand('ui/').then(function () { return expand('ui/desk/'); }); })
     ]);
@@ -145,7 +145,7 @@
       lines.scrollTop = code.scrollTop;
       var position = code.value.slice(0, code.selectionStart);
       footer.textContent = (selected() ? 'Строка ' + position.split('\n').length + ', столбец ' + (position.length - position.lastIndexOf('\n')) +
-        ' · ' + code.value.length.toLocaleString('ru') + ' символов · Ctrl+S — сохранить' : 'Файлы из рабочей папки Аксико');
+        ' · ' + code.value.length.toLocaleString('ru') + ' символов · Ctrl+S — сохранить' : 'Файлы из рабочей папки Axiko');
     }
     async function openFile(path, settings) {
       var a;

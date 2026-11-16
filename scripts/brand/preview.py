@@ -101,7 +101,7 @@ def phone(request):
     """What the phone answers the hub."""
     shell = state['shell']
     if request.get('op') == 'desk.status':
-        return {'name': 'Аксико', 'factory': False}
+        return {'name': 'Axiko', 'factory': False}
     if request.get('op') == 'eval':
         return '{"items":[]}' if 'ui/nav.json' in request.get('code', '') else None
     if request.get('op') != 'native':
@@ -111,7 +111,7 @@ def phone(request):
         return ('' if shell.get('tours') else '*') if args[0] == 'tours.done' else (args[1] if len(args) > 1 else '')
     answers = {
         'sys.info': {'safeMode': False, 'version': '0.1', 'device': 'Preview', 'android': '16'}, 'modules.list': shell.get('modules', []),
-        'agent.list': [{'id': 'assi', 'title': 'Аксико', 'icon': 'spark', 'description': ''}], 'models.roles': {'main': {'model': 'demo'}},
+        'agent.list': [{'id': 'assi', 'title': 'Axiko', 'icon': 'spark', 'description': ''}], 'models.roles': {'main': {'model': 'demo'}},
         'models.providers': [{'id': 'p', 'name': 'Demo'}], 'lang.status': {'language': 'ru', 'setting': 'auto', 'languages': []},
         'agent.history': [], 'agent.busy': False, 'ui.where': {}, 'agent.threads': [], 'theme.list': [], 'snap.list': [], 'tasks.list': [],
         'agent.thread': 't1', 'speech.status': {'tts': False},
@@ -140,7 +140,7 @@ window.assi = {
   native: function (op, key, fallback) {
     var answers = {
       'sys.info': { safeMode: __shell.safe, version: '0.1', device: 'Preview', android: '16' },
-      'modules.list': __shell.modules, 'agent.list': [{ id: 'assi', title: 'Аксико', icon: 'spark', description: '' }],
+      'modules.list': __shell.modules, 'agent.list': [{ id: 'assi', title: 'Axiko', icon: 'spark', description: '' }],
       'models.roles': __shell.model ? { main: { model: 'demo' } } : {}, 'models.providers': __shell.model ? [{ id: 'p', name: 'Demo' }] : [],
       'lang.status': { language: 'ru', setting: 'auto', languages: [] }, 'launcher.icon': 'mascot', 'button.face': { bar: __shell.bar },
       'agent.history': [], 'agent.busy': false, 'ui.where': {}, 'agent.threads': [], 'theme.list': [], 'snap.list': [],

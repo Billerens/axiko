@@ -25,7 +25,7 @@ import java.util.concurrent.Executors
 
 /**
  * The name the assistant answers to. With the wake word on, the microphone is listened to all
- * the time; a phrase that starts with the name ("Аксико, который час?") goes to the main agent,
+ * the time; a phrase that starts with the name ("Axiko, который час?") goes to the main agent,
  * and the answer is spoken.
  *
  * Two ways to listen. The thorough one recognizes every phrase heard with the big speech model
@@ -110,8 +110,40 @@ object Wake {
 
     private fun words(text: String): List<MatchResult> = Regex("[\\p{L}\\d]+").findAll(text).toList()
 
+    private val LATIN_PAIRS = listOf(
+        "shch" to "щ", "sch" to "щ", "sh" to "ш", "ch" to "ч", "zh" to "ж", "kh" to "х", "ts" to "ц",
+        "ya" to "я", "yu" to "ю", "yo" to "е", "ck" to "к", "ph" to "ф", "th" to "т", "oo" to "у", "ee" to "и"
+    )
+    private val LATIN_LETTERS = mapOf(
+        'a' to "а", 'b' to "б", 'c' to "к", 'd' to "д", 'e' to "е", 'f' to "ф", 'g' to "г", 'h' to "х", 'i' to "и",
+        'j' to "дж", 'k' to "к", 'l' to "л", 'm' to "м", 'n' to "н", 'o' to "о", 'p' to "п", 'q' to "к", 'r' to "р",
+        's' to "с", 't' to "т", 'u' to "у", 'v' to "в", 'w' to "в", 'x' to "кс", 'y' to "и", 'z' to "з"
+    )
+
+    /**
+     * A name written with Latin letters as a Russian recognizer hears and writes it: "Axiko" is
+     * said «аксико». Text without Latin letters comes back as it is.
+     */
+    internal fun russian(text: String): String {
+        if (text.none { it in 'a'..'z' || it in 'A'..'Z' }) return text
+        val lower = text.lowercase()
+        val out = StringBuilder()
+        var at = 0
+        while (at < lower.length) {
+            val pair = LATIN_PAIRS.firstOrNull { lower.startsWith(it.first, at) }
+            if (pair != null) {
+                out.append(pair.second)
+                at += pair.first.length
+            } else {
+                out.append(LATIN_LETTERS[lower[at]] ?: lower[at].toString())
+                at++
+            }
+        }
+        return out.toString()
+    }
+
     private fun plain(word: String): String {
-        val lower = word.lowercase().replace('ё', 'е')
+        val lower = russian(word).lowercase().replace('ё', 'е')
         return lower.filterIndexed { index, char -> index == 0 || char != lower[index - 1] }
     }
 
@@ -139,7 +171,7 @@ object Wake {
     }
 
     /**
-     * Where the request begins when the phrase starts with the name ("Аксико, …", "Эй, Аксико, …"),
+     * Where the request begins when the phrase starts with the name ("Axiko, …", "Эй, Axiko, …"),
      * or null when it was not addressed to the assistant.
      */
     fun nameEnd(heard: String, wanted: String = name): Int? {
@@ -194,7 +226,7 @@ object Wake {
 
     /** The lines of the small model's keyword list for the name; empty when it cannot spell it. */
     private fun keywords(wanted: String): List<String> {
-        val parts = words(wanted).map { it.value }
+        val parts = words(russian(wanted)).map { it.value }
         if (parts.isEmpty()) return emptyList()
         var lines = listOf(emptyList<String>())
         for (part in parts) {

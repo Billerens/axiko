@@ -35,7 +35,7 @@
 
   function fanout(event) {
     [...subscribers].forEach(callback => {
-      try { callback(event); } catch (error) { console.error('Аксико frame event:', error); }
+      try { callback(event); } catch (error) { console.error('Axiko frame event:', error); }
     });
   }
   function visibilityChanged() {
@@ -67,7 +67,7 @@
   }
   function validPath(raw, allowDesk) {
     if (typeof raw !== 'string' || !raw.trim() || /[\u0000-\u001f\\]/.test(raw)) throw new Error('Некорректный адрес экрана');
-    if (/^[a-z][a-z0-9+.-]*:/i.test(raw) || raw.startsWith('//')) throw new Error('Откройте локальный экран Аксико');
+    if (/^[a-z][a-z0-9+.-]*:/i.test(raw) || raw.startsWith('//')) throw new Error('Откройте локальный экран Axiko');
     const path = raw.replace(/^\/+/, '');
     const pathname = path.split(/[?#]/)[0];
     const parts = pathname.split('/').map(part => decodeURIComponent(part));
@@ -491,13 +491,13 @@
     const active = state.tasks.filter(task => task.state === 'run' && !task.parent).length;
     const connection = state.status?.state;
     status.textContent = connection === 'online' ? (active ? 'В работе: ' + active : 'На связи с вашим телефоном') :
-      connection === 'auth-required' ? 'Нужно войти снова' : connection === 'offline' || connection === 'closed' ? 'Жду соединения с телефоном' : 'Подключаюсь к Аксико…';
+      connection === 'auth-required' ? 'Нужно войти снова' : connection === 'offline' || connection === 'closed' ? 'Жду соединения с телефоном' : 'Подключаюсь к Axiko…';
     status.dataset.state = connection || 'connecting';
   }
   function setIdentity(status) {
     state.factory = !!status.factory;
-    $('brand-name').textContent = status.name || 'Аксико';
-    document.title = (status.name || 'Аксико') + ' — ваше пространство';
+    $('brand-name').textContent = status.name || 'Axiko';
+    document.title = (status.name || 'Axiko') + ' — ваше пространство';
     $('factory-label').hidden = !state.factory;
     $('factory-switch').textContent = state.factory ? 'Вернуться к своей версии' : 'Заводской интерфейс';
   }

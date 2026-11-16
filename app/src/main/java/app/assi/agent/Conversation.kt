@@ -88,6 +88,9 @@ class Conversation(
 
     private val cancelled: Boolean get() = stopping || parent?.cancelled == true
 
+    /** For a tool that waits on something long: the owner stopped the work. */
+    val halted: Boolean get() = cancelled
+
     /** The conversation as the API takes it, without the system message. */
     private val messages = ArrayList<JSONObject>()
 
@@ -974,6 +977,8 @@ class Conversation(
             if (runCatching { target() }.getOrNull()?.vision == false) {
                 append("Ваша модель не видит изображения: снимков экрана нет, проверяйте экраны через ui_open, ui_eval и ui_console.\n")
             }
+            // A store review carries its procedure and rules here, from the shell's code: they outlive a summary of the chat.
+            StoreAgent.brief(this@Conversation)?.let { append("\n").append(it).append('\n') }
         }
     }
 

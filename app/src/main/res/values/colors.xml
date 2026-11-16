@@ -8,5 +8,8 @@
     <color name="on_accent">#0F0E17</color>
     <color name="danger">#FF7B72</color>
     <color name="launcher">#5B4BDB</color>
+    <color name="launcher_night">#15131D</color>
+    <color name="launcher_light">#F3EFFB</color>
+    <color name="launcher_pink">#FFE7EE</color>
     <color name="scrim">#99000000</color>
 </resources>

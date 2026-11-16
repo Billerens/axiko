@@ -119,8 +119,8 @@
         </activity>
 
         <!-- The icon on the phone's home screen. Android takes an app's icon from the component
-             that is launched, so there are two entries and exactly one of them is enabled: with
-             the mascot, or the plain spark for an owner who has put the mascot away. Switched by
+             that is launched, so there is an entry for every look and exactly one of them is enabled: the
+             mascot on violet, dark, light or pink, or the plain spark for an owner who has put the mascot away. Switched by
              Launcher (Native "launcher.icon.set"); the chosen one survives updates of the app. -->
         <activity-alias
             android:name=".IconMascot"
@@ -139,6 +139,54 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_plain"
+            android:label="${assiLabel}"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".IconNight"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_night"
+            android:label="${assiLabel}"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".IconLight"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_light"
+            android:label="${assiLabel}"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".IconPink"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_pink"
+            android:label="${assiLabel}"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".IconPlainNight"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_plain_night"
             android:label="${assiLabel}"
             android:targetActivity=".MainActivity">
             <intent-filter>
@@ -174,7 +222,7 @@
             android:name=".sense.AskTile"
             android:exported="true"
             android:icon="@drawable/ic_spark"
-            android:label="Спросить Аксико"
+            android:label="Спросить Axiko"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE" />
@@ -183,7 +231,7 @@
         <receiver
             android:name=".sense.BoardWidget"
             android:exported="true"
-            android:label="Аксико: модуль">
+            android:label="Axiko: модуль">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
@@ -230,7 +278,7 @@
         <service
             android:name=".sense.ScreenService"
             android:exported="true"
-            android:label="Аксико: видеть экран"
+            android:label="Axiko: видеть экран"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
@@ -244,7 +292,7 @@
         <service
             android:name=".sense.NoticeService"
             android:exported="true"
-            android:label="Аксико: читать уведомления"
+            android:label="Axiko: читать уведомления"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
@@ -255,7 +303,7 @@
         <service
             android:name=".sense.AssistService"
             android:exported="true"
-            android:label="Аксико"
+            android:label="Axiko"
             android:permission="android.permission.BIND_VOICE_INTERACTION">
             <meta-data
                 android:name="android.voice_interaction"
@@ -271,7 +319,7 @@
         <service
             android:name=".sense.AssistRecognitionService"
             android:exported="true"
-            android:label="Аксико">
+            android:label="Axiko">
             <intent-filter>
                 <action android:name="android.speech.RecognitionService" />
             </intent-filter>

@@ -137,6 +137,21 @@ class Bridge(val web: WebView, val name: String) : WebViewCompat.WebMessageListe
     @Volatile
     private var loading: CountDownLatch? = null
 
+    private var scalePercent = 100
+    private var scaleScript: androidx.webkit.ScriptHandler? = null
+
+    /**
+     * The owner's scale of the interface for the pages of this view (see [UiScale]); they take
+     * it at their next load. True when it differs from the one before. Main thread only.
+     */
+    fun scale(percent: Int): Boolean {
+        if (percent == scalePercent) return false
+        scalePercent = percent
+        scaleScript?.remove()
+        scaleScript = UiScale.script(percent)?.let { WebViewCompat.addDocumentStartJavaScript(web, it, setOf(Pages.ORIGIN)) }
+        return true
+    }
+
     init {
         web.settings.apply {
             javaScriptEnabled = true

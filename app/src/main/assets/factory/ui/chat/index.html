@@ -608,8 +608,9 @@
 
   .part {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 8px;
+    gap: 2px 8px;
   }
 
   .part .spinner {
@@ -629,8 +630,15 @@
   }
 
   .part .name {
-    flex: none;
+    flex: 0 1 auto;
+    max-width: 100%;
     font-weight: 600;
+  }
+
+  /* What the piece is doing now: all of it, on as many lines as it takes. */
+  .part .note {
+    flex: 1 1 10em;
+    min-width: 0;
   }
 
   /* A form of questions from the agent: choices to tick and a line for an answer of one's own. */
@@ -643,12 +651,13 @@
 
   .ask .actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
   }
 
   .ask .actions .btn {
     flex: 1 1 0;
-    min-width: 0;
+    min-width: fit-content;
     padding: 0 10px;
     font-size: 15px;
     white-space: nowrap;
@@ -787,7 +796,7 @@
 <header class="bar">
   <div class="who">
     <button class="well" id="mark" aria-label="Выбрать агента"></button>
-    <button class="name truncate" id="pick" aria-label="Выбрать агента"><span id="name">Аксико</span></button>
+    <button class="name truncate" id="pick" aria-label="Выбрать агента"><span id="name">Axiko</span></button>
     <button class="model" id="model" aria-label="Модель этого чата"><span class="truncate" id="model-text" data-raw></span><span data-icon="down"></span></button>
   </div>
   <button class="icon-btn" id="voice" aria-label="Озвучивать ответы"></button>
@@ -852,7 +861,7 @@
   const narrow = () => matchMedia('(max-width: 520px)').matches;
   const nearBottom = () => log.scrollHeight - log.scrollTop - log.clientHeight < 160;
   const toBottom = () => { log.scrollTop = log.scrollHeight; };
-  const current = () => agents.find(agent => agent.id === agentId) || { id: 'assi', title: 'Аксико', icon: 'spark', description: '' };
+  const current = () => agents.find(agent => agent.id === agentId) || { id: 'assi', title: 'Axiko', icon: 'spark', description: '' };
 
   function setBusy(value) {
     busy = value;
@@ -1151,7 +1160,7 @@
     line.replaceChildren(
       event.state === 'run' ? h('span', { class: 'spinner' }) : h('span', { class: 'dot' }),
       h('span', { class: 'name', 'data-raw': '' }, event.name),
-      h('span', { class: 'truncate muted' }, event.note));
+      h('span', { class: 'note muted' }, event.note));
     lights();
   }
 

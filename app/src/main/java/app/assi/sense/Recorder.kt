@@ -44,7 +44,7 @@ object Recorder {
 
     fun start(): JSONObject {
         val service = ScreenService.instance
-            ?: error("Доступ к экрану выключен. Откройте «Настройки» Аксико, раздел «Чувства телефона», и включите «Видеть экран».")
+            ?: error("Доступ к экрану выключен. Откройте «Настройки» Axiko, раздел «Чувства телефона», и включите «Видеть экран».")
         synchronized(steps) { steps.clear() }
         lastPackage = App.instance.packageName
         started = System.currentTimeMillis()
@@ -53,7 +53,7 @@ object Recorder {
         val begun = started
         main.post {
             showStop()
-            Toast.makeText(App.instance, I18n.t("Покажите действие и вернитесь в Аксико — запись остановится сама."), Toast.LENGTH_LONG).show()
+            Toast.makeText(App.instance, I18n.t("Покажите действие и вернитесь в Axiko — запись остановится сама."), Toast.LENGTH_LONG).show()
             MainActivity.current?.moveTaskToBack(true)
         }
         main.postDelayed({ if (active && started == begun) stop() }, MAX_MS)

@@ -13,6 +13,8 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        // A restore from a backup the owner confirmed swaps the folders here, before anyone opens them.
+        app.assi.backup.Backup.startup(this)
         Workspace.init(this)
         runCatching { Store.recover() }.onFailure {
             Workspace.safeMode = true

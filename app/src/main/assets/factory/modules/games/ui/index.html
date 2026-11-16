@@ -347,7 +347,7 @@
     const top = document.querySelector('[data-module-slot="top"]');
     const below = document.querySelector('[data-module-slot="below"]');
     const featured = moduleSection('', others.filter(m => m.top));
-    const rest = moduleSection('Другие игры Аксико', others.filter(m => !m.top));
+    const rest = moduleSection('Другие игры Axiko', others.filter(m => !m.top));
     if (top) top.replaceChildren(...(featured ? [featured] : []));
     if (below) below.replaceChildren(...(rest ? [rest] : []));
   }

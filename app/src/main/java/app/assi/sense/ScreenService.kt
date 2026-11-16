@@ -78,7 +78,7 @@ object Screen {
     private var numbered: List<AccessibilityNodeInfo> = emptyList()
 
     private fun service(): ScreenService = ScreenService.instance
-        ?: error("Доступ к экрану выключен. Откройте «Настройки» Аксико, раздел «Чувства телефона», и включите «Видеть экран».")
+        ?: error("Доступ к экрану выключен. Откройте «Настройки» Axiko, раздел «Чувства телефона», и включите «Видеть экран».")
 
     fun appName(packageName: String): String = label(packageName)
 

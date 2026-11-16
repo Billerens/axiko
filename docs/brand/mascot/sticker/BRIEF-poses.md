@@ -1,4 +1,4 @@
-# Задание: позы Аксико для векторизации
+# Задание: позы Axiko для векторизации
 
 The attached image is the approved design of Axiko. Draw the SAME character in new poses: same
 head shape, proportions, line weight, eyes, gill shapes (three separate feathery fronds on each

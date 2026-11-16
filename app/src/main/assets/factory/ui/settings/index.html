@@ -57,6 +57,89 @@
     background: var(--accent);
     transition: width .3s;
   }
+
+  /* A row that cannot be used right now: a backup is being made. */
+  .list > button:disabled {
+    opacity: .5;
+  }
+
+  /* Two long buttons of a sheet stand one under another on a narrow screen. */
+  .sheet .actions.wrap {
+    flex-wrap: wrap;
+  }
+  /* The scale of the interface: smaller, the value, larger. */
+  .scale {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .scale .now {
+    flex: 1;
+    text-align: center;
+    font-size: 20px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Looks to choose from by their pictures: the chat button, the app's icon. */
+  .looks {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: 10px;
+  }
+
+  .looks button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 6px 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-s);
+    background: var(--surface);
+    font-size: 13px;
+    line-height: 1.25;
+    text-align: center;
+  }
+
+  .looks button.on {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  .looks button:disabled {
+    opacity: .45;
+  }
+
+  .looks .pic {
+    display: grid;
+    place-items: center;
+    width: 64px;
+    height: 64px;
+  }
+
+  .looks .pic img {
+    width: 60px;
+    height: 60px;
+  }
+
+  .looks .round {
+    display: grid;
+    place-items: center;
+    width: 52px;
+    height: 52px;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    background: var(--surface-2);
+  }
+
+  .looks .round.plain {
+    border-color: transparent;
+    background: var(--accent);
+    color: var(--accent-ink);
+  }
 </style>
 <body>
 <main class="page">
@@ -134,7 +217,7 @@
 
     <section class="section">
       <h2>Имя</h2>
-      <p class="muted small">На это имя ассистент откликается голосом: «<span class="wake-name">Аксико</span>, который час?»</p>
+      <p class="muted small">На это имя ассистент откликается голосом: «<span class="wake-name">Axiko</span>, который час?»</p>
       <div class="list" id="wake"></div>
     </section>
   </div>
@@ -142,13 +225,19 @@
   <div class="tab" data-tab="look">
     <section class="section">
       <h2>Язык</h2>
-      <p class="muted small">Язык экранов приложения. Отвечает ассистент на том языке, на котором к нему обратились. Нужного языка нет — попросите Аксико перевести интерфейс: он добавит словарь.</p>
+      <p class="muted small">Язык экранов приложения. Отвечает ассистент на том языке, на котором к нему обратились. Нужного языка нет — попросите Axiko перевести интерфейс: он добавит словарь.</p>
       <div class="list" id="lang"></div>
+    </section>
+
+    <section class="section" id="scale-section" hidden>
+      <h2>Масштаб</h2>
+      <p class="muted small">Размер всего интерфейса: текста, кнопок и отступов. Запоминается отдельно для узкого и для широкого экрана.</p>
+      <div class="scale" id="scale"></div>
     </section>
 
     <section class="section">
       <h2>Тема</h2>
-      <p class="muted small">Тему можно собрать здесь или попросить Аксико: «сделай тему в цветах заката». Его темы появятся в этом списке, их можно править и переключать.</p>
+      <p class="muted small">Тему можно собрать здесь или попросить Axiko: «сделай тему в цветах заката». Его темы появятся в этом списке, их можно править и переключать.</p>
       <div class="list" id="themes"></div>
       <button class="btn soft" id="add-theme">Новая тема</button>
     </section>
@@ -166,8 +255,21 @@
     </section>
 
     <section class="section">
+      <h2>Кнопка чата</h2>
+      <p class="muted small">Кнопка в правом нижнем углу каждого экрана: нажатие открывает чат, долгое нажатие — меню восстановления.</p>
+      <div class="looks" id="button-looks"></div>
+      <p class="muted small" id="button-note" hidden></p>
+    </section>
+
+    <section class="section">
+      <h2>Значок приложения</h2>
+      <p class="muted small">Значок на рабочем столе телефона. Он меняется за несколько секунд; ярлык, вынесенный на рабочий стол вручную, телефон может убрать — тогда верните его из списка приложений.</p>
+      <div class="looks" id="icon-looks"></div>
+    </section>
+
+    <section class="section">
       <h2>Меню</h2>
-      <p class="muted small">Полоса с экранами: снизу, а на широком экране — слева. Попросите Аксико добавить в неё экран или убрать лишнее.</p>
+      <p class="muted small">Полоса с экранами: снизу, а на широком экране — слева. Попросите Axiko добавить в неё экран или убрать лишнее.</p>
       <div class="list" id="menu"></div>
     </section>
   </div>
@@ -209,6 +311,13 @@
   </div>
 
   <div class="tab" data-tab="system">
+    <section class="section">
+      <h2>Резервная копия</h2>
+      <p class="muted small">Один зашифрованный файл со всем личным: рабочая папка, данные модулей, чаты и задачи, настройки, секреты. Скачанные модели, Linux-окружение и кэш в копию не входят: их можно скачать заново.</p>
+      <div class="list" id="backup"></div>
+      <p class="muted small">Копия шифруется вашим паролем. Без пароля её не открыть, и восстановить пароль нельзя: запишите его там, где не потеряете.</p>
+    </section>
+
     <section class="section">
       <h2>Система</h2>
       <div class="list">
@@ -272,7 +381,7 @@
       assi.native('modules.list'), assi.native('speech.status'), assi.native('pref.all'),
     ]);
     document.getElementById('safe').checked = info.safeMode;
-    document.getElementById('about').textContent = `Аксико ${info.version} · ${info.device} · Android ${info.android}`;
+    document.getElementById('about').textContent = `Axiko ${info.version} · ${info.device} · Android ${info.android}`;
     render();
   }
 
@@ -282,11 +391,11 @@
       h('button', { onclick: () => editProvider(provider) },
         h('span', { class: 'grow' },
           h('div', { style: 'font-weight: 600' }, provider.name),
-          h('div', { class: 'value truncate' }, provider.baseUrl)),
+          h('div', { class: 'value' }, provider.baseUrl)),
         h('span', { class: 'badge' }, provider.key ? 'ключ задан' : 'без ключа'))));
-    if (!providers.length) list.replaceChildren(h('div', { class: 'empty' }, 'Пока ни одного. Добавьте провайдера, чтобы Аксико заработал.'));
+    if (!providers.length) list.replaceChildren(h('div', { class: 'empty' }, 'Пока ни одного. Добавьте провайдера, чтобы Axiko заработал.'));
 
-    const rows = [roleRow('main', 'Основной агент', 'Аксико: меняет приложение')];
+    const rows = [roleRow('main', 'Основной агент', 'Axiko: меняет приложение')];
     agents.filter(agent => agent.id !== 'assi').forEach(agent =>
       rows.push(roleRow(agent.role, 'Агент «' + agent.title + '»', agent.description || '')));
     modules.forEach(module => (module.models || []).forEach(model =>
@@ -304,8 +413,8 @@
     const sense = await assi.native('sense.status');
     const steps = [
       ['Провайдер моделей', 'Адрес и ключ сервиса с моделями', providers.length > 0, () => { showTab('models'); editProvider(null); }],
-      ['Основная модель', 'На ней работает Аксико', Boolean(assigned('main')), () => { showTab('models'); editRole('main', 'Основной агент'); }],
-      ['Распознавание речи', 'Скачать модель, чтобы говорить с Аксико голосом', speech.ready || speech.engine === 'system', () => { showTab('voice'); editHearing(); }],
+      ['Основная модель', 'На ней работает Axiko', Boolean(assigned('main')), () => { showTab('models'); editRole('main', 'Основной агент'); }],
+      ['Распознавание речи', 'Скачать модель, чтобы говорить с Axiko голосом', speech.ready || speech.engine === 'system', () => { showTab('voice'); editHearing(); }],
       ['Чувства телефона', 'По желанию: экран других приложений, уведомления, ассистент', sense.screen || sense.notices || sense.assistant,
         () => showTab('phone')],
     ];
@@ -340,8 +449,8 @@
     return h('button', { onclick: () => editRole(role, title, null, standalone) },
       h('span', { class: 'grow' },
         h('div', { style: 'font-weight: 600' }, title),
-        about && h('div', { class: 'value truncate' }, about),
-        h('div', { class: 'value truncate' + (own ? ' set' : '') }, value),
+        about && h('div', { class: 'value' }, about),
+        h('div', { class: 'value' + (own ? ' set' : '') }, value),
         notes.length > 0 && h('div', { class: 'value' }, notes.join(' · '))),
       h('span', { class: 'muted' }, ui.icon('right')));
   }
@@ -403,7 +512,7 @@
       found.hidden = !all.length;
       found.replaceChildren(...(matches.length ? matches : all).slice(0, 200).map(item =>
         h('button', { onclick: () => { model.value = item.id; found.hidden = true; if (onPick) onPick(item); } },
-          h('span', { class: 'grow truncate' }, item.id),
+          h('span', { class: 'grow' }, item.id),
           item.vision && ui.icon('eye'))));
     };
     browse.onclick = async () => {
@@ -719,7 +828,7 @@
     const row = (server, state) => h('button', { onclick: () => editMcp(server) },
       h('span', { class: 'grow' },
         h('div', { style: 'font-weight: 600' }, server.name),
-        h('div', { class: 'value truncate' }, server.url),
+        h('div', { class: 'value' }, server.url),
         state && state.error && h('div', { class: 'value', style: 'color: var(--danger)' }, state.error)),
       state ? h('span', { class: 'badge' }, state.error ? 'нет связи' : 'инструментов: ' + state.tools) : h('span', { class: 'spinner' }));
     list.replaceChildren(...mcpServers.map(server => row(server)));
@@ -765,7 +874,7 @@
     const list = document.getElementById('secrets');
     list.replaceChildren(...names.map(name =>
       h('div', {},
-        h('span', { class: 'grow mono truncate' }, name),
+        h('span', { class: 'grow mono' }, name),
         h('button', { class: 'icon-btn', 'aria-label': 'Заменить', onclick: async () => { await assi.native('secret.ask', name, 'Новое значение', ''); } }, ui.icon('edit')),
         h('button', { class: 'icon-btn', 'aria-label': 'Удалить', onclick: async () => {
           if (await ui.confirm('Удалить секрет «' + name + '»? Модуль, которому он нужен, перестанет работать.', 'Удалить', true)) {
@@ -826,7 +935,7 @@
           h('div', { class: 'value' }, 'Иначе текст попадёт в поле ввода для правки')),
         toggle('voice.autosend', 'on')));
 
-    const engine = h('select', { class: 'input', style: 'width: auto; max-width: 56%' },
+    const engine = h('select', { class: 'input' },
       h('option', { value: 'auto' }, 'Облачный, запасной — на телефоне'),
       h('option', { value: 'cloud' }, 'Только облачный'),
       h('option', { value: 'local' }, 'Только на телефоне'));
@@ -870,7 +979,7 @@
   }
 
   function editName() {
-    const name = h('input', { class: 'input', value: wake.name, placeholder: 'Аксико' });
+    const name = h('input', { class: 'input', value: wake.name, placeholder: 'Axiko' });
     let close = null;
     close = ui.sheet([
       h('div', { style: 'text-align: center' }, ui.mascot('name', { size: 112 })),
@@ -987,7 +1096,7 @@
           h('span', { style: 'color: var(--accent)' }, ui.mark(agent)),
           h('span', { class: 'grow' },
             h('div', { style: 'font-weight: 600' }, agent.title),
-            h('div', { class: 'value truncate' }, agent.description || '')),
+            h('div', { class: 'value' }, agent.description || '')),
           h('span', { class: 'muted' }, ui.icon('right')));
       }));
   }
@@ -1053,9 +1162,75 @@
 
   const isHex = value => /^#[0-9a-f]{6}$/i.test(value || '');
 
+  const MASCOT_FILE = 'ui/mascot/mascot.json';
+  const readMascot = () => fetch('/' + MASCOT_FILE + '?' + Date.now()).then(response => (response.ok ? response.json() : null)).catch(() => null);
+
+  /** The chat button's look: "button" in mascot.json — 'peek', 'badge' or 'round' (true and false are the old spelling of the first and the last). */
+  async function renderButtonLooks() {
+    const config = await readMascot();
+    const on = Boolean(config && config.enabled !== false && config.poses && Object.keys(config.poses).length);
+    const climbs = Boolean(on && config.poses['peek-body'] && config.poses['peek-paw']);
+    let now = !on || config.button === false || config.button === 'round' ? 'round' : config.button === 'badge' ? 'badge' : 'peek';
+    if (now === 'peek' && !climbs) now = 'badge';
+    const looks = [
+      ['peek', 'Маскот у края', climbs, () => ui.mascot('peek', { size: 60 })],
+      ['badge', 'Голова в кружке', on, () => h('span', { class: 'round' }, ui.mascot('head', { size: 40 }))],
+      ['round', 'Круглая кнопка', true, () => h('span', { class: 'round plain', 'data-icon': 'spark' })],
+    ];
+    document.getElementById('button-looks').replaceChildren(...looks.map(([id, label, can, picture]) =>
+      h('button', { class: now === id ? 'on' : '', disabled: !can, onclick: async () => {
+        // The file may have changed since this screen was drawn: only the one field is touched.
+        const fresh = await readMascot();
+        if (!fresh) return ui.toast('Не найден файл маскота: ' + MASCOT_FILE);
+        fresh.button = id;
+        await assi.eval('require("lib/assi").files.writeJson(' + JSON.stringify(MASCOT_FILE) + ', ' + JSON.stringify(fresh) + ')');
+        await assi.native('mascot.changed');
+        renderButtonLooks();
+      } }, h('span', { class: 'pic' }, picture()), label)));
+    const note = document.getElementById('button-note');
+    note.hidden = climbs;
+    note.textContent = !on ? 'Маскот выключен, поэтому кнопка обычная. Включить его можно на экране «Маскот».'
+      : 'Этому персонажу не хватает поз peek-body и peek-paw, поэтому выглядывать из-за края он не может.';
+    ui.icons(document.getElementById('button-looks'));
+  }
+
+  /** The scale of the whole interface. An older shell has none: the section stays hidden. */
+  async function renderScale() {
+    const info = await assi.native('ui.scale').catch(() => null);
+    if (!info) return;
+    document.getElementById('scale-section').hidden = false;
+    const step = by => async () => {
+      // The shell loads every screen anew with the new scale: this one comes back on this tab.
+      history.replaceState(null, '', '?tab=look');
+      await assi.native('ui.scale.set', info.value + by);
+    };
+    document.getElementById('scale').replaceChildren(
+      h('button', { class: 'btn', disabled: info.value <= info.min, onclick: step(-info.step), 'aria-label': 'Мельче' }, 'A−'),
+      h('div', { class: 'now' }, info.value + ' %', h('div', { class: 'small muted', style: 'font-weight: 400' }, info.wide ? 'широкий экран' : 'узкий экран')),
+      h('button', { class: 'btn', disabled: info.value >= info.max, onclick: step(info.step), 'aria-label': 'Крупнее' }, 'A+'));
+  }
+
+  const ICON_LOOKS = {
+    mascot: 'Маскот', night: 'Маскот на тёмном', light: 'Маскот на светлом', pink: 'Розовый маскот', plain: 'Искра', 'plain-night': 'Искра на тёмном',
+  };
+
+  /** The icon on the phone's home screen: the looks built into the shell, each with its real picture. */
+  async function renderIconLooks() {
+    // An older shell knows two looks and gives no pictures.
+    const icons = await assi.native('launcher.icons').catch(async () => {
+      const now = await assi.native('launcher.icon');
+      return ['mascot', 'plain'].map(id => ({ id, on: id === now, image: '' }));
+    });
+    document.getElementById('icon-looks').replaceChildren(...icons.map(icon =>
+      h('button', { class: icon.on ? 'on' : '', onclick: async () => {
+        try { await assi.native('launcher.icon.set', icon.id); } catch (error) { ui.toast(error.message); }
+        renderIconLooks();
+      } }, icon.image && h('span', { class: 'pic' }, h('img', { src: icon.image, alt: '' })), ICON_LOOKS[icon.id] || ui.raw(icon.id))));
+  }
+
   async function renderLook() {
     const speech = await assi.native('lang.status');
-    const language = h('select', { class: 'input', style: 'width: auto; max-width: 60%' },
+    const language = h('select', { class: 'input' },
       h('option', { value: 'auto' }, 'Как в телефоне'),
       speech.languages.map(item => h('option', { value: item.code }, ui.raw(item.name))));
     language.value = speech.setting;
@@ -1065,6 +1240,9 @@
     const face = document.getElementById('mascot-face');
     if (!face.firstChild) face.append(ui.mascot('head', { size: 36 }));
     document.getElementById('mascot-open').onclick = () => assi.open('ui/mascot/index.html');
+    renderButtonLooks();
+    renderIconLooks();
+    renderScale();
 
     const themes = await assi.native('theme.list');
     const none = !themes.some(theme => theme.active);
@@ -1096,7 +1274,7 @@
         h('span', { class: 'muted' }, /\./.test(item.icon || '') ? ui.icon('image') : ui.icon(item.icon || 'box')),
         h('span', { class: 'grow' },
           h('div', { style: 'font-weight: 600' }, item.title),
-          h('div', { class: 'value truncate' }, item.chat ? 'чат с агентом ' + item.chat : item.open)),
+          h('div', { class: 'value' }, item.chat ? 'чат с агентом ' + item.chat : item.open)),
         index > 0 && h('button', { class: 'icon-btn', 'aria-label': 'Выше', onclick: () => {
           const next = items.slice();
           next.splice(index - 1, 0, next.splice(index, 1)[0]);
@@ -1149,7 +1327,7 @@
       h('h3', {}, isNew ? 'Новая тема' : draft.name),
       field('Название', name),
       h('div', { class: 'section' }, pickers),
-      h('p', { class: 'small muted' }, 'Тема — файл themes/' + draft.id + '.json. Остальное в ней (скругления, шрифт, любые стили) может дописать Аксико.'),
+      h('p', { class: 'small muted' }, 'Тема — файл themes/' + draft.id + '.json. Остальное в ней (скругления, шрифт, любые стили) может дописать Axiko.'),
       h('div', { class: 'actions' },
         !isNew && h('button', { class: 'btn danger', onclick: async () => {
           if (!(await ui.confirm('Удалить тему «' + draft.name + '»?', 'Удалить', true))) return;
@@ -1164,6 +1342,7 @@
   document.getElementById('add-theme').onclick = () => editTheme(null);
   assi.on('theme', () => renderLook());
   assi.on('nav', () => renderLook());
+  assi.on('mascot', () => renderButtonLooks());
 
   function editHearing() {
     const engine = h('select', { class: 'input' },
@@ -1260,10 +1439,10 @@
 
   /** Shizuku gives the app the rights of ADB; with them it switches everything above on by itself. */
   function shizukuRow(state) {
-    const about = !state.installed ? 'Не установлен. С ним Аксико сам включает себе все чувства и разрешения и получает права ADB'
+    const about = !state.installed ? 'Не установлен. С ним Axiko сам включает себе все чувства и разрешения и получает права ADB'
       : !state.running ? 'Установлен, но служба не запущена: откройте Shizuku и запустите её'
-        : !state.granted ? 'Запущен. Нажмите, чтобы разрешить Аксико им пользоваться и выдать себе всё'
-          : 'Работает. Нажмите, чтобы Аксико заново выдал себе все разрешения';
+        : !state.granted ? 'Запущен. Нажмите, чтобы разрешить Axiko им пользоваться и выдать себе всё'
+          : 'Работает. Нажмите, чтобы Axiko заново выдал себе все разрешения';
     const act = async () => {
       if (!state.installed) { assi.eval("require('lib/assi').openUrl('https://shizuku.rikka.app/')"); return; }
       try {
@@ -1306,7 +1485,7 @@
       row('Системный ассистент', 'Вызов жестом ассистента поверх любого приложения, с его экраном', sense.assistant, () => assi.native('sense.open', 'assistant')),
       h('label', {},
         h('span', { class: 'grow' }, 'Плавающая кнопка',
-          h('div', { class: 'value' }, 'Поверх других приложений: нажали — и спрашиваете Аксико об этом экране')),
+          h('div', { class: 'value' }, 'Поверх других приложений: нажали — и спрашиваете Axiko об этом экране')),
         bubble),
       shizukuRow(await assi.native('shizuku.status')),
       h('button', { onclick: () => assi.native('sense.open', 'app') },
@@ -1323,6 +1502,196 @@
     if (!report) return;
     assi.native('pref.set', 'empower.report', null);
     ui.sheet([h('h3', {}, 'Что получилось'), h('pre', { class: 'mono', style: 'white-space: pre-wrap; margin: 0' }, report)]);
+  });
+
+  // ---- backup ------------------------------------------------------------------------------
+  // The shell does the work (natives backup.*) and asks for the password in its own dialog:
+  // this screen never sees it. Progress and results come as the "backup" event.
+
+  const BACKUP_STAGES = {
+    ask: 'Ответьте в системном окне', collect: 'Читаю файлы', write: 'Шифрую', verify: 'Проверяю, что копия читается',
+    deliver: 'Сохраняю в выбранное место', read: 'Читаю файл', unpack: 'Расшифровываю и проверяю',
+    sync: 'Готовлю восстановление', restart: 'Перезапускаю приложение',
+  };
+  const BACKUP_PARTS = {
+    workspace: 'рабочая папка', data: 'данные модулей', state: 'чаты и задачи', drafts: 'черновики',
+    history: 'история изменений', settings: 'настройки', secrets: 'секреты',
+  };
+  const BACKUP_MODES = { off: 'Выключена', daily: 'Каждый день', weekly: 'Каждую неделю' };
+  const sized = bytes => (bytes >= 1073741824 ? ui.t('{} ГБ', (bytes / 1073741824).toFixed(1))
+    : ui.t('{} МБ', (bytes / 1048576).toFixed(bytes >= 10485760 ? 0 : 1)));
+  let backup = null;
+  let backupLive = null;
+  let backupSheet = null;
+
+  function backupProgress(busy) {
+    if (!backupLive || backupLive.stage !== busy.stage) return false;
+    const measured = busy.total > 0;
+    backupLive.bar.parentNode.hidden = !measured;
+    if (measured) backupLive.bar.style.width = Math.min(100, Math.round(busy.done / busy.total * 100)) + '%';
+    backupLive.note.textContent = ui.t(BACKUP_STAGES[busy.stage] || 'Работаю') + (busy.done > 0 ? ' · ' + sized(busy.done) : '');
+    return true;
+  }
+
+  async function renderBackup(state) {
+    backup = state || await assi.native('backup.status');
+    const busy = backup.busy;
+    const last = backup.last;
+    const auto = backup.auto;
+    const rows = [];
+    backupLive = null;
+    if (busy) {
+      const bar = h('div', {});
+      const note = h('div', { class: 'value' });
+      backupLive = { stage: busy.stage, bar, note };
+      const stoppable = ['collect', 'write', 'verify', 'deliver', 'unpack'].includes(busy.stage);
+      rows.push(h('div', {},
+        h('span', { class: 'grow' },
+          h('div', { style: 'font-weight: 600' }, busy.kind === 'open' || busy.kind === 'apply' ? 'Восстановление из копии' : 'Создаётся копия'),
+          note, h('div', { class: 'progress', hidden: true }, bar)),
+        stoppable && h('button', { class: 'btn small', onclick: () => assi.native('backup.cancel') }, 'Отмена')));
+      backupProgress(busy);
+    } else {
+      rows.push(h('div', {},
+        h('span', { class: 'grow' },
+          h('div', { style: 'font-weight: 600' }, 'Последняя копия'),
+          last ? h('div', { class: 'value' }, ui.ago(last.at), ' · ', last.auto ? 'по расписанию' : 'вручную') : h('div', { class: 'value' }, 'Ещё не делалась'),
+          last && h('div', { class: 'value' }, 'Размер: ' + sized(last.bytes)),
+          last && last.name && h('div', { class: 'value mono' }, ui.raw(last.name)),
+          backup.error && h('div', { class: 'value', style: 'color: var(--danger)' }, 'Автокопия не получилась: ' + backup.error.text))));
+    }
+    if (backup.pending && !backupSheet) {
+      rows.push(h('button', { onclick: () => confirmRestore(backup.pending) },
+        h('span', { class: 'grow' }, 'Копия проверена и ждёт решения',
+          h('div', { class: 'value' }, 'Посмотреть, что внутри, и восстановить')),
+        h('span', { class: 'muted' }, ui.icon('right'))));
+    }
+    rows.push(
+      h('button', { disabled: Boolean(busy), onclick: () => assi.native('backup.save').catch(error => ui.toast(error.message)) },
+        h('span', { class: 'grow' }, 'Сохранить копию…',
+          h('div', { class: 'value' }, 'Память телефона, Google Диск или другое облако: место выбирается в системном окне'))),
+      h('button', { disabled: Boolean(busy), onclick: () => assi.native('backup.open').catch(error => ui.toast(error.message)) },
+        h('span', { class: 'grow' }, 'Восстановить из копии…',
+          h('div', { class: 'value' }, 'Сначала покажу, что в файле, и спрошу. Нынешнее содержимое будет заменено'))));
+    const history = h('input', { type: 'checkbox', class: 'switch', checked: backup.history });
+    history.onchange = () => assi.native('backup.set', { history: history.checked }).then(renderBackup);
+    rows.push(h('label', {},
+      h('span', { class: 'grow' }, 'Включать историю изменений',
+        h('div', { class: 'value' }, 'Снимки для отката правок. Копия станет заметно больше')),
+      history));
+    const missing = auto.mode !== 'off' && (!auto.folderOk ? 'Папка недоступна: выберите её заново' : !auto.password ? 'Не задан пароль' : '');
+    rows.push(h('button', { onclick: editBackupAuto },
+      h('span', { class: 'grow' }, 'Автокопия',
+        h('div', { class: 'value' + (auto.mode !== 'off' && !missing ? ' set' : '') },
+          auto.mode === 'off' ? 'Выключена' : ui.t(BACKUP_MODES[auto.mode]) + ', ' + auto.time + ' · ' + (auto.folder || ui.t('папка не выбрана'))),
+        missing && h('div', { class: 'value', style: 'color: var(--danger)' }, missing)),
+      h('span', { class: 'muted' }, ui.icon('right'))));
+    // The folders from before a restore are kept until the app has started well once; in safe mode they can be put back.
+    if (backup.undo) {
+      rows.push(h('button', { onclick: async () => {
+        if (await ui.confirm('Вернуть всё как было до восстановления из копии? Приложение перезапустится.', 'Вернуть', true)) {
+          assi.native('backup.undo').catch(error => ui.toast(error.message));
+        }
+      } }, h('span', { class: 'grow', style: 'color: var(--danger)' }, 'Вернуть как было до восстановления')));
+    }
+    document.getElementById('backup').replaceChildren(...rows);
+  }
+
+  function confirmRestore(copy) {
+    if (backupSheet) return;
+    const inside = copy.parts.map(part => ui.t(BACKUP_PARTS[part.id] || part.id) + (part.id === 'secrets' ? ' (' + copy.secrets + ')' : '')).join(', ');
+    const made = new Date(copy.created).toLocaleString(window.__lang || 'ru', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const fact = (title, value) => h('div', {}, h('span', { class: 'grow' }, title, h('div', { class: 'value' }, value)));
+    let decided = false;
+    const close = backupSheet = ui.sheet([
+      h('h3', {}, 'Восстановить из этой копии?'),
+      h('div', { class: 'list' },
+        fact('Когда сделана', ui.raw(made)),
+        fact('Где сделана', ui.raw('Axiko ' + (copy.app.version || '') + ' (' + (copy.app.id || '') + ')' + (copy.device ? ' · ' + copy.device : ''))),
+        fact('Размер', sized(copy.bytes) + ', файлов: ' + copy.files),
+        fact('Что внутри', ui.raw(inside))),
+      h('p', {}, 'Всё перечисленное на этом телефоне будет заменено содержимым копии. Скачанные модели и Linux-окружение останутся как есть.',
+        !copy.history && ' История изменений останется нынешней: в копии её нет.'),
+      h('p', { class: 'muted small' }, 'Приложение перезапустится. Нынешнее состояние хранится до первого удачного запуска: если после восстановления экран не откроется, удерживайте круглую кнопку и выберите «Вернуть как было до восстановления из копии».'),
+      h('div', { class: 'actions' },
+        h('button', { class: 'btn', onclick: () => close() }, 'Отмена'),
+        h('button', { class: 'btn danger', onclick: () => {
+          decided = true;
+          close();
+          assi.native('backup.apply').catch(error => { ui.toast(error.message); renderBackup(); });
+        } }, 'Восстановить')),
+    ], async () => {
+      backupSheet = null;
+      // Closed without a decision: the unpacked copy is removed from the phone.
+      if (!decided) await assi.native('backup.discard').catch(() => {});
+      renderBackup();
+    });
+  }
+
+  function editBackupAuto() {
+    const auto = backup.auto;
+    const mode = h('select', { class: 'input' }, Object.keys(BACKUP_MODES).map(value => h('option', { value }, BACKUP_MODES[value])));
+    mode.value = auto.mode;
+    const time = h('input', { class: 'input', type: 'time', value: auto.time });
+    const keep = h('input', { class: 'input', inputMode: 'numeric', value: auto.keep });
+    const folderValue = h('div', { class: 'value' });
+    const passwordValue = h('div', { class: 'value' });
+    const now = h('button', { class: 'btn soft' }, 'Сделать копию сейчас');
+    const show = () => {
+      const state = backup.auto;
+      folderValue.textContent = !state.folder ? 'Не выбрана' : state.folderOk ? state.folder : 'Доступ потерян, выберите заново: ' + state.folder;
+      passwordValue.textContent = state.password ? 'Задан. Хранится в защищённом хранилище телефона' : 'Не задан';
+      now.disabled = !state.folderOk || !state.password || Boolean(backup.busy);
+    };
+    const ask = name => async () => {
+      try {
+        backup = await assi.native(name);
+        show();
+        renderBackup(backup);
+      } catch (error) {
+        ui.toast(error.message);
+      }
+    };
+    let close = null;
+    const save = async () => {
+      if (mode.value !== 'off' && (!backup.auto.folderOk || !backup.auto.password)) {
+        ui.toast('Сначала выберите папку и задайте пароль');
+        return false;
+      }
+      try {
+        renderBackup(await assi.native('backup.set', { auto: mode.value, time: time.value || auto.time, keep: Number(keep.value) || 3 }));
+        return true;
+      } catch (error) {
+        ui.toast(error.message);
+        return false;
+      }
+    };
+    now.onclick = async () => {
+      if (!(await save())) return;
+      close();
+      assi.native('backup.now').catch(error => ui.toast(error.message));
+    };
+    show();
+    close = ui.sheet([
+      h('h3', {}, 'Автокопия'),
+      h('p', { class: 'muted small' }, 'Копия сама сохраняется в папку телефона в спокойное время. Уведомление придёт, только если копия не получилась.'),
+      field('Как часто', mode),
+      field('Во сколько', time),
+      field('Сколько последних копий хранить', keep),
+      h('div', { class: 'list' },
+        h('button', { onclick: ask('backup.folder') }, h('span', { class: 'grow' }, 'Папка', folderValue), h('span', { class: 'muted' }, ui.icon('right'))),
+        h('button', { onclick: ask('backup.password') }, h('span', { class: 'grow' }, 'Пароль автокопии', passwordValue), h('span', { class: 'muted' }, ui.icon('right')))),
+      h('div', { class: 'actions wrap' },
+        now,
+        h('button', { class: 'btn primary', onclick: async () => { if (await save()) close(); } }, 'Сохранить')),
+    ]);
+  }
+
+  assi.on('backup', event => {
+    if (event.busy && backupProgress(event.busy)) return;
+    if (event.error) ui.toast(event.error);
+    if (event.done) ui.toast('Копия сохранена: ' + sized(event.last.bytes));
+    renderBackup().then(() => { if (event.pending) confirmRestore(event.pending); });
   });
 
   // ---- system ------------------------------------------------------------------------------
@@ -1356,6 +1725,7 @@
   assi.on('local.note', note => ui.toast(note));
 
   cacheSize();
+  renderBackup();
   renderSecrets();
   renderMcp();
   renderLan();
@@ -1371,7 +1741,7 @@
   // The first time the settings are opened they are shown around.
   const showAround = () => ui.tour.offer('settings', [
     { target: '#checklist', title: 'Настройка по шагам', text: 'Что осталось сделать, чтобы приложение заработало. Нажмите на шаг — откроется нужное место.' },
-    { target: '#tabs', title: 'Разделы', text: 'Модели — на чём думает приложение. Агенты — кто в нём работает и по каким инструкциям. Голос — как оно слушает и говорит. Вид — язык, тема, меню и маскот. Телефон — что ему разрешено видеть и делать. Связи — внешние инструменты и доступ с компьютера. Система — безопасный режим и сброс.' },
+    { target: '#tabs', title: 'Разделы', text: 'Модели — на чём думает приложение. Агенты — кто в нём работает и по каким инструкциям. Голос — как оно слушает и говорит. Вид — язык, тема, меню и маскот. Телефон — что ему разрешено видеть и делать. Связи — внешние инструменты и доступ с компьютера. Система — резервная копия, безопасный режим и сброс.' },
     { target: '.tab:not([hidden])', title: 'Всё это — тоже файлы', text: 'Любую настройку можно поменять и просьбой в чате: «сделай тему потемнее», «зови себя Марфой», «включи озвучку ответов».' },
   ]);
   load().then(renderUsage).then(showAround).catch(error => ui.toast(error.message));

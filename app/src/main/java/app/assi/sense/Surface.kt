@@ -80,7 +80,7 @@ object Widgets {
         var open = MainActivity.HOME
         var picture: Bitmap? = null
         if (module == null) {
-            views.setTextViewText(R.id.widget_title, "Аксико")
+            views.setTextViewText(R.id.widget_title, "Axiko")
             views.setTextViewText(R.id.widget_text, "Удерживайте виджет и выберите модуль")
         } else {
             val content = runCatching { JSONObject(Engine.rpc("modules/$module/main.js", "widget", "[]") ?: "{}") }
@@ -137,7 +137,7 @@ class WidgetChoice : Activity() {
         val sources = Widgets.sources()
         if (sources.isEmpty()) {
             AlertDialog.Builder(this)
-                .setMessage("Пока ни один модуль не умеет показывать себя в виджете. Попросите Аксико: «сделай виджет для модуля …».")
+                .setMessage("Пока ни один модуль не умеет показывать себя в виджете. Попросите Axiko: «сделай виджет для модуля …».")
                 .setPositiveButton("Понятно", null)
                 .setOnDismissListener { finish() }
                 .show()

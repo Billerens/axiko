@@ -27,14 +27,14 @@ internal object StoreServiceFixtures {
 
     data class Package(val entry: JSONObject, val manifest: ByteArray, val zip: ByteArray)
 
-    fun bundle(id: String = "demo.counter", version: String = "1.0.0", main: String = "exports.value = function () {\n  return 1;\n};\n", dependency: Pair<String, String>? = null): Package {
+    fun bundle(id: String = "demo.counter", version: String = "1.0.0", main: String = "exports.value = function () {\n  return 1;\n};\n", dependency: Pair<String, String>? = null, extra: Map<String, ByteArray> = emptyMap()): Package {
         val files = linkedMapOf(
             "README.md" to "# Counter\nA readable fixture, no personal data.\n".toByteArray(),
             "LICENSE" to "MIT test fixture\n".toByteArray(),
             "code/module.json" to JSONObject().put("id", id).put("title", "Counter").put("entry", "ui/index.html").put("autostart", false).toString().toByteArray(),
             "code/main.js" to main.toByteArray(),
             "code/ui/index.html" to "<!doctype html>\n<html><body><p>Fixture counter</p></body></html>\n".toByteArray(),
-        )
+        ).apply { putAll(extra) }
         val manifest = JSONObject().put("schemaVersion", 1).put("id", id).put("kind", "module").put("version", version)
             .put("publisher", "demo").put("license", "MIT").put("sourceFormat", "readable").put("entry", "code/ui/index.html")
             .put("runtime", JSONObject().put("assiApi", 1)).put("capabilities", JSONArray().put("storage.own"))

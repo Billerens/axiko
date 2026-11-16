@@ -169,7 +169,7 @@ object Notices {
     /** What is in the notification shade right now. */
     fun active(): JSONArray {
         val service = NoticeService.instance
-            ?: error("Доступ к уведомлениям выключен. Откройте «Настройки» Аксико, раздел «Чувства телефона», и включите «Читать уведомления».")
+            ?: error("Доступ к уведомлениям выключен. Откройте «Настройки» Axiko, раздел «Чувства телефона», и включите «Читать уведомления».")
         return JSONArray(service.activeNotifications.mapNotNull { describe(it) }.sortedByDescending { it.getLong("time") })
     }
 

@@ -26,6 +26,9 @@ class StoreInstaller(
     private val reserved = setOf("games", "store", "engine", "daily", "links", "template")
     private val binaries = setOf("apk", "dex", "jar", "aar", "class", "so", "dll", "exe", "wasm", "zip")
 
+    /** Releases that broke the rules; the same file the service writes on a reviewer's reject. */
+    val bans = StoreBans(stateDir)
+
     init {
         require(workspace.isAbsolute && stateDir.isAbsolute) { "Установщику нужны абсолютные рабочие каталоги." }
         require(workspace.isDirectory || workspace.mkdirs())
@@ -40,6 +43,8 @@ class StoreInstaller(
     private fun prepareInternal(sourceId: String, entry: JSONObject, manifestBytes: ByteArray, archiveFile: File, rollback: Boolean): JSONObject {
         require(sourceId.isNotEmpty() && sourceId.length <= 256 && sourceId.none { it.code < 32 }) { "Некорректный источник." }
         StoreFormat.packageEntry(entry)
+        // Asked before anything is unpacked: a banned archive is not staged again, by hand or by an agent.
+        bans.find(entry.getJSONObject("archive").getString("sha256"))?.let { throw StoreBanned(it) }
         val manifest = StoreFormat.manifest(manifestBytes)
         StoreFormat.compatible(entry, manifest)
         val id = manifest.getString("id"); val kind = manifest.getString("kind")
@@ -158,6 +163,7 @@ class StoreInstaller(
     fun apply(planId: String, expectedDigest: String): JSONObject {
         recover()
         val plan = loadPlan(planId)
+        bans.find(plan.getString("artifactSha256"))?.let { throw StoreBanned(it) }
         require(plan.getString("status") == "ready") { "Сначала разрешите конфликты обновления." }
         require(plan.getString("digest") == expectedDigest) { "План изменился после проверки." }
         verifyCandidate(plan); verifyLive(plan); checkDependencies(plan)
@@ -268,8 +274,9 @@ class StoreInstaller(
 
     private fun verifyRelease(archive: File, entry: JSONObject, manifestBytes: ByteArray): File {
         val expected = entry.getJSONObject("archive"); val hash = expected.getString("sha256")
-        require(archive.isFile && archive.length() == expected.getLong("size") && archive.length() <= StoreFormat.MAX_ARCHIVE) { "Размер скачанного архива не совпадает с индексом." }
-        require(StoreFormat.sha256(archive) == hash) { "SHA-256 скачанного архива не совпадает с индексом." }
+        // A damaged download or a stale index is the source's trouble, never a ban of the package.
+        if (!(archive.isFile && archive.length() == expected.getLong("size") && archive.length() <= StoreFormat.MAX_ARCHIVE)) throw StoreSourceFault("Размер скачанного архива не совпадает с индексом.")
+        if (StoreFormat.sha256(archive) != hash) throw StoreSourceFault("SHA-256 скачанного архива не совпадает с индексом.")
         val manifest = StoreFormat.manifest(manifestBytes)
         val release = File(releases, hash)
         val fresh = File(releases, ".unpack-${UUID.randomUUID()}").apply { mkdirs() }
@@ -278,36 +285,44 @@ class StoreInstaller(
         val found = ArrayList<String>(); val directoryNames = HashSet<String>(); val findings = JSONArray(); var total = 0L
         try {
             ZipFile(archive).use { zip ->
+                // The manifest came by its own address and is pinned by no hash. Only when the archive carries
+                // the same one is its list of files the archive's own word, and a mismatch the package's fault.
+                val inside = zip.getEntry("package.json") ?: throw StoreSourceFault("В архиве нет package.json.")
+                if (inside.isUnixSymlink || inside.generalPurposeBit.usesEncryption() || !zip.canReadEntryData(inside) || inside.size > StoreFormat.MAX_METADATA) throw StoreSourceFault("Манифест в архиве не читается.")
+                val insideBytes = zip.getInputStream(inside).use { input -> val out = java.io.ByteArrayOutputStream(); val part = ByteArray(16384); while (true) { val count = input.read(part); if (count < 0) break; if (out.size() + count > StoreFormat.MAX_METADATA) throw StoreSourceFault("Манифест в архиве превышает лимит."); out.write(part, 0, count) }; out.toByteArray() }
+                if (runCatching { StoreFormat.canonical(StoreFormat.manifest(insideBytes)) }.getOrNull() != StoreFormat.canonical(manifest)) throw StoreSourceFault("Манифест в ZIP отличается от опубликованного манифеста.")
                 val entries = zip.entries
                 var entryCount = 0
                 while (entries.hasMoreElements()) {
                     require(++entryCount <= 4096) { "Слишком много служебных записей ZIP." }
                     val item = entries.nextElement(); val name = item.name
-                    require(!item.isUnixSymlink && (item.unixMode == 0 || item.unixMode and 0xf000 in setOf(0, 0x8000, 0x4000))) { "Ссылки и специальные файлы в ZIP запрещены." }
-                    require(!item.generalPurposeBit.usesEncryption() && zip.canReadEntryData(item)) { "Зашифрованный или неподдерживаемый ZIP." }
+                    if (item.isUnixSymlink || !(item.unixMode == 0 || item.unixMode and 0xf000 in setOf(0, 0x8000, 0x4000))) throw StoreViolation("archive.unsafe", name.take(240), "Ссылки и специальные файлы в ZIP запрещены: ${name.take(240)}.")
+                    if (item.generalPurposeBit.usesEncryption()) throw StoreViolation("archive.unsafe", name.take(240), "В архиве есть зашифрованная запись: ${name.take(240)}.")
+                    require(zip.canReadEntryData(item)) { "Неподдерживаемый способ сжатия ZIP." }
                     if (item.isDirectory) {
-                        val p = StoreFormat.path(name.removeSuffix("/")); require(p == "code" || p == "assets" || p.startsWith("code/") || p.startsWith("assets/"))
+                        val p = archivePath(name.removeSuffix("/")); require(p == "code" || p == "assets" || p.startsWith("code/") || p.startsWith("assets/"))
                         require(directoryNames.add(p.lowercase(Locale.ROOT))) { "Повторяющийся каталог ZIP." }; continue
                     }
-                    StoreFormat.path(name); require(name == "package.json" || declared.containsKey(name)) { "Необъявленный файл в архиве: $name." }
+                    archivePath(name); if (!(name == "package.json" || declared.containsKey(name))) throw StoreViolation("content.mismatch", name, "Необъявленный файл в архиве: $name.")
                     require(found.size < StoreFormat.MAX_FILES && name !in found) { "Повторяющийся файл или слишком много файлов ZIP." }
                     val ceiling = if (name == "package.json") StoreFormat.MAX_METADATA else StoreFormat.MAX_FILE
                     val buffer = java.io.ByteArrayOutputStream(); val bytes = ByteArray(16384)
                     zip.getInputStream(item).use { input -> while (true) { val count = input.read(bytes); if (count < 0) break; require(buffer.size() + count <= ceiling && total + count <= StoreFormat.MAX_UNPACKED) { "Превышен лимит распаковки." }; buffer.write(bytes, 0, count); total += count } }
                     val content = buffer.toByteArray()
                     if (name == "package.json") require(StoreFormat.canonical(StoreFormat.manifest(content)) == StoreFormat.canonical(manifest)) { "Манифест в ZIP отличается от проверенного." }
-                    else { val record = declared.getValue(name); require(content.size.toLong() == record.getLong("size") && StoreFormat.sha256(content) == record.getString("sha256")) { "Не совпали размер или хеш файла $name." } }
+                    else { val record = declared.getValue(name); if (!(content.size.toLong() == record.getLong("size") && StoreFormat.sha256(content) == record.getString("sha256"))) throw StoreViolation("content.mismatch", name, "Размер или хеш файла $name не совпали с манифестом.") }
                     scanSource(name, content, findings)
                     File(archiveRoot, name).apply { requireNotNull(parentFile).mkdirs(); writeBytes(content) }; found.add(name)
                 }
             }
             StoreFormat.uniquePaths(found)
-            require(found.toSet() == declared.keys + "package.json" && found.size == expected.getInt("fileCount") && total == expected.getLong("unpackedSize")) { "Состав или распакованный размер ZIP не совпал с индексом." }
+            (declared.keys - found.toSet()).firstOrNull()?.let { throw StoreViolation("content.mismatch", it, "В архиве нет объявленного в манифесте файла $it.") }
+            if (!(found.size == expected.getInt("fileCount") && total == expected.getLong("unpackedSize"))) throw StoreSourceFault("Состав или распакованный размер ZIP не совпал с индексом.")
             val mapped = declared.keys.mapNotNull(::virtualToInstalled); StoreFormat.uniquePaths(mapped)
             for (path in declared.keys) virtualToInstalled(path)?.let { copyFile(File(archiveRoot, path), File(payload, it)) }
             validateRuntime(payload, manifest)
             if (manifest.getString("kind") == "module" && StoreFormat.parse(File(payload, "module.json").readBytes()).optBoolean("autostart")) {
-                findings.put(JSONObject().put("code", "autostart").put("path", "code/module.json").put("message", "Модуль просит фоновый запуск при следующем старте Аксико."))
+                findings.put(JSONObject().put("code", "autostart").put("rule", "background.declared").put("path", "code/module.json").put("message", "Модуль просит фоновый запуск при следующем старте Axiko."))
             }
             atomicJson(File(fresh, "analysis.json"), JSONObject().put("findings", findings))
             copyFile(archive, File(fresh, "package.zip"))
@@ -346,17 +361,17 @@ class StoreInstaller(
 
     private fun scanSource(name: String, bytes: ByteArray, findings: JSONArray) {
         val extension = name.substringAfterLast('.', "").lowercase(Locale.ROOT)
-        require(extension !in binaries && !(bytes.size >= 4 && bytes[0] == 0x7f.toByte() && bytes[1] == 'E'.code.toByte() && bytes[2] == 'L'.code.toByte() && bytes[3] == 'F'.code.toByte())) { "Бинарный исполняемый файл запрещён: $name." }
+        if (extension in binaries || bytes.size >= 4 && bytes[0] == 0x7f.toByte() && bytes[1] == 'E'.code.toByte() && bytes[2] == 'L'.code.toByte() && bytes[3] == 'F'.code.toByte()) throw StoreViolation("code.binary", name, "Бинарный исполняемый файл запрещён: $name.")
         if (extension !in setOf("js", "mjs", "css", "html", "htm")) return
         val source = StoreFormat.utf8(bytes)
-        require(!Regex("(?i)\\.min\\.(js|mjs|css)$").containsMatchIn(name)) { "Минифицированный файл запрещён: $name." }
-        require(!Regex("eval\\s*\\(\\s*(?:atob|unescape|String\\.fromCharCode)|eval\\s*\\(function\\(p,a,c,k,e", RegexOption.IGNORE_CASE).containsMatchIn(source)) { "Обнаружен упакованный исполняемый код: $name." }
+        if (Regex("(?i)\\.min\\.(js|mjs|css)$").containsMatchIn(name)) throw StoreViolation("code.obfuscated", name, "Минифицированный файл запрещён: $name.")
+        if (Regex("eval\\s*\\(\\s*(?:atob|unescape|String\\.fromCharCode)|eval\\s*\\(function\\(p,a,c,k,e", RegexOption.IGNORE_CASE).containsMatchIn(source)) throw StoreViolation("code.obfuscated", name, "Обнаружен упакованный исполняемый код: $name.")
         val codeWithoutData = codeWithoutLiterals(source)
-        require(codeWithoutData.lineSequence().none { it.length > 1500 && it.count { c -> c == ';' } > 15 }) { "Исходник похож на минифицированный: $name. Поставьте читаемую версию." }
-        require(!Regex("(?i)<script[^>]+src\\s*=\\s*[\"']?(?:https?:)?//|(?:import\\s+[^;]*?from|import\\s*\\(|importScripts\\s*\\(|new\\s+(?:Worker|SharedWorker)\\s*\\()\\s*[\"'](?:https?:)?//|@import\\s+(?:url\\(\\s*)?[\"']?(?:https?:)?//").containsMatchIn(source)) { "Удалённый исполняемый код запрещён: $name." }
-        if (Regex("\\b(?:Packages|java|context)\\b|native\\s*\\(|host\\.").containsMatchIn(codeWithoutData)) findings.put(JSONObject().put("code", "privileged-runtime").put("path", name).put("message", "Код обращается к возможностям приложения; изоляция прав пока не обеспечивается."))
-        if (Regex("https?://|fetch\\s*\\(|XMLHttpRequest|\\.http\\.").containsMatchIn(source)) findings.put(JSONObject().put("code", "network-use").put("path", name).put("message", "Нужно проверить сетевые адреса и передаваемые данные."))
-        if (Regex("\\beval\\s*\\(|\\bnew\\s+Function\\s*\\(").containsMatchIn(codeWithoutData)) findings.put(JSONObject().put("code", "dynamic-code").put("path", name).put("message", "Нужно проверить происхождение динамически выполняемого кода."))
+        if (codeWithoutData.lineSequence().any { it.length > 1500 && it.count { c -> c == ';' } > 15 }) throw StoreViolation("code.obfuscated", name, "Исходник похож на минифицированный: $name. Нужна читаемая версия.")
+        if (Regex("(?i)<script[^>]+src\\s*=\\s*[\"']?(?:https?:)?//|(?:import\\s+[^;]*?from|import\\s*\\(|importScripts\\s*\\(|new\\s+(?:Worker|SharedWorker)\\s*\\()\\s*[\"'](?:https?:)?//|@import\\s+(?:url\\(\\s*)?[\"']?(?:https?:)?//").containsMatchIn(source)) throw StoreViolation("code.remote", name, "Удалённый исполняемый код запрещён: $name.")
+        if (Regex("\\b(?:Packages|java|context)\\b|native\\s*\\(|host\\.").containsMatchIn(codeWithoutData)) findings.put(JSONObject().put("code", "privileged-runtime").put("rule", "privilege.declared").put("path", name).put("message", "Код обращается к возможностям приложения; изоляция прав пока не обеспечивается."))
+        if (Regex("https?://|fetch\\s*\\(|XMLHttpRequest|\\.http\\.").containsMatchIn(source)) findings.put(JSONObject().put("code", "network-use").put("rule", "network.declared").put("path", name).put("message", "Нужно проверить сетевые адреса и передаваемые данные."))
+        if (Regex("\\beval\\s*\\(|\\bnew\\s+Function\\s*\\(").containsMatchIn(codeWithoutData)) findings.put(JSONObject().put("code", "dynamic-code").put("rule", "code.dynamic").put("path", name).put("message", "Нужно проверить происхождение динамически выполняемого кода."))
     }
 
     /** Lexical masking for readability heuristics only, not a JavaScript parser or security boundary.
@@ -427,6 +442,11 @@ class StoreInstaller(
     private fun registry(): JSONObject = if (registryFile.exists()) readJson(registryFile) else JSONObject()
     private fun readJson(file: File): JSONObject = StoreFormat.parse(file.readBytes(), 8 * StoreFormat.MAX_METADATA)
     private fun baseDirectory(record: JSONObject): File { val directory = File(File(releases, StoreFormat.hash(record.getString("artifactSha256"))), "payload"); val declared = record.getJSONObject("baseFiles"); require(fileHashes(directory) == declared.keys().asSequence().associateWith { declared.getString(it) }) { "Исходная версия установленного пакета повреждена." }; return directory }
+    /** A name that climbs out of the package is an attack on the installer, not a slip of formatting. */
+    private fun archivePath(name: String): String {
+        if (name.startsWith('/') || '\\' in name || name.split('/').any { it == ".." } || Regex("^[A-Za-z]:").containsMatchIn(name)) throw StoreViolation("archive.unsafe", name.take(240), "Путь в архиве выходит за разрешённые каталоги: ${name.take(240)}.")
+        return StoreFormat.path(name)
+    }
     private fun virtualToInstalled(path: String): String? = when { path.startsWith("code/") -> path.removePrefix("code/"); path.startsWith("assets/") -> path; else -> null }
     private fun token(value: String): String { require(Regex("[a-f0-9-]{36}").matches(value)) { "Некорректный ID операции." }; return value }
     private fun targetFile(path: String): File { require(Regex("modules/(?:games/)?[a-z0-9][a-z0-9.-]{0,95}").matches(path) && !path.contains("..")) { "Недопустимый путь установки." }; val target = File(workspace, path); var parent: File? = target; while (parent != null && parent != workspace.parentFile) { require(!Files.isSymbolicLink(parent.toPath())) { "Ссылки в пути установки запрещены." }; parent = parent.parentFile }; require(target.canonicalFile.toPath().startsWith(workspace.canonicalFile.toPath())) ; return target }

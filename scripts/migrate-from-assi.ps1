@@ -31,5 +31,5 @@ Device "run-as $new sh -c 'for f in shared_prefs/*.xml; do sed -i s#/$old/#/$new
 $check = Device "run-as $new ls files/assi" | Select-Object -First 3
 if (-not $check) { throw "В новой установке нет рабочей папки — перенос не удался, старая установка не тронута." }
 Write-Host "Готово. Рабочая папка на месте: $($check -join ', ')…"
-Write-Host 'Заново выдайте Аксико системные разрешения: экран, уведомления, роль ассистента, Shizuku.'
+Write-Host 'Заново выдайте Axiko системные разрешения: экран, уведомления, роль ассистента, Shizuku.'
 if ($Remove) { & $adb @target uninstall $old | Out-Null; Write-Host "Старая установка $old удалена." }

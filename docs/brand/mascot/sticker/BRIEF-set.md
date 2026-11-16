@@ -1,4 +1,4 @@
-# Задание: набор Аксико в стиле «стикер»
+# Задание: набор Axiko в стиле «стикер»
 
 The attached image is the approved design of Axiko — keep EXACTLY this character and style in
 every image: sticker-pack illustration, thick soft dark-violet outline `#3B2F8F`, flat fills, a

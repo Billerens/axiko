@@ -6,6 +6,9 @@ plugins {
 // A separate installation for inspecting the factory state without touching the owner's app.
 // Use: gradlew.bat assembleDebug -PcleanPreview -Pphone
 val cleanPreview = providers.gradleProperty("cleanPreview").isPresent
+// Upgrade an existing Assi installation without changing its UID, keystore or data directory.
+// A product rename does not require moving the owner's private state to a new Android package.
+val legacyAssi = providers.gradleProperty("legacyAssi").isPresent
 if (cleanPreview) {
     layout.buildDirectory.set(rootProject.layout.buildDirectory.dir("clean-preview/app"))
 }
@@ -17,8 +20,8 @@ android {
     defaultConfig {
         // The install id is the product name; Kotlin classes stay in `app.assi` (namespace above),
         // because modules reach them by name (`Packages.app.assi.…`) and must keep working.
-        applicationId = if (cleanPreview) "app.axiko.cleanpreview" else "app.axiko"
-        manifestPlaceholders["assiLabel"] = if (cleanPreview) "Аксико · чистая" else "Аксико"
+        applicationId = if (cleanPreview) "app.axiko.cleanpreview" else if (legacyAssi) "app.assi" else "app.axiko"
+        manifestPlaceholders["assiLabel"] = if (cleanPreview) "Axiko · чистая" else "Axiko"
         minSdk = 30
         // Deliberately below the device's level: restrictions that Android 14+ switches on
         // only for apps targeting it (typed foreground services, read-only dynamic code,

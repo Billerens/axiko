@@ -1,4 +1,4 @@
-# Задание: позы Аксико, второй набор
+# Задание: позы Axiko, второй набор
 
 The attached image is the approved design of Axiko. Draw the SAME character in new poses: same
 head shape, proportions, line weight, eyes, gill shapes (three separate feathery fronds on each

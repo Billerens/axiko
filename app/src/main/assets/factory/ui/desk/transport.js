@@ -16,7 +16,7 @@
 
   function notify(event) {
     subscribers.forEach(function (listener) {
-      try { listener(event); } catch (error) { console.error('Аксико event listener:', error); }
+      try { listener(event); } catch (error) { console.error('Axiko event listener:', error); }
     });
   }
 
@@ -27,7 +27,7 @@
       reconnects: status.reconnects, error: error || null
     };
     statusListeners.forEach(function (listener) {
-      try { listener(Object.assign({}, status)); } catch (failure) { console.error('Аксико connection listener:', failure); }
+      try { listener(Object.assign({}, status)); } catch (failure) { console.error('Axiko connection listener:', failure); }
     });
     notify({ event: 'connection', data: Object.assign({}, status) });
   }
@@ -64,7 +64,7 @@
         var event = JSON.parse(message.data);
         if (event && typeof event.event === 'string') notify(event);
       } catch (error) {
-        console.warn('Аксико: не удалось прочитать событие:', error.message);
+        console.warn('Axiko: не удалось прочитать событие:', error.message);
       }
     };
   }

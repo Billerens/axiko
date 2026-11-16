@@ -61,7 +61,7 @@ function planResult(result) {
   if (state.phase === 'verify-plan') {
     check(result.auditCoverage?.complete === true, 'store_plan:coverage-not-complete');
     state.phase = 'submit-review';
-    return tool('store_review', { planId: state.planId, digest: state.digest, report: { status: 'pass', summary: 'Детерминированная проверка тестового пакета в эмуляторе: все текстовые файлы прочитаны. Это тест маршрута инструментов, не заключение о безопасности стороннего кода.', findings: [], unknowns: ['Семантический анализ безопасности моделью в этом тесте не выполняется.'] } });
+    return tool('store_review', { planId: state.planId, digest: state.digest, report: { summary: 'Детерминированная проверка тестового пакета в эмуляторе: все текстовые файлы прочитаны. Это тест маршрута инструментов, не заключение о безопасности стороннего кода: семантический анализ моделью здесь не выполняется.', findings: [], unknowns: [] } });
   }
   const lists = [['reviewFiles', 'filesOffset', 'nextFilesOffset'], ['conflicts', 'conflictsOffset', 'nextConflictsOffset'], ['findings', 'findingsOffset', 'nextFindingsOffset']];
   if (lists.some(([, , next]) => Number.isInteger(result[next]) && result[next] >= 0)) {
@@ -117,7 +117,7 @@ function advance(message) {
     check(result.dataPreserved === true && result.packageCodeStarted === false, 'store_apply:invalid-safety-result');
     state.pending = null; state.complete = true; state.phase = 'done';
     event('installation-completed', { status: result.status, dataPreserved: result.dataPreserved, packageCodeStarted: result.packageCodeStarted });
-    return { text: 'Тестовый пакет установлен через реальный разговор Аксико. Ограничение инструментов проверено, все исходники переданы полностью, сохранения не затронуты. Это детерминированный тест маршрута, а не ИИ-аудит безопасности.' };
+    return { text: 'Тестовый пакет установлен через реальный разговор Axiko. Ограничение инструментов проверено, все исходники переданы полностью, сохранения не затронуты. Это детерминированный тест маршрута, а не ИИ-аудит безопасности.' };
   }
   check(false, 'protocol:unexpected-tool-result');
 }

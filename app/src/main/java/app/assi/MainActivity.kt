@@ -231,7 +231,33 @@ class MainActivity : Activity() {
 
     // ---- views ----------------------------------------------------------------------------
 
-    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+    /** The owner's scale of the interface for the screen as it is now (see UiScale): 1 for "as designed". */
+    private var scale = 1f
+
+    /** The screen as the phone reports it, before the owner's scale: which of the two scales applies. */
+    private val rawWide: Boolean get() = resources.configuration.screenWidthDp >= WIDE_DP
+
+    /** The shell's own sizes grow and shrink with the pages they stand beside. */
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density * scale).toInt()
+
+    /**
+     * Takes the scale for the current screen and gives it to every page view. With [reload] the
+     * pages are loaded anew when it changed — a page learns its scale as it loads.
+     */
+    private fun takeScale(reload: Boolean) {
+        val percent = app.assi.core.UiScale.percent(rawWide)
+        scale = percent / 100f
+        val changed = listOf(page, chat, nav, face).map { it.scale(percent) }.any { it }
+        if (changed && reload) reloadPages() else arrange()
+    }
+
+    fun scaleInfo(): org.json.JSONObject = app.assi.core.UiScale.info(rawWide)
+
+    fun setScale(percent: Int): org.json.JSONObject {
+        app.assi.core.UiScale.set(rawWide, percent)
+        runOnUiThread { takeScale(reload = true) }
+        return scaleInfo()
+    }
 
     private fun buildViews() {
         root = FrameLayout(this).apply {
@@ -289,7 +315,7 @@ class MainActivity : Activity() {
             setColorFilter(getColor(R.color.on_accent))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             setPadding(dp(15), dp(15), dp(15), dp(15))
-            contentDescription = "Чат с Аксико"
+            contentDescription = "Чат с Axiko"
             setOnClickListener { showChat(true) }
             setOnLongClickListener { recoveryMenu(); true }
         }
@@ -301,6 +327,7 @@ class MainActivity : Activity() {
             },
         )
         setContentView(root)
+        takeScale(reload = false)
         applyTheme()
         if (wide && App.prefs.getBoolean(CHAT_DOCKED, false)) showChat(true)
     }
@@ -347,9 +374,9 @@ class MainActivity : Activity() {
     fun rearrange() = runOnUiThread { arrange() }
 
     /** A tablet or an unfolded phone: the chat stands beside the screen instead of covering it. */
-    private val wide: Boolean get() = resources.configuration.screenWidthDp >= WIDE_DP
+    private val wide: Boolean get() = resources.configuration.screenWidthDp / scale >= WIDE_DP
 
-    private fun dockWidth(): Int = dp((resources.configuration.screenWidthDp * 0.42f).toInt().coerceIn(340, 460))
+    private fun dockWidth(): Int = dp((resources.configuration.screenWidthDp / scale * 0.42f).toInt().coerceIn(340, 460))
 
     /**
      * Places everything for the current width. Wide: the menu is a rail on the left, the chat a
@@ -379,6 +406,10 @@ class MainActivity : Activity() {
         fabParams.rightMargin = dp(if (faced) 8 else 18)
         fabParams.bottomMargin = (if (faced) 0 else dp(22)) + if (bar) dp(BAR_DP) else 0
         fab.layoutParams = fabParams
+        val inset = dp(15)
+        fab.setPadding(inset, inset, inset, inset)
+        faceParams.width = dp(FACE_DP)
+        faceParams.height = dp(FACE_DP)
         // The look reaches a little below the edge, so the paws can lie over the menu bar.
         faceParams.bottomMargin = if (bar) dp(BAR_DP) - dp(FACE_OVERLAP_DP) else 0
         face.web.layoutParams = faceParams
@@ -449,8 +480,9 @@ class MainActivity : Activity() {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        // Folding, unfolding and rotation arrive here: the activity is not recreated.
-        arrange()
+        // Folding, unfolding and rotation arrive here: the activity is not recreated. The other
+        // screen of a folding phone may have a scale of its own.
+        takeScale(reload = true)
     }
 
     fun showChat(open: Boolean) = runOnUiThread {
@@ -497,8 +529,9 @@ class MainActivity : Activity() {
             if (safe) "Выйти из безопасного режима" else "Безопасный режим",
             "Откатить последнее изменение",
             "Сбросить интерфейс к заводскому",
-        )
-        AlertDialog.Builder(this).setTitle("Аксико").setItems(items.map { I18n.t(it) }.toTypedArray()) { _, which ->
+            // Only while the folders from before a restore are still kept (until the first good start).
+        ) + if (app.assi.backup.Backup.undoable) arrayOf("Вернуть как было до восстановления из копии") else emptyArray<String>()
+        AlertDialog.Builder(this).setTitle("Axiko").setItems(items.map { I18n.t(it) }.toTypedArray()) { _, which ->
             when (which) {
                 0 -> open(HOME)
                 1 -> reloadPages()
@@ -510,6 +543,7 @@ class MainActivity : Activity() {
                     reloadPages()
                     toast("Интерфейс сброшен")
                 }
+                5 -> runCatching { app.assi.backup.Backup.undo() }.onFailure { toast(it.message ?: it.toString()) }
             }
         }.show()
     }
@@ -552,6 +586,8 @@ class MainActivity : Activity() {
             filePick = null
             return
         }
+        // "Save file", "Open file" and "Choose folder" of the backup.
+        if (app.assi.backup.Backup.onActivityResult(requestCode, resultCode, data)) return
         @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
     }
@@ -571,7 +607,7 @@ class MainActivity : Activity() {
         rebuilds.removeAll { now - it > 60_000 }
         rebuilds.add(now)
         if (rebuilds.size > 3) {
-            toast("Экран не удаётся показать: системе не хватает памяти. Закройте другие приложения и откройте Аксико снова.")
+            toast("Экран не удаётся показать: системе не хватает памяти. Закройте другие приложения и откройте Axiko снова.")
             return@runOnUiThread
         }
         // Not the workspace's fault: this start must not count towards safe mode.
@@ -593,6 +629,8 @@ class MainActivity : Activity() {
     fun pageReady() {
         alive = true
         if (!Workspace.safeMode) App.prefs.edit().putInt(BOOT_FAILURES, 0).apply()
+        // After a restore from a backup this is the good start the kept folders were waiting for.
+        app.assi.backup.Backup.started()
     }
 
     fun setSafeMode(on: Boolean) = runOnUiThread {

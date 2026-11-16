@@ -56,7 +56,7 @@ object Shell {
      */
     fun run(command: String, timeoutMs: Long = 60_000, privileged: Boolean = false): Result {
         val process: Process = if (privileged) {
-            if (!granted) error("Нет прав ADB: Shizuku не запущен или не разрешён. Откройте «Настройки» Аксико, раздел «Чувства телефона».")
+            if (!granted) error("Нет прав ADB: Shizuku не запущен или не разрешён. Откройте «Настройки» Axiko, раздел «Чувства телефона».")
             // The API keeps this method private, but it is how a one-off command is run.
             val start = Shizuku::class.java.getDeclaredMethod(
                 "newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java,

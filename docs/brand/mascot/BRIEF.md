@@ -1,4 +1,4 @@
-# Задание: маскот Аксико (Axiko)
+# Задание: маскот Axiko (Axiko)
 
 Use your image generation tool to create the images below and save each PNG into the current
 folder under exactly the given file name. Do not write any code and do not touch files outside

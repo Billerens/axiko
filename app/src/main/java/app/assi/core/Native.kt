@@ -51,13 +51,20 @@ object Native {
         "notice.full", "notice.removed", "notice.open", "notify.actions", "dnd", "off", "job.once",
         "vibrate.pattern", "app.visible", "speech.stream", "transcribe.segments", "speech.render",
         "theme.decor", "widget.image", "home.cards", "usage", "store.v1", "button.face", "launcher.icon",
+        "launcher.icons", "ui.scale",
     )
 
     fun call(method: String, args: JSONArray): Any? = when (method) {
         "shell.features" -> JSONArray(FEATURES)
         "store.sources", "store.source.add", "store.source.refresh", "store.source.remove", "store.source.enable",
         "store.catalog", "store.installed", "store.prepare", "store.plans", "store.plan", "store.read", "store.resolve",
-        "store.apply", "store.rollback", "store.review", "store.reviewStart" -> StoreAgent.native(method, args)
+        "store.apply", "store.rollback", "store.review", "store.reviewStart", "store.rules", "store.bans", "store.discard",
+        // The owner's own decisions: each is answered in a dialog of the shell (StoreOwner), not by the caller.
+        "store.acceptWarnings", "store.unban" -> StoreAgent.native(method, args)
+        // The owner's backup (see backup/Backup.kt, docs/backup.md). The password is asked for in a
+        // dialog of the shell and is never an argument.
+        "backup.status", "backup.save", "backup.cancel", "backup.open", "backup.apply", "backup.discard", "backup.undo",
+        "backup.folder", "backup.password", "backup.set", "backup.now" -> app.assi.backup.Backup.native(method, args)
         // Agents: the first argument is the agent's id ("assi" is the main one).
         "agent.list" -> Agent.list()
         // A chat is named by (agent, thread); without the thread it is the chat open now.
@@ -288,7 +295,7 @@ object Native {
             Widgets.refresh(text(args, 0))
             true
         }
-        // (on) — listening all the time for the name "Аксико".
+        // (on) — listening all the time for the name "Axiko".
         "wake.set" -> {
             Wake.set(args.getBoolean(0))
             true
@@ -553,10 +560,14 @@ object Native {
         // button; without one the native round button shows. Answers {bar}: whether the edge
         // under the button is the menu bar (the page also hears "button.edge" when that changes).
         "button.face" -> MainActivity.current?.setFace(args.optBoolean(0, false)) ?: JSONObject().put("bar", false)
-        // The icon on the phone's home screen: "mascot" or "plain". (Not "icon.set": that one gives
+        // The icon on the phone's home screen, one of the looks in Launcher. (Not "icon.set": that one gives
         // a module or an agent its icon.)
         "launcher.icon" -> Launcher.icon()
         "launcher.icon.set" -> Launcher.setIcon(args.getString(0))
+        "launcher.icons" -> Launcher.icons()
+        // The owner's scale of the whole interface, per cent; kept apart for a narrow and a wide screen.
+        "ui.scale" -> MainActivity.current?.scaleInfo() ?: UiScale.info(false)
+        "ui.scale.set" -> MainActivity.current?.setScale(args.getInt(0)) ?: UiScale.info(false).also { UiScale.set(false, args.getInt(0)) }
 
         "safe.set" -> MainActivity.current?.setSafeMode(args.getBoolean(0)) != null
         "safe.resetUi" -> {

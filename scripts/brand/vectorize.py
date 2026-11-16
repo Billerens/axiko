@@ -197,7 +197,7 @@ def build(picture, spec):
         sides['l' if frond[0].middle[0] < centre else 'r'].append(frond)
 
     pad = 6
-    out = ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="%.0f %.0f %.0f %.0f" class="axiko" role="img" aria-label="Аксико">'
+    out = ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="%.0f %.0f %.0f %.0f" class="axiko" role="img" aria-label="Axiko">'
            % (x0 - pad, y0 - pad, x1 - x0 + 2 * pad, y1 - y0 + 2 * pad)]
     out.append(path('sticker', 'sticker', traced['sticker']))
     out.append(path('line', 'line', traced['line']))

@@ -1,4 +1,4 @@
-# Задание: окрасы Аксико под темы приложения
+# Задание: окрасы Axiko под темы приложения
 
 The attached image is the approved design of Axiko. Create SIX recolored versions of exactly this
 sticker: identical pose, shape, line weight, expression, white sticker border and composition —

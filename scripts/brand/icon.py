@@ -3,8 +3,8 @@
 
     python scripts/brand/icon.py
 
-Writes app/src/main/res/drawable/ic_launcher_fg.xml (the head in the art's own colours) and
-ic_launcher_mono.xml (the same drawing as lines only — Android 13+ tints it for themed icons).
+Writes app/src/main/res/drawable/ic_launcher_fg.xml (the head in the art's own colours),
+ic_launcher_<coat>_fg.xml for every other coat in COATS, and ic_launcher_mono.xml (the same drawing as lines only — Android 13+ tints it for themed icons).
 The icon is part of the APK: unlike the mascot in the app, it does not follow themes or
 ui/mascot/mascot.json.
 """
@@ -22,6 +22,10 @@ HEADER = ('<?xml version="1.0" encoding="utf-8"?>\n<!-- Made by scripts/brand/ic
           '    android:width="108dp"\n    android:height="108dp"\n    android:viewportWidth="108"\n    android:viewportHeight="108">\n'
           '    <group\n        android:scaleX="%(scale).5f"\n        android:scaleY="%(scale).5f"\n'
           '        android:translateX="%(dx).3f"\n        android:translateY="%(dy).3f">\n')
+# Other coats of the head, by the drawing's part (class `axiko-<part>`): the natural pink axolotl.
+COATS = {
+    'pink': {'body': '#F6B8C8', 'gill': '#8B7CFF', 'mouth': '#E46F92', 'line': '#4A2A6A', 'pupil': '#4A2A6A'},
+}
 PATH = '        <path\n            android:fillColor="%s"\n            android:fillType="evenOdd"\n            android:pathData="%s" />\n'
 
 
@@ -34,6 +38,11 @@ def main():
 
     colour = HEADER % place + ''.join(PATH % (fill, d) for _, fill, d in shapes) + '    </group>\n</vector>\n'
     (RES / 'ic_launcher_fg.xml').write_text(colour, encoding='utf-8')
+    # The same head in other coats: one more foreground layer for each (the launcher entries
+    # that use them are in the manifest, the list of looks is in core/Launcher.kt).
+    for name, coat in COATS.items():
+        layer = HEADER % place + ''.join(PATH % (coat.get(part, fill), d) for part, fill, d in shapes) + '    </group>\n</vector>\n'
+        (RES / ('ic_launcher_%s_fg.xml' % name)).write_text(layer, encoding='utf-8')
 
     # Lines only: the silhouette with every fill cut out of it (even-odd). The pupils lie inside the
     # body, so adding them turns them solid again; their highlights are cut back out. The mouth
