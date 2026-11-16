@@ -76,12 +76,23 @@ class StoreReviewAccessTest {
     }
 
     @Test fun serializedReadFitsConversationLimitEvenWithEscapes() {
-        val content = "\u0001".repeat(4096)
-        val view = StoreReviewAccess.readView(read(0, 10).put("content", content).put("text", content))
-        assertFalse(view.has("text"))
-        assertEquals(content, JSONObject(view.toString()).getString("content"))
-        assertTrue(view.toString().length < 28000)
-        rejected { StoreReviewAccess.readView(read(0, 10).put("content", "x".repeat(4097))) }
+        val content = "\u0001".repeat(StoreReviewAccess.READ_CHUNK)
+        var offset = 0; val received = StringBuilder()
+        while (offset < content.length) {
+            val remaining = content.substring(offset)
+            val view = StoreReviewAccess.readView(read(offset, content.length).put("totalLength", content.length)
+                .put("eof", true).put("content", remaining).put("text", remaining))
+            assertFalse(view.has("text"))
+            assertTrue(view.toString().length < 28000)
+            val delivered = JSONObject(view.toString()).getString("content")
+            assertEquals(delivered.length, view.getInt("nextOffset") - offset)
+            assertEquals(view.getInt("nextOffset") == content.length, view.getBoolean("eof"))
+            received.append(delivered); offset = view.getInt("nextOffset")
+        }
+        assertEquals(content, received.toString())
+        val readable = "x".repeat(StoreReviewAccess.READ_CHUNK)
+        assertEquals(readable, StoreReviewAccess.readView(read(0, readable.length).put("content", readable)).getString("content"))
+        rejected { StoreReviewAccess.readView(read(0, 10).put("content", readable + "x")) }
     }
 
     @Test fun largeInventoryIsPagedWithoutLosingFilesOrLeakingFullManifest() {

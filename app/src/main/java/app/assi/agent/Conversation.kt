@@ -504,7 +504,7 @@ class Conversation(
             var lean = lean(spec, target)
             var steps = 0
             while (!cancelled) {
-                if (++steps > MAX_STEPS) {
+                if (++steps > if (StoreAgent.isReview(this)) MAX_REVIEW_STEPS else MAX_STEPS) {
                     emit(JSONObject().put("type", "error").put("message", "Остановлено: слишком много шагов подряд."))
                     break
                 }
@@ -994,6 +994,9 @@ class Conversation(
                 "Сожмите его в сводку для самого агента: что владелец просил, что сделано (какие модули, файлы, решения), " +
                 "что осталось незавершённым, какие предпочтения владелец высказал. Только факты, без вступлений, до 400 слов."
         private const val MAX_STEPS = 80
+        // Reading a large package is bounded, but needs more turns than ordinary tasks.
+        // Usage.guard still enforces the owner's spending limit on every model request.
+        private const val MAX_REVIEW_STEPS = 240
         private const val TOOL_OUTPUT_LIMIT = 30_000
         /** The share of the window at which the conversation is folded, and the share its latest turns may keep. */
         private const val SHOT_NOTE = "Снимок экрана"

@@ -17,10 +17,18 @@ class StoreReviewAccess(private val directory: File) {
 
         // Conversation clips ordinary tool outputs at 30,000 characters. Never record bytes
         // the model cannot receive: keep one copy and bound the serialized, escaped JSON.
-        const val READ_CHUNK = 4096
+        const val READ_CHUNK = 12000
         fun readView(read: JSONObject): JSONObject = JSONObject(read.toString()).also {
             it.remove("text")
-            require(it.getString("content").length <= READ_CHUNK && it.toString().length < 28000) { "Фрагмент слишком велик для полного просмотра; уменьшите limit." }
+            require(it.getString("content").length <= READ_CHUNK) { "Фрагмент слишком велик для полного просмотра; уменьшите limit." }
+            // Escaping can expand one source character to six JSON characters.
+            // Shrink before recording coverage, and advertise the actual next offset.
+            while (it.toString().length >= 28000 && it.getString("content").length > 1) {
+                val content = it.getString("content").take(it.getString("content").length / 2)
+                val end = it.getInt("offset") + content.length
+                it.put("content", content).put("nextOffset", end).put("eof", end == it.getInt("totalLength"))
+            }
+            require(it.toString().length < 28000) { "Метаданные фрагмента слишком велики для полного просмотра." }
         }
 
         fun planView(plan: JSONObject, args: JSONObject, coverage: JSONObject? = null): JSONObject {
