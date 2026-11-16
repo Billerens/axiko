@@ -1,0 +1,620 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Assi</title>
+<link rel="stylesheet" href="/ui/kit/kit.css">
+<style>
+  .hello {
+    padding-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .hello p {
+    color: var(--ink-2);
+  }
+
+  .ideas {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .idea {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    border: 1px dashed var(--line);
+    border-radius: var(--radius);
+    background: none;
+    text-align: left;
+  }
+
+  .idea:active {
+    background: var(--surface-2);
+  }
+
+  .idea svg {
+    color: var(--accent);
+  }
+
+  .agents {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    margin: 0 -16px;
+    padding: 2px 16px 8px;
+    scrollbar-width: none;
+  }
+
+  .agent {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    min-width: 140px;
+    max-width: 200px;
+    padding: 12px 14px;
+    border: 0;
+    border-radius: var(--radius);
+    background: var(--surface);
+    box-shadow: var(--shadow);
+    text-align: left;
+  }
+
+  .agent .well {
+    width: 36px;
+    height: 36px;
+    border-radius: 11px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+  }
+
+  .tile, .agent {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(24, minmax(0, 1fr));
+    grid-auto-rows: 10px;
+    column-gap: 10px;
+    row-gap: 0;
+    grid-auto-flow: row dense;
+  }
+
+  .home-card {
+    position: relative;
+    min-width: 0;
+    margin-bottom: 10px;
+    border-radius: var(--radius);
+    background: var(--surface);
+    overflow: hidden;
+    -webkit-touch-callout: none;
+  }
+
+  .home-card iframe {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: 0;
+  }
+
+  .home-card.resizing {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+
+  .resize-layer {
+    position: absolute;
+    inset: 0;
+    touch-action: none;
+    background: color-mix(in srgb, var(--bg) 35%, transparent);
+  }
+
+  .grip {
+    position: absolute;
+    touch-action: none;
+  }
+
+  .grip.right {
+    top: 0;
+    right: 0;
+    bottom: 36px;
+    width: 36px;
+  }
+
+  .grip.right::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    right: 6px;
+    width: 5px;
+    height: 40px;
+    margin-top: -20px;
+    border-radius: 3px;
+    background: var(--accent);
+  }
+
+  .grip.bottom {
+    left: 0;
+    right: 36px;
+    bottom: 0;
+    height: 36px;
+  }
+
+  .grip.bottom::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: 6px;
+    width: 40px;
+    height: 5px;
+    margin-left: -20px;
+    border-radius: 3px;
+    background: var(--accent);
+  }
+
+  .grip.corner {
+    right: 0;
+    bottom: 0;
+    width: 44px;
+    height: 44px;
+  }
+
+  .grip.corner::after {
+    content: "";
+    position: absolute;
+    right: 6px;
+    bottom: 6px;
+    width: 16px;
+    height: 16px;
+    border-right: 5px solid var(--accent);
+    border-bottom: 5px solid var(--accent);
+    border-bottom-right-radius: 6px;
+  }
+
+  .resize-bar {
+    position: absolute;
+    left: 10px;
+    top: 8px;
+    right: 80px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .resize-size {
+    padding: 2px 8px;
+    border-radius: 8px;
+    background: var(--surface-2);
+    color: var(--ink-2);
+    font-size: 12px;
+    pointer-events: none;
+  }
+</style>
+<body>
+<main class="page">
+  <header class="row" style="align-items: flex-start">
+    <div class="hello grow">
+      <h1 id="greeting">Assi</h1>
+      <p>Попросите — и приложение изменится.</p>
+    </div>
+    <button class="icon-btn" id="history" aria-label="История изменений" data-icon="history" hidden></button>
+    <button class="icon-btn" id="settings" aria-label="Настройки" data-icon="settings" hidden></button>
+  </header>
+
+  <div id="notices" class="section"></div>
+
+  <section class="cards" id="cards" hidden></section>
+
+  <section class="section">
+    <div class="row"><h2 class="grow">Модули</h2><button class="btn small" id="store-open">Магазин</button></div>
+    <div class="tiles" id="modules"></div>
+  </section>
+
+  <section class="section" id="agents-section" hidden>
+    <h2>Агенты</h2>
+    <div class="agents" id="agents"></div>
+  </section>
+
+  <section class="section" id="ideas-section" hidden>
+    <h2>С чего начать</h2>
+    <div class="ideas" id="ideas"></div>
+  </section>
+</main>
+<script src="/ui/kit/kit.js"></script>
+<script>
+  const h = ui.h;
+  document.getElementById('store-open').onclick = () => assi.open('ui/store/index.html');
+  const IDEAS = [
+    ['note', 'Сделай экран заметок с поиском'],
+    ['calendar', 'Сделай экран с моими событиями из календаря на неделю'],
+    ['check', 'Сделай трекер привычек с отметками по дням'],
+    ['bot', 'Создай агента, который будет разбирать мою почту'],
+  ];
+
+  function greet() {
+    const hour = new Date().getHours();
+    document.getElementById('greeting').textContent =
+      hour < 5 ? 'Доброй ночи' : hour < 12 ? 'Доброе утро' : hour < 18 ? 'Добрый день' : 'Добрый вечер';
+  }
+
+  /** Sends the request to the main agent in a new chat and opens the chat on it. */
+  async function ask(text) {
+    await assi.native('agent.newThread', 'assi');
+    await assi.native('ui.chat', true, 'assi');
+    await assi.native('agent.send', 'assi', text);
+  }
+
+  function notice(kind, title, text, action, onAction) {
+    return h('div', { class: 'card ' + kind },
+      h('div', { class: 'section' },
+        h('h3', {}, title),
+        h('p', { class: 'muted' }, text),
+        action && h('div', {}, h('button', { class: 'btn primary small', onclick: onAction }, action))));
+  }
+
+  /**
+   * What a long press on a module or an agent offers: another icon (from the set or a picture),
+   * the drawn one back, and, for a module, its removal.
+   */
+  function manage(kind, item) {
+    let close = null;
+    const choose = async choice => {
+      await assi.native('icon.set', kind, item.id, choice);
+      close();
+      render();
+    };
+    const file = h('input', { type: 'file', accept: 'image/*', hidden: true });
+    file.onchange = async () => {
+      if (!file.files[0]) return;
+      try {
+        choose({ image: await ui.squareImage(file.files[0], 192) });
+      } catch (error) {
+        ui.toast(error.message);
+      }
+    };
+    close = ui.sheet([
+      h('h3', {}, item.title),
+      h('h2', {}, 'Значок'),
+      h('div', { class: 'picker' }, ui.iconNames.map(name =>
+        h('button', { class: !item.iconImage && item.iconCustom && item.icon === name ? 'on' : '', 'aria-label': name, onclick: () => choose({ icon: name }) }, ui.icon(name)))),
+      file,
+      h('div', { class: 'actions' },
+        h('button', { class: 'btn', onclick: () => file.click() }, ui.icon('image'), 'Картинка'),
+        item.iconCustom && h('button', { class: 'btn', onclick: () => choose({}) }, 'Вернуть свой')),
+      kind === 'module' && item.home && (layout.hidden || []).indexOf(item.id) >= 0 && h('button', {
+        class: 'btn wide',
+        onclick: () => {
+          layout.hidden = layout.hidden.filter(id => id !== item.id);
+          close();
+          saveLayout();
+        },
+      }, ui.icon('grid'), 'Вернуть карточку на главный экран'),
+      kind === 'module' && h('button', {
+        class: 'btn wide',
+        onclick: async () => {
+          await assi.native('shortcut.pin', item.title, item.entry);
+          close();
+        },
+      }, ui.icon('home'), 'Ярлык на рабочий стол'),
+      kind === 'module' && h('button', {
+        class: 'btn danger wide',
+        onclick: async () => {
+          const sure = await ui.confirm('Удалить модуль «' + item.title + '»? Его данные останутся, а сам модуль можно вернуть в истории изменений.', 'Удалить', true);
+          if (!sure) return;
+          await assi.native('modules.remove', item.id);
+          close();
+          render();
+        },
+      }, ui.icon('trash'), 'Удалить модуль'),
+    ]);
+  }
+
+  /**
+   * The modules' own cards — widgets the owner sizes freely, like the phone's home screen. A module
+   * asks for one with "home" (its page) and its default size "homeSize" ("4x2": quarters of the
+   * width x rows of 80 px); an old card with only "homeHeight" gets the full width and that height.
+   * The page fills its frame and adapts to the frame's width and height by itself (@media), so any
+   * size works. A long press offers «Изменить размер»: handles on the right edge, the bottom and
+   * the corner; the width snaps to a fine grid (a 24th of the row), the height to 10 px. The width
+   * is kept as a share of the row, so the proportions survive folding and unfolding the phone.
+   * Sizes, order and cards taken off the home screen are kept in the pref "home.cards".
+   * A tap opens the module unless the card took it itself: pressed one of its buttons, links or
+   * fields, or called preventDefault(). Frames are kept while nothing about them changes.
+   */
+  const COLS = 24;
+  const STEP = 10;
+  const GAP = 10;
+  const MIN_W = 0.25;
+  const MIN_H = 70;
+  const MAX_H = 900;
+  let layout = { order: [], size: {}, hidden: [] };
+  let layoutRead = null;
+  let lastModules = [];
+  let editing = null;
+
+  function readLayout() {
+    layoutRead = layoutRead || assi.native('pref.get', 'home.cards', '').then(text => {
+      try {
+        layout = Object.assign({ order: [], size: {}, hidden: [] }, JSON.parse(text || '{}'));
+      } catch (error) { /* a broken pref starts over */ }
+    }).catch(() => {});
+    return layoutRead;
+  }
+
+  function saveLayout() {
+    assi.native('pref.set', 'home.cards', JSON.stringify(layout)).catch(() => {});
+    cards(lastModules);
+  }
+
+  /** The default size: "homeSize" in quarters of the width x rows of 80 px, or the old homeHeight. */
+  function defaultSize(module) {
+    const m = /^(\d+)\s*[x×]\s*(\d+)$/.exec(String(module.homeSize || '').trim());
+    if (m) return { w: Math.min(1, Math.max(MIN_W, +m[1] / 4)), h: +m[2] * 80 + (+m[2] - 1) * GAP };
+    return { w: 1, h: Number(module.homeHeight || 120) };
+  }
+
+  function sizeOf(module) {
+    const saved = layout.size[module.id];
+    const size = saved && typeof saved === 'object' && saved.w > 0 && saved.h > 0 ? saved : defaultSize(module);
+    return { w: Math.min(1, Math.max(MIN_W, size.w)), h: Math.min(MAX_H, Math.max(MIN_H, size.h)) };
+  }
+
+  function span(w) {
+    return Math.max(1, Math.min(COLS, Math.round(w * COLS)));
+  }
+
+  function rows(h) {
+    return Math.max(1, Math.round((h + GAP) / STEP));
+  }
+
+  function place(card, size) {
+    card.style.gridColumn = 'span ' + span(size.w);
+    card.style.gridRow = 'span ' + rows(size.h);
+  }
+
+  function placed(modules) {
+    const order = layout.order || [];
+    const rank = id => {
+      const i = order.indexOf(id);
+      return i < 0 ? order.length : i;
+    };
+    return modules.filter(m => m.home && (layout.hidden || []).indexOf(m.id) < 0)
+      .map((m, i) => ({ m, i }))
+      .sort((a, b) => rank(a.m.id) - rank(b.m.id) || a.i - b.i)
+      .map(x => x.m);
+  }
+
+  function cards(modules) {
+    lastModules = modules;
+    const box = document.getElementById('cards');
+    const wanted = placed(modules);
+    box.hidden = !wanted.length;
+    const kept = {};
+    box.querySelectorAll('.home-card').forEach(node => { kept[node.dataset.module] = node; });
+    box.replaceChildren(...wanted.map(module => {
+      let card = kept[module.id];
+      if (!card || card.dataset.home !== module.home) {
+        const frame = h('iframe', { src: '/' + module.home, title: module.title, loading: 'lazy', scrolling: 'no' });
+        frame.addEventListener('load', () => {
+          const win = frame.contentWindow;
+          // A long press opens the card's menu, so it must not select the card's text.
+          const root = frame.contentDocument && frame.contentDocument.documentElement;
+          if (root) {
+            root.style.setProperty('-webkit-user-select', 'none');
+            root.style.setProperty('user-select', 'none');
+            root.style.setProperty('-webkit-touch-callout', 'none');
+          }
+          win.addEventListener('click', event => {
+            const own = event.target.closest && event.target.closest('a, button, input, select, textarea, label, [onclick]');
+            if (!event.defaultPrevented && !own && editing !== module.id) assi.open(module.entry);
+          });
+          win.addEventListener('contextmenu', event => {
+            event.preventDefault();
+            cardMenu(module);
+          });
+        });
+        card = h('div', { class: 'home-card', 'data-module': module.id }, frame);
+        card.dataset.home = module.home;
+        card.addEventListener('contextmenu', event => {
+          event.preventDefault();
+          if (editing !== module.id) cardMenu(module);
+        });
+      }
+      place(card, sizeOf(module));
+      return card;
+    }));
+  }
+
+  /**
+   * The resize mode of one card: a layer over the frame (so the card's page does not take the
+   * touches) with handles on the right edge, the bottom and the corner, and «Готово».
+   */
+  function resize(module) {
+    finishResize();
+    const box = document.getElementById('cards');
+    const card = box.querySelector('.home-card[data-module="' + module.id + '"]');
+    if (!card) return;
+    editing = module.id;
+    let size = sizeOf(module);
+    const done = h('button', { class: 'btn primary small resize-done', onclick: event => { event.stopPropagation(); finishResize(); } }, ui.icon('check'), 'Готово');
+    const layer = h('div', { class: 'resize-layer' },
+      h('div', { class: 'grip right', 'data-edge': 'w' }),
+      h('div', { class: 'grip bottom', 'data-edge': 'h' }),
+      h('div', { class: 'grip corner', 'data-edge': 'wh' }),
+      h('div', { class: 'resize-bar' }, done, h('div', { class: 'resize-size' })));
+    const label = layer.querySelector('.resize-size');
+    const show = () => {
+      label.textContent = Math.round(size.w * 100) + '% × ' + Math.round(size.h) + ' px';
+    };
+    show();
+    layer.addEventListener('pointerdown', event => {
+      const edge = event.target.dataset && event.target.dataset.edge;
+      if (!edge) return;
+      event.preventDefault();
+      layer.setPointerCapture(event.pointerId);
+      const start = { x: event.clientX, y: event.clientY, w: size.w, h: size.h };
+      const row = box.clientWidth + GAP;
+      const move = e => {
+        const next = { w: size.w, h: size.h };
+        if (edge.indexOf('w') >= 0) next.w = Math.min(1, Math.max(MIN_W, start.w + (e.clientX - start.x) / row));
+        if (edge.indexOf('h') >= 0) next.h = Math.min(MAX_H, Math.max(MIN_H, Math.round((start.h + e.clientY - start.y) / STEP) * STEP));
+        next.w = span(next.w) / COLS;
+        if (next.w !== size.w || next.h !== size.h) {
+          size = next;
+          place(card, size);
+          show();
+        }
+      };
+      const up = () => {
+        layer.removeEventListener('pointermove', move);
+        layer.removeEventListener('pointerup', up);
+        layer.removeEventListener('pointercancel', up);
+        layout.size[module.id] = { w: size.w, h: size.h };
+        assi.native('pref.set', 'home.cards', JSON.stringify(layout)).catch(() => {});
+      };
+      layer.addEventListener('pointermove', move);
+      layer.addEventListener('pointerup', up);
+      layer.addEventListener('pointercancel', up);
+    });
+    card.classList.add('resizing');
+    card.append(layer);
+  }
+
+  // A tap outside the card being resized ends the resizing.
+  document.addEventListener('pointerdown', event => {
+    if (editing && !event.target.closest('.home-card.resizing')) finishResize();
+  });
+
+  function finishResize() {
+    document.querySelectorAll('.home-card.resizing').forEach(card => {
+      card.classList.remove('resizing');
+      card.querySelector('.resize-layer')?.remove();
+    });
+    editing = null;
+  }
+
+  /** A long press on a card: its size, its place among the cards, or off the home screen. */
+  function cardMenu(module) {
+    const shown = placed(lastModules).map(m => m.id);
+    const at = shown.indexOf(module.id);
+    let close = null;
+    const move = step => {
+      const order = shown.slice();
+      const to = Math.max(0, Math.min(order.length - 1, at + step));
+      order.splice(at, 1);
+      order.splice(to, 0, module.id);
+      layout.order = order;
+      close();
+      saveLayout();
+    };
+    close = ui.sheet([
+      h('h3', {}, module.title),
+      h('button', { class: 'btn wide', onclick: () => { close(); resize(module); } }, ui.icon('edit'), 'Изменить размер'),
+      layout.size[module.id] && h('button', {
+        class: 'btn wide',
+        onclick: () => {
+          delete layout.size[module.id];
+          close();
+          saveLayout();
+        },
+      }, ui.icon('undo'), 'Размер по умолчанию'),
+      h('div', { class: 'actions' },
+        at > 0 && h('button', { class: 'btn', onclick: () => move(-1) }, ui.icon('back'), 'Раньше'),
+        at < shown.length - 1 && h('button', { class: 'btn', onclick: () => move(1) }, ui.icon('right'), 'Позже')),
+      h('button', { class: 'btn wide', onclick: () => assi.open(module.entry).then(close) }, ui.icon('box'), 'Открыть модуль'),
+      h('button', {
+        class: 'btn wide',
+        onclick: () => {
+          layout.hidden = (layout.hidden || []).concat(module.id);
+          close();
+          saveLayout();
+        },
+      }, ui.icon('close'), 'Убрать с главного экрана'),
+    ]);
+  }
+
+  /** A press that opens on a tap and offers management on a long press. */
+  function pressable(node, onTap, onHold) {
+    node.addEventListener('click', onTap);
+    node.addEventListener('contextmenu', event => { event.preventDefault(); onHold(); });
+    return node;
+  }
+
+  async function render() {
+    greet();
+    const [info, modules, agents, roles, providers] = await Promise.all([
+      assi.native('sys.info'), assi.native('modules.list'), assi.native('agent.list'),
+      assi.native('models.roles'), assi.native('models.providers'),
+    ]);
+
+    const notices = document.getElementById('notices');
+    notices.replaceChildren();
+    if (info.safeMode) {
+      notices.append(notice('danger', 'Безопасный режим',
+        'Показан заводской интерфейс. Откатите последнее изменение или попросите Assi починить экраны.',
+        'Выйти из безопасного режима', () => assi.native('safe.set', false)));
+    }
+    if (info.engineError) notices.append(notice('danger', 'Движок не запустился', info.engineError));
+    if (!providers.length || !(roles.main && roles.main.model)) {
+      notices.append(notice('accent', 'Подключите модель',
+        'Assi нужен доступ к языковой модели: адрес провайдера, ключ и название модели.',
+        'Настроить', () => assi.open('ui/settings/index.html?setup=1')));
+    }
+
+    await readLayout();
+    cards(modules);
+    const grid = document.getElementById('modules');
+    grid.replaceChildren(...modules.map(module =>
+      pressable(
+        h('button', { class: 'tile' },
+          h('div', { class: 'icon' }, ui.mark(module)),
+          h('div', { class: 'title' }, module.title),
+          module.description && h('div', { class: 'about' }, module.description)),
+        () => assi.open(module.entry),
+        () => manage('module', module))));
+    if (!modules.length) {
+      grid.replaceChildren(h('div', { class: 'empty', style: 'grid-column: 1 / -1' },
+        'Модулей пока нет. Опишите Assi, что вам нужно, — и здесь появится экран.'));
+    }
+
+    const others = agents.filter(agent => agent.id !== 'assi');
+    document.getElementById('agents-section').hidden = !others.length;
+    document.getElementById('agents').replaceChildren(...others.map(agent =>
+      pressable(
+        h('button', { class: 'agent' },
+          h('div', { class: 'well' }, ui.mark(agent)),
+          h('div', { style: 'font-weight: 600' }, agent.title),
+          h('div', { class: 'small muted truncate', style: 'max-width: 100%' }, agent.description || 'Агент')),
+        () => assi.native('ui.chat', true, agent.id),
+        () => manage('agent', agent))));
+
+    document.getElementById('ideas-section').hidden = modules.length > 2;
+    document.getElementById('ideas').replaceChildren(...IDEAS.map(([icon, text]) =>
+      h('button', { class: 'idea', onclick: () => ask(text) }, ui.icon(icon), h('span', {}, text))));
+  }
+
+  // With the menu of screens on, History and Settings are there; without it they are here.
+  assi.native('pref.get', 'nav.on', 'on').then(menu => {
+    document.getElementById('history').hidden = document.getElementById('settings').hidden = menu === 'on';
+  });
+  document.getElementById('settings').onclick = () => assi.open('ui/settings/index.html');
+  document.getElementById('history').onclick = () => assi.open('ui/history/index.html');
+  // The workspace may change while this screen is open: redraw when an agent finishes.
+  assi.on('agent', event => { if (event.type === 'idle') render(); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
+  render().catch(error => ui.toast(error.message));
+</script>
+</body>
+</html>

@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Настройки игры</title>
+<link rel="stylesheet" href="/ui/kit/kit.css">
+<style>
+  .setting {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 56px;
+  }
+
+  .setting .grow {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .setting .hint {
+    font-size: 13px;
+    color: var(--ink-3);
+  }
+
+  .setting .input {
+    width: 120px;
+    flex: none;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .setting select.input {
+    width: auto;
+    max-width: 52%;
+    text-align: left;
+  }
+
+  .setting .reset {
+    flex: none;
+  }
+
+  .own {
+    color: var(--accent);
+  }
+
+  @media (max-width: 380px) {
+    .setting {
+      flex-wrap: wrap;
+    }
+
+    .setting .input {
+      width: 100%;
+      text-align: left;
+    }
+
+    .setting select.input {
+      max-width: none;
+      width: 100%;
+    }
+  }
+</style>
+<body>
+<main class="page">
+  <header class="topbar">
+    <button class="icon-btn" onclick="assi.back()" aria-label="Назад" data-icon="back"></button>
+    <h1 id="title">Настройки</h1>
+  </header>
+  <p class="muted" id="about"></p>
+  <div id="groups" class="section" style="gap: 22px"></div>
+</main>
+<script src="/ui/kit/kit.js"></script>
+<script src="/modules/games/engine/big.js"></script>
+<script>
+  const MAIN = 'modules/games/main.js';
+  const h = ui.h;
+  const game = new URLSearchParams(location.search).get('game');
+  let data = null;
+  const timers = {};
+
+  function shown(value, item) {
+    if (item.big) return String(value);
+    return value;
+  }
+
+  function control(key, item) {
+    const value = data.values[key];
+    const own = Object.prototype.hasOwnProperty.call(data.overrides, key);
+    let input;
+    const send = v => {
+      clearTimeout(timers[key]);
+      timers[key] = setTimeout(async () => {
+        try {
+          data = await assi.call(MAIN, 'setSetting', game, key, v);
+          render();
+        } catch (error) {
+          ui.toast(error.message);
+        }
+      }, 400);
+    };
+    if (typeof item.value === 'boolean') {
+      input = h('input', { type: 'checkbox', class: 'switch', checked: !!value, 'aria-label': item.title, onchange: () => send(input.checked) });
+    } else if (item.options) {
+      input = h('select', { class: 'input', onchange: () => send(input.value) },
+        item.options.map(o => {
+          const id = Array.isArray(o) ? o[0] : o;
+          const label = Array.isArray(o) ? o[1] : o;
+          return h('option', { value: String(id), selected: String(id) === String(value) }, String(label));
+        }));
+    } else if (item.big) {
+      input = h('input', { class: 'input', value: shown(value, item), inputmode: 'decimal', 'aria-label': item.title,
+        oninput: () => { if (Big.valid(input.value.trim().replace(',', '.'))) send(input.value.trim().replace(',', '.')); } });
+    } else if (typeof item.value === 'number') {
+      input = h('input', { class: 'input', type: 'number', value: value, min: item.min, max: item.max, step: item.step || 'any', inputmode: 'decimal', 'aria-label': item.title,
+        oninput: () => { const n = Number(input.value); if (input.value !== '' && isFinite(n)) send(n); } });
+    } else {
+      input = h('input', { class: 'input', value: value === null || value === undefined ? '' : String(value), 'aria-label': item.title, oninput: () => send(input.value) });
+    }
+    const hint = [];
+    if (typeof item.value === 'number' && item.min !== undefined) hint.push('от ' + item.min + ' до ' + item.max);
+    if (own) hint.push('своё значение');
+    return h('div', { class: 'setting', 'data-key': key },
+      h('div', { class: 'grow' }, h('span', { class: own ? 'own' : '' }, item.title || key), hint.length ? h('span', { class: 'hint' }, hint.join(' · ')) : null),
+      input,
+      own ? h('button', { class: 'icon-btn reset', 'aria-label': 'Вернуть как было', onclick: () => send(null) }, ui.icon('refresh')) : null);
+  }
+
+  function render() {
+    document.getElementById('title').textContent = data.game ? data.game.title : 'Игротека';
+    document.title = data.game ? 'Настройки: ' + data.game.title : 'Настройки Игротеки';
+    document.getElementById('about').textContent = data.game
+      ? 'Значения этой игры. Общие для всех игр — в настройках Игротеки.'
+      : 'Общие значения для всех игр и связок с жизнью. Игра может переопределить их в своих настройках.';
+    const groups = {};
+    const order = [];
+    Object.keys(data.schema).forEach(key => {
+      const item = data.schema[key];
+      if (data.game && item.scope === 'hub') return;
+      if (!data.game && /^(links|notify)\./.test(key) && key !== 'notify.quiet') return;
+      const name = item.group || (item.origin === 'game' ? 'Игра' : 'Прочее');
+      if (!groups[name]) {
+        groups[name] = [];
+        order.push({ name, game: item.origin === 'game' });
+      }
+      groups[name].push(key);
+    });
+    order.sort((a, b) => (b.game ? 1 : 0) - (a.game ? 1 : 0));
+    const box = document.getElementById('groups');
+    box.replaceChildren(...order.map(g => h('section', { class: 'section' }, h('h2', {}, g.name),
+      h('div', { class: 'card flat', style: 'padding: 4px 16px' }, groups[g.name].map(key => control(key, data.schema[key]))))));
+    if (data.game) {
+      box.appendChild(h('button', { class: 'btn wide', onclick: () => assi.open('modules/games/ui/settings.html') }, 'Настройки Игротеки'));
+    }
+  }
+
+  assi.call(MAIN, 'settings', game).then(result => {
+    data = result;
+    render();
+  }, error => {
+    document.getElementById('groups').replaceChildren(h('div', { class: 'card danger' }, error.message));
+  });
+</script>
+</body>
+</html>

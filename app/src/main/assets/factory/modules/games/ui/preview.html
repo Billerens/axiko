@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Вид игры</title>
+<link rel="stylesheet" href="/ui/kit/kit.css">
+<style>
+  body {
+    background: var(--bg);
+  }
+
+  .frames {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    justify-content: center;
+    padding: 12px 8px 24px;
+  }
+
+  .frame {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .frame iframe {
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: var(--bg);
+  }
+
+  .frame .small {
+    color: var(--ink-3);
+  }
+</style>
+<body>
+<div class="frames" id="frames"></div>
+<script src="/ui/kit/kit.js"></script>
+<script>
+  // The game in a frame of a given width: ?game=<id>&w=344 (the cover screen), w=690 (unfolded),
+  // w=both — both side by side. The game opens read-only (?preview=1): it loads the real save
+  // and writes nothing, so the agent can look at it at any time with ui_screenshot.
+  const q = new URLSearchParams(location.search);
+  const id = q.get('game') || '';
+  const w = q.get('w') || '344';
+  const widths = w === 'both' ? [344, 690] : [Number(w) || 344];
+  const box = document.getElementById('frames');
+  const valid = /^[a-z0-9][a-z0-9-]{0,23}$|^daily\/\d{4}-\d{2}-\d{2}(-[2-9])?$/.test(id);
+  if (!valid) {
+    box.appendChild(ui.h('div', { class: 'card danger' }, 'Укажите игру: preview.html?game=<id>&w=344'));
+  } else {
+    widths.forEach(width => {
+      const height = Number(q.get('h')) || (width < 420 ? 780 : 830);
+      const entry = q.get('entry') || 'ui/index.html';
+      box.appendChild(ui.h('div', { class: 'frame' },
+        ui.h('iframe', { src: '/modules/games/' + id + '/' + entry + '?preview=1', width: width, height: height, title: 'Игра шириной ' + width }),
+        ui.h('div', { class: 'small' }, width + ' × ' + height)));
+    });
+  }
+</script>
+</body>
+</html>

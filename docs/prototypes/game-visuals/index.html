@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Миры Assi — 26 визуальных концепций</title>
+  <link rel="stylesheet" href="gallery.css">
+</head>
+<body>
+  <a class="skip" href="#workspace">К макетам</a>
+  <header class="masthead">
+    <a class="brand" href="#dynasty/a" aria-label="Миры Assi, первая игра"><span class="brand-mark" aria-hidden="true">a<span>✳</span></span><span>assi<span class="brand-sub">play studies</span></span></a>
+    <div class="masthead-note">13 игр <i></i> 26 направлений <i></i> интерактивные этюды</div>
+    <button class="outline-button" id="overview-button">Все концепции <span aria-hidden="true">↗</span></button>
+  </header>
+  <div class="layout">
+    <aside class="catalog">
+      <div class="catalog-label">Коллекция <span>01—13</span></div>
+      <nav id="games-nav" aria-label="Выбор игры"></nav>
+      <div class="catalog-foot"><span class="live-dot"></span> Живые HTML-макеты<p>Сцены, движение и отклик.<br>Каждый мир — со своим характером.</p></div>
+    </aside>
+    <main id="workspace" tabindex="-1">
+      <section id="detail-view">
+        <div class="page-heading"><div><div class="eyebrow" id="game-category"></div><h1 id="game-title"></h1></div><span class="page-number" id="page-number"></span></div>
+        <div class="direction-bar"><div id="variant-tabs" role="tablist" aria-label="Варианты визуализации"></div><div class="device-switch" aria-label="Размер макета"><button id="wide-button" class="selected" aria-pressed="true" title="Широкий макет"><span aria-hidden="true">▱</span> Десктоп</button><button id="mobile-button" aria-pressed="false" title="Мобильный макет"><span aria-hidden="true">▯</span> Телефон</button></div></div>
+        <div class="study-layout">
+          <div class="preview-well">
+            <div class="game-frame" id="game-frame" role="tabpanel" aria-labelledby="variant-a">
+              <header class="game-heading"><div><span class="game-logo" aria-hidden="true">✳</span><span id="frame-title"></span></div><span class="demo-badge">ЭТЮД</span></header>
+              <div id="game-stats" class="game-stats"></div>
+              <div class="scene-container"><canvas id="scene" width="1000" height="620" role="img" aria-label="Анимированная игровая сцена"></canvas><span class="scene-caption" id="scene-caption"></span></div>
+              <div class="game-actions"><div class="action-copy"><span class="action-label">Попробуйте действие</span><div id="action-result" role="status" aria-live="polite"></div></div><button id="action-button" class="action-button"></button></div>
+            </div>
+            <div class="preview-toolbar"><span id="size-caption">Широкий игровой экран</span><div><button id="reset-button" title="Сбросить демонстрацию">↺ <span>Сброс</span></button><button id="motion-button" aria-pressed="false">Ⅱ <span>Пауза</span></button></div></div>
+          </div>
+          <aside class="concept-notes" aria-label="О концепции">
+            <span class="eyebrow" id="concept-kicker"></span><h2 id="concept-title"></h2><p id="concept-description"></p>
+            <div class="notes-rule"></div><h3>Что оживает</h3><ul id="concept-features"></ul>
+            <button id="favorite-button" class="favorite-button" aria-pressed="false">♡ Выбрать направление</button>
+            <p class="prototype-note">Демонстрация визуального языка. Действия меняют только этот макет.</p>
+          </aside>
+        </div>
+        <footer class="study-footer"><span>Одна механика. Два прочтения.</span><button id="next-button">Следующая игра <span aria-hidden="true">→</span></button></footer>
+      </section>
+      <section id="overview-view" hidden>
+        <div class="page-heading"><div><div class="eyebrow">Коллекция целиком</div><h1>У каждого мира — свой ритм.</h1></div><span class="page-number">26</span></div>
+        <p class="overview-intro">Выберите сцену, чтобы посмотреть её в движении и попробовать действие. Отмеченные направления сохраняются в этом браузере.</p>
+        <div id="overview-grid"></div>
+      </section>
+      <footer class="site-footer"><span>ASSI / VISUAL STUDIES</span><span>Автономно · без загрузок и внешних сервисов</span></footer>
+    </main>
+  </div>
+  <script src="registry.js"></script>
+  <script src="scenes-worlds.js"></script>
+  <script src="scenes-combat.js"></script>
+  <script src="scenes-systems.js"></script>
+  <script src="scenes-sparks.js"></script>
+  <script src="gallery.js"></script>
+</body>
+</html>

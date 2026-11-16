@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Данные о здоровье</title>
+<link rel="stylesheet" href="/ui/kit/kit.css">
+<style>
+  .use {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+
+  .use svg {
+    flex: none;
+    margin-top: 2px;
+    color: var(--accent);
+  }
+
+  .use p {
+    color: var(--ink-2);
+  }
+</style>
+<body>
+<!-- Health Connect opens this screen when the owner asks why Assi wants their health data. -->
+<main class="page">
+  <header class="topbar">
+    <button class="icon-btn" onclick="assi.back()" aria-label="Назад" data-icon="back"></button>
+    <h1>Данные о здоровье</h1>
+  </header>
+
+  <section class="section">
+    <p class="muted">Assi читает из Health Connect только то, что вы разрешили, — чтобы модули и рутины видели, как вы спите, двигаетесь и пьёте воду, и подсказывали по делу.</p>
+  </section>
+
+  <section class="section">
+    <h2>Что и зачем</h2>
+    <div class="card flat use">
+      <span data-icon="dumbbell"></span>
+      <div>
+        <h3>Шаги и тренировки</h3>
+        <p>Дневная активность, цели и сводки за неделю.</p>
+      </div>
+    </div>
+    <div class="card flat use">
+      <span data-icon="moon"></span>
+      <div>
+        <h3>Сон</h3>
+        <p>Сколько и когда вы спали — и как это связано с самочувствием.</p>
+      </div>
+    </div>
+    <div class="card flat use">
+      <span data-icon="heart"></span>
+      <div>
+        <h3>Пульс</h3>
+        <p>Нагрузка на тренировках и пульс в покое.</p>
+      </div>
+    </div>
+    <div class="card flat use">
+      <span data-icon="drop"></span>
+      <div>
+        <h3>Вода</h3>
+        <p>Сколько выпито за день. Стаканы, которые вы отметили в Assi, записываются и в Health Connect.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Где это хранится</h2>
+    <p class="muted">Всё остаётся на телефоне. Наружу данные уходят только тогда, когда вы сами просите ассистента что-то с ними сделать: нужная часть попадает в запрос к модели, которую вы выбрали.</p>
+    <p class="muted">Чтение в фоне нужно утренним сводкам и напоминаниям, когда приложение закрыто, а доступ к прошлому — чтобы видеть больше 30 дней до первого разрешения.</p>
+  </section>
+
+  <section class="section">
+    <p class="muted small">Отозвать доступ можно в любой момент — в Health Connect.</p>
+    <button class="btn wide" id="manage">Открыть Health Connect</button>
+  </section>
+</main>
+<script src="/ui/kit/kit.js"></script>
+<script>
+  document.getElementById('manage').onclick = () => assi.eval(
+    "context.startActivity(new android.content.Intent('android.health.connect.action.MANAGE_HEALTH_PERMISSIONS')" +
+    ".putExtra('android.intent.extra.PACKAGE_NAME', context.getPackageName()).addFlags(0x10000000)); true"
+  ).catch(() => ui.toast('Health Connect на этом телефоне не открывается'));
+</script>
+</body>
+</html>

@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Рутины</title>
+<link rel="stylesheet" href="/ui/kit/kit.css">
+<style>
+  .routine .when {
+    color: var(--accent);
+    font-size: 13px;
+  }
+
+  .routine .what, .routine .last {
+    color: var(--ink-2);
+    font-size: 13px;
+  }
+
+  .routine .last.bad {
+    color: var(--danger);
+  }
+</style>
+<body>
+<main class="page">
+  <header class="topbar">
+    <button class="icon-btn" onclick="assi.back()" aria-label="Назад" data-icon="back"></button>
+    <h1>Рутины</h1>
+  </header>
+
+  <section class="section">
+    <p class="muted small">То, что ассистент делает сам: по расписанию или когда на телефоне что-то происходит. Опишите словами — он заведёт.</p>
+    <div class="row">
+      <input class="input grow" id="wish" placeholder="Каждое утро в 8 — сводка дня">
+      <button class="btn primary" id="create">Завести</button>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="list" id="list"></div>
+  </section>
+</main>
+<script src="/ui/kit/kit.js"></script>
+<script>
+  // Routines live in data/routines.json and are run by lib/routines.js.
+  const h = ui.h;
+  const lib = (fn, ...args) => assi.call('lib/routines.js', fn, ...args);
+  const DAYS = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'];
+
+  function when(spec) {
+    if (spec.kind === 'daily') {
+      const days = spec.days && spec.days.length && spec.days.length < 7 ? ', ' + spec.days.map(day => ui.t(DAYS[day - 1])).join(' ') : '';
+      return ui.t('Каждый день в {}', spec.at) + days;
+    }
+    if (spec.kind === 'every') return ui.t('Каждые {} мин', spec.minutes);
+    if (spec.kind === 'notification') {
+      return ui.t('Уведомление') + (spec.app ? ' · ' + spec.app : '') + (spec.contains ? ' · «' + spec.contains + '»' : '');
+    }
+    return ui.t('Событие') + ' ' + spec.name + (spec.state ? ': ' + spec.state : '');
+  }
+
+  function edit(routine) {
+    const title = h('input', { class: 'input', value: routine.title });
+    const task = h('textarea', { class: 'input', rows: 5 });
+    task.value = routine.do;
+    const spec = routine.when;
+    const at = h('input', { class: 'input', type: 'time', value: spec.at || '08:00' });
+    const minutes = h('input', { class: 'input', inputMode: 'numeric', value: spec.minutes || 60 });
+    let close = null;
+    close = ui.sheet([
+      h('h3', { 'data-raw': '' }, routine.title),
+      h('label', { class: 'field' }, h('span', {}, 'Название'), title),
+      spec.kind === 'daily' && h('label', { class: 'field' }, h('span', {}, 'Время'), at),
+      spec.kind === 'every' && h('label', { class: 'field' }, h('span', {}, 'Раз в сколько минут'), minutes),
+      (spec.kind === 'notification' || spec.kind === 'event') && h('p', { class: 'small muted' }, ui.raw(when(spec))),
+      h('label', { class: 'field' }, h('span', {}, 'Что делать'), task),
+      h('p', { class: 'small muted' }, 'Условие посложнее — другое событие, дни недели, слова в уведомлении — проще поменять словами в чате.'),
+      h('div', { class: 'actions' },
+        h('button', { class: 'btn danger', onclick: async () => {
+          if (!(await ui.confirm('Удалить эту рутину?', 'Удалить', true))) return;
+          await lib('remove', routine.id);
+          close();
+          render();
+        } }, 'Удалить'),
+        h('button', { class: 'btn primary', onclick: async () => {
+          const next = Object.assign({}, spec);
+          if (spec.kind === 'daily') next.at = at.value;
+          if (spec.kind === 'every') next.minutes = Math.max(5, parseInt(minutes.value, 10) || 60);
+          try {
+            await lib('set', { id: routine.id, title: title.value.trim() || routine.title, when: next, do: task.value.trim() || routine.do, agent: routine.agent });
+            close();
+            render();
+          } catch (error) {
+            ui.toast(error.message);
+          }
+        } }, 'Сохранить')),
+    ]);
+  }
+
+  async function render() {
+    const list = await lib('list');
+    const box = document.getElementById('list');
+    if (!list.length) {
+      box.replaceChildren(h('div', { class: 'empty' }, 'Пока ни одной. Примеры: «когда приходит уведомление от банка — записывай трату», «по будням в 9 напоминай про воду», «каждый час проверяй почту и говори только о важном».'));
+      return;
+    }
+    box.replaceChildren(...list.map(routine => {
+      const on = h('input', { type: 'checkbox', class: 'switch', checked: routine.enabled });
+      on.onchange = () => lib('enable', routine.id, on.checked);
+      return h('div', { class: 'routine', style: 'align-items: flex-start' },
+        h('button', { class: 'grow', style: 'border: 0; background: none; text-align: left; padding: 0', onclick: () => edit(routine) },
+          h('div', { style: 'font-weight: 600', 'data-raw': '' }, routine.title),
+          h('div', { class: 'when' }, ui.raw(when(routine.when))),
+          h('div', { class: 'what', 'data-raw': '' }, routine.do),
+          routine.last && h('div', { class: 'last' + (routine.last.ok ? '' : ' bad') },
+            ui.raw(ui.ago(routine.last.at) + ' — ' + (routine.last.text || '…').slice(0, 140)))),
+        h('button', { class: 'icon-btn', 'aria-label': 'Запустить сейчас', onclick: async () => {
+          ui.toast('Запускаю. Ответ придёт уведомлением');
+          lib('run', routine.id, 'владелец запустил вручную').then(render).catch(error => ui.toast(error.message));
+        } }, ui.icon('play')),
+        on);
+    }));
+  }
+
+  // The wish goes to the main agent: it turns plain words into a routine and says what it made.
+  document.getElementById('create').onclick = async () => {
+    const wish = document.getElementById('wish');
+    const text = wish.value.trim();
+    if (!text) { wish.focus(); return; }
+    wish.value = '';
+    await assi.native('agent.newThread', 'assi');
+    await assi.native('ui.chat', true, 'assi');
+    await assi.native('agent.send', 'assi', 'Заведи рутину: ' + text);
+  };
+
+  assi.on('routines', render);
+  render();
+</script>
+</body>
+</html>

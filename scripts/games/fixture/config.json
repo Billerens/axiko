@@ -1,0 +1,10 @@
+{
+  "cart.cost": {"value": "15", "title": "Цена первой вагонетки", "big": true, "group": "Баланс"},
+  "cart.growth": {"value": 1.12, "title": "Рост цены вагонетки", "min": 1.01, "max": 2, "step": 0.01, "group": "Баланс"},
+  "cart.rate": {"value": 1, "title": "Золота в секунду от вагонетки", "min": 0.01, "max": 1000, "step": 0.01, "group": "Баланс"},
+  "pick.coins": {"value": 1.5, "title": "Золота за удар киркой", "min": 0.1, "max": 1000, "step": 0.1, "group": "Баланс"},
+  "depth.threshold": {"value": "5e6", "title": "Золота за забег на первый самоцвет", "big": true, "group": "Престиж"},
+  "depth.bonus": {"value": 0.2, "title": "Плюс к доходу за самоцвет", "min": 0.01, "max": 2, "step": 0.01, "group": "Престиж"},
+  "chest.minutes": {"value": 15, "title": "Сундук: доход за, минут", "min": 1, "max": 240, "group": "Связки"},
+  "rich": {"value": "1e4", "title": "Ачивка «Золотая жила» от", "big": true, "group": "Ачивки"}
+}

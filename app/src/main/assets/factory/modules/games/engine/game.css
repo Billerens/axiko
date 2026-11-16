@@ -1,0 +1,436 @@
+/* The frame every game of «Игротека» shares (engine/game.js builds it):
+   .g-bar      the exit button, the plates of the life links, the menu
+   .g-top      currencies and rates, at most a fifth of the height
+   .g-field    the game's own field
+   .g-actions  the main actions in the lower part, under the thumb
+   The kit's tokens give the colours; no shadows anywhere; one declaration per line. */
+
+html,
+body {
+  height: 100%;
+}
+
+body.g-body {
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.g-app {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding-top: env(safe-area-inset-top);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  background: var(--bg);
+  font-size: 16px;
+}
+
+.g-app *,
+.g-sheet * {
+  box-shadow: none;
+}
+
+.g-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 52px;
+  padding: 2px 4px 0;
+}
+
+.g-bar .icon-btn {
+  width: 48px;
+  height: 48px;
+}
+
+.g-plates {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.g-plates::-webkit-scrollbar {
+  display: none;
+}
+
+.g-plate {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 15px;
+  white-space: nowrap;
+}
+
+.g-plate.bare {
+  width: 44px;
+  padding: 0;
+  justify-content: center;
+}
+
+.g-plate.on {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.g-plate svg.i {
+  width: 18px;
+  height: 18px;
+}
+
+.g-top {
+  flex: none;
+  max-height: 20vh;
+  overflow: hidden;
+  padding: 2px 16px 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.g-field {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: auto;
+  padding: 0 16px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.g-actions {
+  flex: none;
+  max-height: 40vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 16px calc(12px + env(safe-area-inset-bottom));
+}
+
+.g-actions:empty {
+  display: none;
+}
+
+/* Wide (the inner screen of the Fold): the field on the left, the panel on the right. */
+.g-app[data-layout="wide"] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 38%);
+  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-areas: "bar bar" "top top" "field actions";
+}
+
+.g-app[data-layout="wide"] .g-bar {
+  grid-area: bar;
+}
+
+.g-app[data-layout="wide"] .g-top {
+  grid-area: top;
+}
+
+.g-app[data-layout="wide"] .g-field {
+  grid-area: field;
+}
+
+.g-app[data-layout="wide"] .g-actions {
+  grid-area: actions;
+  max-height: none;
+  justify-content: flex-end;
+  border-left: 1px solid var(--line);
+}
+
+.g-btn {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 56px;
+  padding: 6px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.g-btn.primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--accent-ink);
+}
+
+.g-btn.small {
+  min-height: 48px;
+  font-size: 15px;
+}
+
+.g-btn:disabled {
+  opacity: .45;
+}
+
+.g-btn:active:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+/* A title with a line under it inside one button. */
+.g-btn .g-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.g-btn .g-sub {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  opacity: .8;
+}
+
+/* A row of buttons: they share the row, but a button never gets narrower than its longest
+   line, so on a narrow screen the row wraps instead of breaking words. */
+.g-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.g-btns > * {
+  flex: 1 1 0;
+  min-width: min(100%, max-content);
+}
+
+.g-hold-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  background: var(--ink);
+  opacity: .14;
+  pointer-events: none;
+}
+
+.g-mark {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.g-num {
+  font-variant-numeric: tabular-nums;
+}
+
+.g-big {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+.g-rate {
+  color: var(--ink-2);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Sheets of the engine: lines of a label and a value. */
+.g-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.g-sheet h3 {
+  font-size: 19px;
+}
+
+.g-import {
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+  font-family: var(--mono, monospace);
+  font-size: 13px;
+}
+
+.g-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.g-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 26px;
+  font-size: 15px;
+}
+
+.g-line .v {
+  flex: none;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.g-line .k {
+  min-width: 0;
+  color: var(--ink-2);
+}
+
+.g-note {
+  color: var(--ink-2);
+  font-size: 15px;
+}
+
+.g-progress {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.g-progress > i {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: var(--accent);
+}
+
+.g-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.g-pick > button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 8px 14px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  text-align: left;
+}
+
+.g-pick > button.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.g-pick .grow {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The plate of an achievement: 3 seconds at the bottom. Taps pass through it to the game's own
+   controls below, so it never blocks a tab or a button while it shows. */
+.g-flash {
+  pointer-events: none;
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 10px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  animation: g-rise .2s;
+}
+
+.g-flash svg.i {
+  color: var(--accent);
+}
+
+.g-flash .t {
+  font-weight: 600;
+}
+
+@keyframes g-rise {
+  from {
+    transform: translateY(16px);
+    opacity: 0;
+  }
+}
+
+/* Pictures of GameArt: sprites and the model's SVG, any size. */
+.g-art {
+  display: block;
+  flex: none;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.g-error {
+  margin: 16px;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.g-wait {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--ink-2);
+}
+
+/* A game with gestures keeps them this far from the side edges (system "back"). */
+.g-gestures {
+  margin-left: 8px;
+  margin-right: 8px;
+  touch-action: none;
+}
+/* Read-only living scenery; game-specific controls remain in the existing panels. */
+.g-scene {
+  position: relative;
+  flex: 0 0 auto;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: var(--radius, 12px);
+  background: var(--surface, #121b23);
+}
+.g-scene > canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+}

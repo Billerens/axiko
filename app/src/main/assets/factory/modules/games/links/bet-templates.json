@@ -1,0 +1,69 @@
+[
+  {
+    "id": "steps_at_least",
+    "title": "Пройду {n} шагов",
+    "plate": "{n} шагов",
+    "data": "steps",
+    "settle": "evening",
+    "params": {"n": [3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000, 12000, 15000, 20000]}
+  },
+  {
+    "id": "bed_before",
+    "title": "Лягу до {time}",
+    "plate": "сон до {time}",
+    "data": "sleep",
+    "settle": "sleep",
+    "params": {"time": ["22:30", "23:00", "23:30", "00:00", "00:30", "01:00", "01:30"]}
+  },
+  {
+    "id": "screen_time_below",
+    "title": "Экран меньше {min} минут",
+    "plate": "экран меньше {min} мин",
+    "data": "usage",
+    "settle": "evening",
+    "params": {"min": [60, 90, 120, 150, 180, 240, 300]}
+  },
+  {
+    "id": "app_time_below",
+    "title": "{app} меньше {min} минут",
+    "plate": "{app} меньше {min} мин",
+    "data": "usage",
+    "settle": "evening",
+    "params": {"min": [10, 20, 30, 40, 60, 90]},
+    "groups": [
+      {
+        "app": "Соцсети",
+        "packages": ["com.instagram.android", "com.vkontakte.android", "org.telegram.messenger", "com.zhiliaoapp.musically",
+          "com.ss.android.ugc.trill", "com.twitter.android", "com.facebook.katana", "ru.ok.android", "com.reddit.frontpage"]
+      },
+      {
+        "app": "Видео",
+        "packages": ["com.google.android.youtube", "ru.rutube.app", "com.netflix.mediaclient", "ru.kinopoisk", "com.vk.vkvideo"]
+      }
+    ]
+  },
+  {
+    "id": "no_expense_tag",
+    "title": "Ни одной траты «{tag}»",
+    "plate": "без трат «{tag}»",
+    "data": "expense",
+    "settle": "evening",
+    "params": {"tag": "из данных"}
+  },
+  {
+    "id": "habit_done",
+    "title": "Отмечу привычку «{habit}»",
+    "plate": "привычка «{habit}»",
+    "data": "habit",
+    "settle": "evening",
+    "params": {"habit": "из данных"}
+  },
+  {
+    "id": "workout",
+    "title": "Тренировка от {min} минут",
+    "plate": "тренировка от {min} мин",
+    "data": "workout",
+    "settle": "evening",
+    "params": {"min": [15, 20, 30, 45, 60, 90]}
+  }
+]

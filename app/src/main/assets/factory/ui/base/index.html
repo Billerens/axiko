@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Личные данные</title>
+<link rel="stylesheet" href="/ui/kit/kit.css">
+<body>
+<main class="page">
+  <header class="topbar">
+    <button class="icon-btn" id="back" aria-label="Назад" data-icon="back"></button>
+    <h1 id="title">Личные данные</h1>
+  </header>
+  <p class="muted small" id="about">Общая база того, что модули и ассистент записывают о вашей жизни: траты, вода, тренировки, сон, заметки. По ней ассистент отвечает на вопросы, которые не уложить в один модуль.</p>
+  <div class="list" id="list"></div>
+</main>
+<script src="/ui/kit/kit.js"></script>
+<script>
+  // The shared store of the owner's personal facts: lib/base.js.
+  const h = ui.h;
+  const base = (fn, ...args) => assi.call('lib/base.js', fn, ...args);
+  let kind = null;
+
+  const day = time => new Date(time).toLocaleString(window.__lang || 'ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+  async function render() {
+    const list = document.getElementById('list');
+    document.getElementById('title').textContent = kind || ui.t('Личные данные');
+    document.getElementById('about').hidden = Boolean(kind);
+    if (!kind) {
+      const kinds = await base('kinds');
+      list.replaceChildren(...(kinds.length ? kinds.map(item =>
+        h('button', { onclick: () => { kind = item.kind; render(); } },
+          h('span', { class: 'grow' },
+            h('div', { style: 'font-weight: 600', 'data-raw': '' }, item.kind),
+            h('div', { class: 'small muted' }, ui.raw(day(item.first) + ' — ' + day(item.last)))),
+          h('span', { class: 'badge' }, String(item.count)),
+          h('span', { class: 'muted' }, ui.icon('right'))))
+        : [h('div', { class: 'empty' }, 'Пока пусто. Записи появятся, когда модули начнут ими пользоваться или вы скажете ассистенту: «запиши, что я потратил 500 на такси».')]));
+      return;
+    }
+    const records = await base('find', { kind, limit: 200 });
+    list.replaceChildren(...records.map(record =>
+      h('div', {},
+        h('span', { class: 'grow' },
+          h('div', { 'data-raw': '' }, (record.title || '') + (record.amount !== null ? ' · ' + record.amount + (record.unit ? ' ' + record.unit : '') : '')),
+          h('div', { class: 'small muted', 'data-raw': '' }, day(record.at) + (record.tags.length ? ' · ' + record.tags.join(', ') : '') + (record.source ? ' · ' + record.source : ''))),
+        h('button', { class: 'icon-btn', 'aria-label': 'Удалить', onclick: async () => {
+          if (!(await ui.confirm('Удалить эту запись?', 'Удалить', true))) return;
+          await base('remove', record.id);
+          render();
+        } }, ui.icon('trash')))));
+  }
+
+  document.getElementById('back').onclick = () => { if (kind) { kind = null; render(); } else assi.back(); };
+  render();
+</script>
+</body>
+</html>

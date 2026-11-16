@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="screen_service_about">Позволяет Assi читать то, что на экране, и действовать в других приложениях по вашей просьбе.</string>
+</resources>

@@ -1,0 +1,39 @@
+{
+  "id": "template",
+  "title": "Искры",
+  "about": "Куйте искры молотом, ставьте горны, перековывайте их в уголь",
+  "genre": "idle",
+  "engine": 1,
+  "saveVersion": 1,
+  "entry": "ui/index.html",
+  "currencies": [
+    {"id": "sparks", "title": "Искры", "path": "run.sparks", "icon": "sparkle", "bettable": true},
+    {"id": "embers", "title": "Уголь", "path": "layers.ember.currency", "icon": "gem", "whole": true}
+  ],
+  "prestige": [
+    {"id": "ember", "title": "Перековка", "currency": "embers", "resets": ["run"], "minGain": "1",
+     "lose": "искры, горны, удары", "keep": "уголь, ачивки и статистика"}
+  ],
+  "achievements": [
+    {"id": "first-forge", "title": "Первый горн", "text": "Поставить первый горн", "life": true, "lifeText": "Поставил первый горн в «Искрах»"},
+    {"id": "million", "title": "Миллион искр", "text": "Накопить миллион искр за один забег", "hidden": true}
+  ],
+  "links": {
+    "passenger": {"income": true, "chest": true},
+    "steps": {"spend": [
+      {"id": "double-offline", "title": "Забрать ×2 в сводке «Пока вас не было»", "cost": 1},
+      {"id": "boost", "title": "Раздув мехов: доход ×3 на 10 минут", "cost": 1},
+      {"id": "cap", "title": "+2 часа к потолку следующего офлайна", "cost": 1}
+    ]},
+    "bet": {"currency": "sparks"}
+  },
+  "stock": [
+    {"kind": "tips", "title": "Байки кузницы", "min": 10, "target": 30, "batch": 10, "prompt": "prompts/tips.md"}
+  ],
+  "notify": [
+    {"id": "forge", "title": "Хватает на новый горн"}
+  ],
+  "help": "Нажимайте **«Ударить молотом»** — летят искры. На искры ставьте **горны**: они куют сами, и пока игра закрыта тоже.\n\nКогда горнов много, **перековка** обнуляет забег и даёт **уголь**: каждый уголь — плюс 10 % к доходу навсегда.",
+  "origin": {"from": "template", "date": "2026-11-14"},
+  "status": "active"
+}

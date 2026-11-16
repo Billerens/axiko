@@ -1,0 +1,29 @@
+{
+  "items": [
+    {
+      "title": "Главная",
+      "icon": "home",
+      "open": "ui/home/index.html"
+    },
+    {
+      "title": "Задачи",
+      "icon": "list",
+      "open": "ui/tasks/index.html"
+    },
+    {
+      "title": "Рутины",
+      "icon": "clock",
+      "open": "ui/routines/index.html"
+    },
+    {
+      "title": "История",
+      "icon": "history",
+      "open": "ui/history/index.html"
+    },
+    {
+      "title": "Настройки",
+      "icon": "settings",
+      "open": "ui/settings/index.html"
+    }
+  ]
+}

@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Задачи</title>
+<link rel="stylesheet" href="/ui/kit/kit.css">
+<style>
+  .task {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .task .state {
+    flex: none;
+    display: inline-flex;
+    width: 24px;
+    height: 24px;
+    align-items: center;
+    justify-content: center;
+    color: var(--ink-3);
+  }
+
+  .task.run .state {
+    color: var(--accent);
+  }
+
+  .task.done .state {
+    color: var(--ok);
+  }
+
+  .task.error .state, .task.interrupted .state {
+    color: var(--danger);
+  }
+
+  .task.part {
+    padding-left: 44px;
+  }
+
+  .task .title {
+    font-weight: 600;
+  }
+
+  .task .line {
+    color: var(--ink-2);
+    font-size: 13px;
+  }
+</style>
+<body>
+<main class="page">
+  <header class="topbar">
+    <button class="icon-btn" onclick="assi.back()" aria-label="Назад" data-icon="back"></button>
+    <h1>Задачи</h1>
+  </header>
+
+  <section class="section">
+    <h2>Идут сейчас</h2>
+    <div class="list" id="running"></div>
+  </section>
+
+  <section class="section" id="cut-section" hidden>
+    <h2>Прерваны</h2>
+    <p class="muted small">Приложение закрылось, пока шла работа. Её можно продолжить с того места.</p>
+    <div class="list" id="cut"></div>
+  </section>
+
+  <section class="section" id="recent-section" hidden>
+    <h2>Недавние</h2>
+    <div class="list" id="recent"></div>
+    <button class="btn soft" id="clear">Очистить список</button>
+  </section>
+</main>
+<script src="/ui/kit/kit.js"></script>
+<script>
+  // Everything the agents are doing and did lately. A turn of a chat is a task; the work it
+  // hands out to run beside it is shown under it.
+  const h = ui.h;
+  const ICON = { run: 'refresh', done: 'check', stopped: 'stop', error: 'close', interrupted: 'pause' };
+  let agents = [];
+
+  const elapsed = task => {
+    const seconds = Math.round(((task.ended || Date.now()) - task.started) / 1000);
+    return seconds < 90 ? ui.t('{} с', seconds) : ui.t('{} мин', Math.round(seconds / 60));
+  };
+  const who = task => ((agents.find(agent => agent.id === task.agent) || {}).title || task.agent);
+
+  async function openChat(task) {
+    if (task.thread) await assi.native('agent.openThread', task.agent, task.thread);
+    await assi.native('ui.chat', true, task.agent);
+  }
+
+  function row(task) {
+    const running = task.state === 'run';
+    const about = running
+      ? [task.step ? ui.t('шаг {}', task.step) : ui.t('начинает'), task.note, elapsed(task)].filter(Boolean).join(' · ')
+      : [ui.ago(task.ended), elapsed(task)].join(' · ');
+    return h('div', { class: 'task ' + task.state + (task.parent ? ' part' : '') },
+      h('span', { class: 'state' }, running ? h('span', { class: 'spinner' }) : ui.icon(ICON[task.state] || 'box')),
+      h('button', { class: 'grow', style: 'border: 0; background: none; text-align: left; padding: 0', onclick: () => openChat(task) },
+        h('div', { class: 'title', 'data-raw': '' }, task.title || '…'),
+        h('div', { class: 'line' }, task.parent ? ui.raw(about) : ui.raw(who(task) + ' · ' + about)),
+        !running && task.result && h('div', { class: 'line truncate', 'data-raw': '' }, task.result)),
+      running && !task.parent && h('button', { class: 'btn small', onclick: () => assi.native('agent.stop', task.agent, task.thread) }, 'Остановить'),
+      task.state === 'interrupted' && h('button', { class: 'btn small primary', onclick: async () => {
+        await assi.native('tasks.resume', task.agent, task.thread);
+        openChat(task);
+      } }, 'Продолжить'));
+  }
+
+  async function render() {
+    const tasks = await assi.native('tasks.list');
+    const running = tasks.filter(task => task.state === 'run');
+    const cut = tasks.filter(task => task.state === 'interrupted');
+    const recent = tasks.filter(task => task.state !== 'run' && task.state !== 'interrupted');
+    document.getElementById('running').replaceChildren(...(running.length ? running.map(row)
+      : [h('div', { class: 'empty' }, 'Сейчас никто не работает. Попросите о чём-нибудь в чате — задача появится здесь, и за ней можно будет следить, не держа чат открытым.')]));
+    document.getElementById('cut-section').hidden = !cut.length;
+    document.getElementById('cut').replaceChildren(...cut.map(row));
+    document.getElementById('recent-section').hidden = !recent.length;
+    document.getElementById('recent').replaceChildren(...recent.map(row));
+  }
+
+  let timer = null;
+  assi.on('tasks', () => { clearTimeout(timer); timer = setTimeout(render, 250); });
+  setInterval(() => { if (!document.hidden) render(); }, 5000);
+  document.getElementById('clear').onclick = async () => { await assi.native('tasks.forget', '*'); render(); };
+  assi.native('agent.list').then(list => { agents = list; render(); });
+</script>
+</body>
+</html>

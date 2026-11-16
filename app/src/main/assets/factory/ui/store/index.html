@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Каталог Assi</title>
+<link rel="stylesheet" href="/ui/kit/kit.css">
+<link rel="stylesheet" href="store.css">
+<body>
+<main class="store-page">
+  <header class="store-heading">
+    <button class="icon-btn" id="store-back" aria-label="Назад" data-icon="back"></button>
+    <div class="grow"><p class="store-eyebrow">Модули и игры</p><h1>Каталог</h1></div>
+    <button class="btn small" id="store-reload" title="Обновить список">Обновить</button>
+  </header>
+  <section class="store-intro" aria-label="О каталоге">
+    <div><strong>Новые возможности для вашей Assi</strong><p>Подключайте источники, выбирайте модули и сохраняйте свои доработки.</p></div>
+    <span class="store-intro-mark" aria-hidden="true"><svg viewBox="0 0 64 64" fill="none"><path d="m32 5 23 13v28L32 59 9 46V18L32 5Z"/><path d="m9 18 23 14 23-14M32 32v27M20 11l24 14"/><circle cx="48" cy="46" r="12"/><path d="M48 40v12m-6-6h12"/></svg></span>
+  </section>
+  <nav class="store-tabs" role="tablist" aria-label="Разделы каталога">
+    <button role="tab" id="store-tab-catalog" data-tab="catalog" aria-selected="true" tabindex="0">Каталог <span data-count="catalog"></span></button>
+    <button role="tab" id="store-tab-installed" data-tab="installed" aria-selected="false" tabindex="-1">Установленные <span data-count="installed"></span></button>
+    <button role="tab" id="store-tab-updates" data-tab="updates" aria-selected="false" tabindex="-1">Обновления <span data-count="updates"></span></button>
+    <button role="tab" id="store-tab-sources" data-tab="sources" aria-selected="false" tabindex="-1">Источники <span data-count="sources"></span></button>
+  </nav>
+  <div id="store-status" class="store-status" role="status" aria-live="polite" hidden></div>
+  <div id="store-pending" hidden></div>
+  <div class="store-controls" id="store-controls">
+    <label class="store-search"><span class="sr-only">Поиск по каталогу</span><input id="store-search" type="search" placeholder="Найти игру или модуль" autocomplete="off"></label>
+    <select id="store-kind" aria-label="Тип пакета"><option value="all">Все типы</option><option value="game">Игры</option><option value="module">Модули</option></select>
+    <select id="store-source" aria-label="Источник пакетов"><option value="all">Все источники</option></select>
+  </div>
+  <section id="store-content" class="store-content" role="tabpanel" aria-labelledby="store-tab-catalog" aria-busy="true"><div class="store-loading">Загружаем каталог…</div></section>
+</main>
+<script src="/ui/kit/kit.js"></script>
+<script src="store.js"></script>
+</body>
+</html>

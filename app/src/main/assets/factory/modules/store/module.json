@@ -1,0 +1,8 @@
+{
+  "id": "store",
+  "title": "Магазин",
+  "description": "Репозитории, модули и игры. Установка и обновления с сохранением ваших доработок.",
+  "entry": "ui/index.html",
+  "icon": "box",
+  "autostart": false
+}

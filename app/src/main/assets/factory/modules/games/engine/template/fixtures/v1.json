@@ -1,0 +1,6 @@
+{"format": 1, "game": "template", "ver": 1, "seq": 42, "created": 1763000000000, "savedAt": 1763100000000, "lastTick": 1763100000000,
+ "run": {"sparks": "1.234e4", "earned": "5.6e4", "forges": 23, "strikes": 410, "boostUntil": 0},
+ "layers": {"ember": {"currency": "3", "count": 1, "best": "3", "state": {"bestForges": 40}, "lastAt": 1763050000000}},
+ "meta": {"seed": 912733, "achievements": {"first-forge": 1763001000000}, "applied": ["chest-1763050000000"], "stockUsed": [], "taken": {},
+          "stats": {"playMs": 5183000, "sessions": 12, "offlineMs": 29000000, "trips": 4}},
+ "card": "+13,8/с · горнов 23 · перековок 1"}

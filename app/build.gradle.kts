@@ -1,0 +1,89 @@
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+}
+
+// A separate installation for inspecting the factory state without touching the owner's app.
+// Use: gradlew.bat assembleDebug -PcleanPreview -Pphone
+val cleanPreview = providers.gradleProperty("cleanPreview").isPresent
+if (cleanPreview) {
+    layout.buildDirectory.set(rootProject.layout.buildDirectory.dir("clean-preview/app"))
+}
+
+android {
+    namespace = "app.assi"
+    compileSdk = 36
+
+    defaultConfig {
+        applicationId = if (cleanPreview) "app.assi.cleanpreview" else "app.assi"
+        manifestPlaceholders["assiLabel"] = if (cleanPreview) "Assi · чистая" else "Assi"
+        minSdk = 30
+        // Deliberately below the device's level: restrictions that Android 14+ switches on
+        // only for apps targeting it (typed foreground services, read-only dynamic code,
+        // tighter background launches) stay off for a personal, sideloaded app.
+        targetSdk = 33
+        versionCode = 1
+        versionName = "0.1"
+        // The phone needs arm64 only; x86_64 is for the emulator. `-Pphone` leaves it out (about 70 MB less).
+        ndk { abiFilters += if (project.hasProperty("phone")) listOf("arm64-v8a") else listOf("arm64-v8a", "x86_64") }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("debug")
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    packaging {
+        // PRoot ships as native libraries and is run as a program: it must be unpacked on disk.
+        jniLibs.useLegacyPackaging = true
+        resources.excludes += setOf("META-INF/*.kotlin_module", "META-INF/LICENSE*", "META-INF/NOTICE*")
+    }
+
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = false
+    }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+}
+
+dependencies {
+    implementation("org.mozilla:rhino:1.9.2")
+    // Generates subclasses at runtime: scripts extend abstract Android classes (BroadcastReceiver…).
+    implementation("com.linkedin.dexmaker:dexmaker:2.28.6")
+    implementation("androidx.webkit:webkit:1.14.0")
+    // Speech recognition runtime; fetched by scripts/fetch-libs.ps1.
+    implementation(files("libs/sherpa-onnx-2.0.1.aar"))
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // Speech model packs come as .tar.bz2.
+    implementation("org.apache.commons:commons-compress:1.21")
+    // In stock for the agent's modules, which cannot add dependencies at runtime:
+    // mail over IMAP/SMTP and HTML parsing.
+    implementation("com.sun.mail:android-mail:1.6.7")
+    implementation("com.sun.mail:android-activation:1.6.7")
+    implementation("org.jsoup:jsoup:1.17.2")
+    // The rights of ADB without a computer, when the owner runs Shizuku.
+    implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:provider:13.1.5")
+    // Language models on the device itself (Google AI Edge, the LiteRT-LM runtime).
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.19.1")
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+}

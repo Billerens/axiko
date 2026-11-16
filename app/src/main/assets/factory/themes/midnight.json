@@ -1,0 +1,12 @@
+{
+  "name": "Полночь",
+  "tokens": {
+    "bg": "#000000",
+    "surface": "#0E0E0E",
+    "surface-2": "#1A1A1A",
+    "line": "#242424",
+    "accent": "#8B7CFF",
+    "accent-ink": "#0F0E17",
+    "accent-soft": "#1D1A33"
+  }
+}

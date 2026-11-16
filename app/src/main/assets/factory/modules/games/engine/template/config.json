@@ -1,0 +1,14 @@
+{
+  "forge.baseCost": {"value": "10", "title": "Цена первого горна", "big": true, "group": "Баланс"},
+  "forge.growth": {"value": 1.15, "title": "Рост цены горна", "min": 1.01, "max": 2, "step": 0.01, "group": "Баланс"},
+  "forge.income": {"value": 0.5, "title": "Искр в секунду от горна", "min": 0.01, "max": 1000, "step": 0.01, "group": "Баланс"},
+  "hammer.sparks": {"value": 1, "title": "Искр за удар молотом", "min": 0.1, "max": 1000, "step": 0.1, "group": "Баланс"},
+  "hammer.perForge": {"value": 0.1, "title": "Удар молотом: плюс за каждый горн", "min": 0, "max": 10, "step": 0.05, "group": "Баланс"},
+  "ember.threshold": {"value": "1e6", "title": "Искр за забег на первый уголь", "big": true, "group": "Престиж"},
+  "ember.power": {"value": 0.5, "title": "Степень прироста угля", "min": 0.1, "max": 1, "step": 0.05, "group": "Престиж"},
+  "ember.bonus": {"value": 0.1, "title": "Плюс к доходу за каждый уголь", "min": 0.01, "max": 1, "step": 0.01, "group": "Престиж"},
+  "boost.mult": {"value": 3, "title": "Раздув мехов: множитель", "min": 1, "max": 10, "step": 0.5, "group": "Энергия"},
+  "boost.minutes": {"value": 10, "title": "Раздув мехов: минут", "min": 1, "max": 60, "group": "Энергия"},
+  "chest.minutes": {"value": 20, "title": "Сундук: доход за, минут", "min": 1, "max": 240, "group": "Связки"},
+  "million": {"value": "1e6", "title": "Ачивка «Миллион искр» от", "big": true, "group": "Ачивки"}
+}

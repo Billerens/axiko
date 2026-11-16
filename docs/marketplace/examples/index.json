@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "repository": {
+    "id": "example.community",
+    "title": "Example Assi catalog — metadata only",
+    "homepage": "https://example.org/assi-catalog/"
+  },
+  "packages": [
+    {
+      "id": "example.counter",
+      "kind": "module",
+      "title": "Example counter",
+      "summary": "Illustrative metadata only: URLs and all-zero hashes are placeholders, not a downloadable release.",
+      "version": "1.0.0",
+      "publisher": "example",
+      "license": "MIT",
+      "manifestUrl": "https://example.org/assi-catalog/packages/example.counter/1.0.0/package.json",
+      "archive": {
+        "url": "https://example.org/assi-catalog/packages/example.counter/1.0.0/package.zip",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "size": 2048,
+        "unpackedSize": 4096,
+        "fileCount": 4
+      },
+      "compatibility": {
+        "minAssiApi": 1
+      },
+      "tags": [
+        "example"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>История изменений</title>
+<link rel="stylesheet" href="/ui/kit/kit.css">
+<body>
+<main class="page">
+  <header class="topbar">
+    <button class="icon-btn" onclick="assi.back()" aria-label="Назад" data-icon="back"></button>
+    <h1>История изменений</h1>
+  </header>
+  <p class="muted">Перед каждым запросом, который что-то изменил, приложение сохраняет прежнее состояние. К любому из них можно вернуться — данные модулей при этом не трогаются.</p>
+  <div class="list" id="list"></div>
+</main>
+<script src="/ui/kit/kit.js"></script>
+<script>
+  const h = ui.h;
+
+  async function render() {
+    const snapshots = await assi.native('snap.list');
+    const list = document.getElementById('list');
+    if (!snapshots.length) {
+      list.replaceChildren(h('div', { class: 'empty' }, 'Изменений пока не было.'));
+      return;
+    }
+    list.replaceChildren(...snapshots.map(snapshot =>
+      h('div', {},
+        h('div', { class: 'grow' },
+          h('div', { style: 'font-weight: 600' }, 'До: ' + (snapshot.label || 'изменение')),
+          h('div', { class: 'small muted' }, ui.ago(snapshot.time))),
+        h('button', { class: 'btn small', onclick: () => restore(snapshot) }, 'Вернуть'))));
+  }
+
+  async function restore(snapshot) {
+    const sure = await ui.confirm('Вернуть приложение к состоянию «до: ' + (snapshot.label || 'изменение') +
+      '»? Текущее состояние тоже сохранится в истории.', 'Вернуть');
+    if (!sure) return;
+    await assi.native('snap.restore', snapshot.id);
+  }
+
+  render().catch(error => ui.toast(error.message));
+</script>
+</body>
+</html>

@@ -1,0 +1,244 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.org/assi-marketplace/schema/v1/package.schema.json",
+  "title": "Assi readable package manifest v1",
+  "description": "Manifest metadata only; validity does not establish archive integrity, readable code, enforced permissions or safety. package.json is excluded from files; archive total including it must be at most 512 files.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "kind",
+    "version",
+    "publisher",
+    "license",
+    "sourceFormat",
+    "entry",
+    "runtime",
+    "dependencies",
+    "optionalDependencies",
+    "capabilities",
+    "files"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 96,
+      "pattern": "^[a-z0-9][a-z0-9.-]*$"
+    },
+    "kind": {
+      "enum": [
+        "module",
+        "game"
+      ]
+    },
+    "version": {
+      "type": "string",
+      "maxLength": 96,
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\\+(?:[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?$"
+    },
+    "publisher": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 96,
+      "pattern": "^[a-z0-9][a-z0-9.-]*$",
+      "description": "Stable publisher identity, not a trust or signature verdict."
+    },
+    "license": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Declared license identifier or SPDX expression; this validator does not verify license terms."
+    },
+    "sourceFormat": {
+      "const": "readable"
+    },
+    "entry": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 240,
+      "pattern": "^code/[^\\\\]+$",
+      "description": "Executable entry within code/, also present exactly once in files. It is metadata only; this validator never executes it."
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "assiApi"
+      ],
+      "properties": {
+        "assiApi": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "gamesEngine": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "dependencies": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 96,
+            "pattern": "^[a-z0-9][a-z0-9.-]*$"
+          },
+          "version": {
+            "type": "string",
+            "maxLength": 98,
+            "pattern": "^(?:>=)?(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\\+(?:[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?$",
+            "description": "v1 accepts one exact SemVer or >=SemVer. Resolution is a future client responsibility."
+          }
+        }
+      }
+    },
+    "optionalDependencies": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 96,
+            "pattern": "^[a-z0-9][a-z0-9.-]*$"
+          },
+          "version": {
+            "type": "string",
+            "maxLength": 98,
+            "pattern": "^(?:>=)?(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\\+(?:[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?$",
+            "description": "v1 accepts one exact SemVer or >=SemVer. Resolution is a future client responsibility."
+          }
+        }
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 96,
+        "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9-]*)+$"
+      },
+      "description": "Informational declarations only. The current runtime does not enforce these as a sandbox."
+    },
+    "networkDomains": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 253,
+        "pattern": "^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+      }
+    },
+    "files": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 511,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "sha256",
+          "size"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240,
+            "pattern": "^(?:README\\.md|LICENSE|(?:code|assets)/[^\\\\]+)$",
+            "description": "Canonical NFC relative path. Only code/, assets/, README.md and LICENSE; no empty/dot/hidden segments, backslashes, absolute paths or Windows-unsafe names. Semantic validation rejects case/NFC collisions."
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2097152
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "game"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "runtime": {
+            "required": [
+              "gamesEngine"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "files": {
+          "contains": {
+            "properties": {
+              "path": {
+                "const": "README.md"
+              }
+            },
+            "required": [
+              "path"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "files": {
+          "contains": {
+            "properties": {
+              "path": {
+                "const": "LICENSE"
+              }
+            },
+            "required": [
+              "path"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

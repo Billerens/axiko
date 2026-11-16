@@ -1,0 +1,22 @@
+/* The field of «Искры»; the frame (bar, sheets, buttons) is engine/game.css. */
+.t-forges {
+  padding-top: 8px;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.t-tip {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.t-tip:empty {
+  display: none;
+}
+
+.t-tip-title {
+  font-weight: 600;
+}

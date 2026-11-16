@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>Assi — ваше пространство</title>
+<script>window.__assiTransportRoot = true;</script>
+<link rel="stylesheet" href="/ui/kit/kit.css">
+<link rel="stylesheet" href="/ui/desk/hub.css">
+</head>
+<body data-guide="off">
+<div class="desk" id="desk">
+  <button class="sidebar-shade" id="sidebar-shade" aria-label="Закрыть навигацию" hidden></button>
+  <aside class="sidebar" id="sidebar" aria-label="Навигация">
+    <div class="brand-row">
+      <button class="brand" id="brand" aria-label="Обзор Assi"><span class="brand-mark" data-icon="spark"></span><span class="brand-copy"><strong id="brand-name">Assi</strong><span>Ваше пространство</span></span></button>
+      <button class="desk-icon" id="collapse-nav" title="Свернуть навигацию" aria-label="Свернуть навигацию" data-icon="back"></button>
+    </div>
+    <button class="sidebar-search" id="search-open"><span data-icon="search"></span><span class="nav-label">Найти в Assi</span><kbd>Ctrl K</kbd></button>
+    <nav class="primary-nav" id="primary-nav" aria-label="Разделы"></nav>
+    <div class="sidebar-modules">
+      <div class="nav-caption"><span class="nav-label">Модули</span><span class="nav-count" id="side-count"></span></div>
+      <nav id="module-nav" class="module-nav" aria-label="Установленные модули"><p class="sidebar-note">Загружаю модули…</p></nav>
+    </div>
+    <div class="sidebar-bottom">
+      <button class="nav-item studio-entry" id="studio-open"><span data-icon="code"></span><span class="nav-label">Студия</span></button>
+      <button class="connection" id="connection" title="Состояние соединения"><span class="status-dot"></span><span class="connection-copy"><span id="connection-label">Подключаюсь…</span><small id="connection-detail">К вашему телефону</small></span><span class="connection-action" data-icon="refresh"></span></button>
+      <button class="factory-switch" id="factory-switch">Заводской интерфейс</button>
+    </div>
+  </aside>
+  <main class="workspace" id="workspace">
+    <header class="workspace-head">
+      <button class="desk-icon mobile-menu" id="mobile-menu" aria-label="Открыть навигацию" data-icon="list"></button>
+      <div class="location"><span class="location-eyebrow" id="location-eyebrow">Рабочее место</span><h1 id="location-title">Обзор</h1></div>
+      <span class="draft-label" id="draft-label" hidden>Черновик</span>
+      <span class="factory-label" id="factory-label" hidden>Заводская версия</span>
+      <div class="head-actions">
+        <button class="desk-icon" id="reload" title="Обновить" aria-label="Обновить" data-icon="refresh"></button>
+        <button class="desk-icon" id="stage-toggle" title="На весь экран" aria-label="Развернуть рабочий экран на весь экран" data-icon="grid" hidden></button>
+        <button class="chat-toggle" id="chat-toggle" aria-pressed="true"><span data-icon="message"></span><span>Чат</span></button>
+      </div>
+    </header>
+    <div class="hub-notice" id="hub-notice" role="status" hidden><span id="hub-notice-text"></span><button id="hub-retry">Повторить</button><button class="desk-icon" id="notice-close" aria-label="Скрыть сообщение" data-icon="close"></button></div>
+    <div class="studio-bar" id="studio-bar" hidden>
+      <div class="studio-tabs" role="tablist" aria-label="Инструменты студии">
+        <button role="tab" data-studio="code" aria-selected="true"><span data-icon="code"></span>Файлы</button>
+        <button role="tab" data-studio="preview" aria-selected="false"><span data-icon="eye"></span>Просмотр</button>
+        <button role="tab" data-studio="journal" aria-selected="false"><span data-icon="list"></span>Журнал</button>
+      </div>
+      <button class="plain-action" id="leave-studio">К приложению<span data-icon="right"></span></button>
+    </div>
+    <div class="preview-bar" id="preview-bar" hidden><span class="preview-path" id="preview-path">Выберите экран</span><div class="size-controls" aria-label="Ширина просмотра"><button data-width="344" aria-pressed="false">344</button><button data-width="690" aria-pressed="false">690</button><button data-width="auto" aria-pressed="true">По ширине</button></div></div>
+    <section class="overview" id="overview" aria-label="Обзор Assi">
+      <div class="overview-intro">
+        <div class="intro-copy-group">
+          <p class="eyebrow"><span class="eyebrow-line" aria-hidden="true"></span>Личное пространство</p>
+          <h2>Чем займёмся<span>?</span></h2>
+          <p class="intro-copy">Откройте любимую игру, займитесь своим проектом<br class="wide-break"> или обсудите идею с агентом.</p>
+        </div>
+        <div class="idea-station">
+          <button class="create-prompt" id="create-prompt" aria-label="Обсудить идею с агентом">
+            <span class="assi-core" aria-hidden="true">
+              <svg class="core-orbits" viewBox="0 0 220 160" fill="none">
+                <ellipse class="orbit orbit-one" cx="110" cy="80" rx="92" ry="46"/>
+                <ellipse class="orbit orbit-two" cx="110" cy="80" rx="92" ry="46" transform="rotate(57 110 80)"/>
+                <ellipse class="orbit orbit-three" cx="110" cy="80" rx="92" ry="46" transform="rotate(-57 110 80)"/>
+                <circle class="orbit-dot dot-one" cx="198" cy="66" r="4"/>
+                <circle class="orbit-dot dot-two" cx="75" cy="12" r="3"/>
+                <circle class="orbit-dot dot-three" cx="53" cy="130" r="3"/>
+              </svg>
+              <span class="core-center" data-icon="spark"></span>
+            </span>
+            <span class="create-caption"><strong>Обсудим идею?</strong><span data-icon="right" aria-hidden="true"></span></span>
+          </button>
+          <span class="hero-status" id="hero-status">Подключаюсь к Assi…</span>
+        </div>
+      </div>
+      <div class="quick-actions" id="quick-actions">
+        <button class="quick-card quick-play" data-route="modules/games/ui/index.html"><span class="quick-card-top"><span class="quick-symbol" data-icon="play"></span><span class="quick-tag">Для настроения</span><span data-icon="right" aria-hidden="true"></span></span><span class="quick-card-copy"><strong>Игротека</strong><small>Найти своё приключение</small></span><svg class="quick-art" viewBox="0 0 110 80" fill="none" aria-hidden="true"><rect x="28" y="11" width="48" height="48" rx="12" transform="rotate(12 52 35)"/><rect x="40" y="28" width="48" height="48" rx="12" transform="rotate(-12 64 52)"/><path d="M53 48h16m-8-8v16"/><circle cx="85" cy="15" r="4"/></svg></button>
+        <button class="quick-card quick-tasks" data-route="ui/tasks/index.html"><span class="quick-card-top"><span class="quick-symbol" data-icon="list"></span><span class="quick-tag">В процессе</span><span data-icon="right" aria-hidden="true"></span></span><span class="quick-card-copy"><strong>Задачи</strong><small id="task-summary">Работа агента</small></span><svg class="quick-art" viewBox="0 0 110 80" fill="none" aria-hidden="true"><path d="m21 27 5 5 9-10m-14 30 5 5 9-10M46 27h42M46 52h29"/><circle cx="86" cy="53" r="12"/></svg></button>
+        <button class="quick-card quick-build" id="quick-studio"><span class="quick-card-top"><span class="quick-symbol" data-icon="code"></span><span class="quick-tag">Ваши правила</span><span data-icon="right" aria-hidden="true"></span></span><span class="quick-card-copy"><strong>Студия</strong><small>Настроить. Изменить. Создать.</small></span><svg class="quick-art" viewBox="0 0 110 80" fill="none" aria-hidden="true"><path d="m35 19-19 21 19 21m40-42 19 21-19 21M65 10 46 70"/><circle cx="91" cy="10" r="3"/></svg></button>
+      </div>
+      <section class="recent-section" id="recent-section" hidden><div class="section-heading"><h3>Продолжить</h3><button class="text-action" id="clear-recent">Очистить</button></div><div class="recent-list" id="recent-list"></div></section>
+      <section class="catalog-section"><div class="section-heading"><h3>Ваши модули <span id="module-count"></span></h3><label class="module-filter"><span data-icon="search"></span><input id="module-filter" type="search" placeholder="Найти модуль" aria-label="Найти модуль"></label></div><div class="module-grid" id="module-grid"><p class="empty-copy">Загружаю ваши модули…</p></div></section>
+      <footer class="overview-foot"><span>Assi живёт на вашем телефоне</span><button class="text-action" data-route="ui/settings/index.html">Настроить под себя<span data-icon="right"></span></button></footer>
+    </section>
+    <section class="screen-view" id="screen-view" aria-label="Экран приложения" hidden><div class="frame-stage" id="frame-stage"><iframe id="page" title="Экран модуля" allow="clipboard-read; clipboard-write; fullscreen" allowfullscreen></iframe></div><div class="frame-loading" id="frame-loading" role="status" hidden>Открываю экран…</div></section>
+    <section class="studio-view" id="studio-view" aria-label="Файлы" hidden><div id="studio-editor"></div></section>
+    <section class="journal-view" id="journal-view" aria-label="Журнал" hidden>
+      <div class="journal-toolbar"><label class="journal-search"><span data-icon="search"></span><input id="journal-search" type="search" placeholder="Поиск в журнале" aria-label="Поиск в журнале"></label><select id="journal-level" aria-label="Уровень сообщений"><option value="all">Все уровни</option><option value="error">Ошибки</option><option value="warning">Предупреждения</option></select><button class="desk-icon" id="journal-refresh" title="Обновить журнал" aria-label="Обновить журнал" data-icon="refresh"></button><button class="desk-icon" id="journal-download" title="Скачать журнал" aria-label="Скачать журнал" data-icon="download"></button></div>
+      <p class="journal-meta" id="journal-meta">Последние сообщения движка</p><pre id="journal-lines" tabindex="0">Откройте журнал, чтобы загрузить сообщения.</pre>
+    </section>
+    <button class="stage-exit" id="stage-exit" hidden><span data-icon="close"></span>Выйти из полного экрана</button>
+  </main>
+  <div class="chat-divider" id="chat-divider" role="separator" tabindex="0" aria-label="Ширина чата" aria-orientation="vertical" aria-valuemin="300" aria-valuemax="640" aria-valuenow="380"></div>
+  <aside class="chat-panel" id="chat-panel" aria-label="Разговор с агентом"><div class="chat-panel-head"><div><span class="chat-presence"></span><strong>Рядом с вами</strong></div><label class="follow-option" title="Открывать экраны, которые проверяет агент"><input id="follow-agent" type="checkbox"><span>Следовать</span></label><button class="desk-icon" id="chat-close" aria-label="Скрыть чат" data-icon="close"></button></div><iframe id="chat" title="Чат с агентом" allow="clipboard-read; clipboard-write; microphone"></iframe></aside>
+</div>
+<dialog class="command-dialog" id="command-dialog" aria-label="Быстрый переход"><form method="dialog" class="command-head"><span data-icon="search"></span><input id="command-input" type="search" placeholder="Модуль, раздел или действие…" aria-label="Поиск по Assi" autocomplete="off"><button class="desk-icon" aria-label="Закрыть поиск" data-icon="close"></button></form><div id="command-results" class="command-results"></div><div class="command-foot"><span>Стрелки — выбрать · Enter — открыть</span><kbd>Esc</kbd></div></dialog>
+<script src="/ui/kit/kit.js"></script>
+<script src="/ui/desk/transport.js"></script>
+<script src="/ui/desk/hub.js"></script>
+</body>
+</html>

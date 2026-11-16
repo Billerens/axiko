@@ -1,0 +1,37 @@
+{
+  "id": "fixture",
+  "title": "Шахта",
+  "about": "Копайте золото, ставьте вагонетки, спускайтесь глубже за самоцветами",
+  "genre": "idle",
+  "engine": 1,
+  "saveVersion": 2,
+  "entry": "ui/index.html",
+  "currencies": [
+    {"id": "coins", "title": "Золото", "path": "run.coins", "icon": "coin", "bettable": true},
+    {"id": "gems", "title": "Самоцветы", "path": "layers.depth.currency", "icon": "gem", "whole": true}
+  ],
+  "prestige": [
+    {"id": "depth", "title": "Спуск глубже", "currency": "gems", "resets": ["run"], "minGain": "1",
+     "lose": "золото, вагонетки", "keep": "самоцветы, ачивки и статистика"}
+  ],
+  "achievements": [
+    {"id": "first-cart", "title": "Первая вагонетка", "text": "Поставить первую вагонетку", "life": true, "lifeText": "Поставил первую вагонетку в «Шахте»"},
+    {"id": "rich", "title": "Золотая жила", "text": "Накопить 10 000 золота за забег", "hidden": true}
+  ],
+  "links": {
+    "passenger": {"income": true, "chest": true},
+    "steps": {"spend": [
+      {"id": "double-offline", "title": "Забрать ×2 в сводке «Пока вас не было»", "cost": 1},
+      {"id": "cap", "title": "+2 часа к потолку следующего офлайна", "cost": 1}
+    ]},
+    "bet": {"currency": "coins"}
+  },
+  "stock": [
+    {"kind": "rumors", "title": "Слухи забоя", "min": 5, "target": 15, "batch": 5, "prompt": "prompts/rumors.md"}
+  ],
+  "notify": [
+    {"id": "cart", "title": "Хватает на вагонетку"}
+  ],
+  "help": "Копайте **киркой** — идёт золото. На золото ставьте **вагонетки**: они возят его сами.\n\n**Спуск глубже** обнуляет забег и даёт самоцветы: каждый — плюс 20 % к доходу.",
+  "status": "active"
+}

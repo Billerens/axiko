@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "example.counter",
+  "kind": "module",
+  "version": "1.0.0",
+  "publisher": "example",
+  "license": "MIT",
+  "sourceFormat": "readable",
+  "entry": "code/main.js",
+  "runtime": {
+    "assiApi": 1
+  },
+  "dependencies": [],
+  "optionalDependencies": [],
+  "capabilities": [
+    "storage.own"
+  ],
+  "files": [
+    {
+      "path": "README.md",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 220
+    },
+    {
+      "path": "LICENSE",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 1070
+    },
+    {
+      "path": "code/main.js",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 360
+    }
+  ]
+}

@@ -1,0 +1,1857 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Чат</title>
+<link rel="stylesheet" href="/ui/kit/kit.css">
+<style>
+  body {
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 8px 6px 8px 10px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .who {
+    display: grid;
+    grid-template-columns: 36px minmax(0, 1fr);
+    column-gap: 10px;
+    align-items: center;
+    flex: 1;
+    min-width: 0;
+    padding: 4px 8px;
+  }
+
+  .who button {
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    text-align: left;
+  }
+
+  .who .well {
+    grid-row: 1 / 3;
+    background: var(--accent-soft);
+  }
+
+  .well {
+    width: 36px;
+    height: 36px;
+    flex: none;
+    border-radius: 11px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+  }
+
+  .who .name {
+    font-weight: 700;
+    line-height: 22px;
+  }
+
+  .who .model {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    font-size: 12px;
+    line-height: 22px;
+    color: var(--ink-3);
+  }
+
+  .who .model.own {
+    color: var(--accent);
+  }
+
+  .who .model svg {
+    width: 14px;
+    height: 14px;
+    flex: none;
+  }
+
+  /* The provider's models to choose from, in the sheet of the chat's model. */
+  .models {
+    max-height: 34vh;
+    overflow-y: auto;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-s);
+  }
+
+  .models button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 11px 14px;
+    border: 0;
+    border-top: 1px solid var(--line);
+    background: none;
+    text-align: left;
+    font-size: 14px;
+  }
+
+  .models button:first-child {
+    border-top: 0;
+  }
+
+  .models button:active {
+    background: var(--surface-2);
+  }
+
+  /* Messages that wait while the agent works. */
+  .queue {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0 10px 6px;
+    max-height: 30vh;
+    overflow-y: auto;
+  }
+
+  .queue .head {
+    padding: 0 4px;
+    font-size: 12px;
+    color: var(--ink-3);
+  }
+
+  .queue .item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 2px 6px 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+    font-size: 14px;
+  }
+
+  .queue .text {
+    flex: 1;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    text-align: left;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+  }
+
+  .queue .how {
+    flex: none;
+    min-height: 28px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--ink-2);
+    font-size: 12px;
+  }
+
+  .queue .how.steer {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  .icon-btn.on {
+    color: var(--accent);
+  }
+
+  .log {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 14px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .me {
+    align-self: flex-end;
+    max-width: 86%;
+    padding: 10px 14px;
+    border-radius: 18px 18px 4px 18px;
+    background: var(--accent);
+    color: var(--accent-ink);
+    white-space: pre-wrap;
+  }
+
+  .it {
+    align-self: stretch;
+    padding: 2px 4px;
+  }
+
+  .tool {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    align-self: flex-start;
+    max-width: 100%;
+    padding: 6px 12px 6px 10px;
+    border: 0;
+    border-radius: 999px;
+    background: var(--surface-2);
+    font-size: 13px;
+    color: var(--ink-2);
+    text-align: left;
+  }
+
+  .tool .what {
+    font-weight: 600;
+    color: var(--ink);
+    white-space: nowrap;
+  }
+
+  .tool .dot {
+    width: 8px;
+    height: 8px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--ok);
+  }
+
+  .tool.error .dot {
+    background: var(--danger);
+  }
+
+  .tool .spinner {
+    width: 12px;
+    height: 12px;
+  }
+
+  .detail {
+    align-self: stretch;
+    margin: -4px 0 0 10px;
+    padding: 8px 12px;
+    border-left: 2px solid var(--line);
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-2);
+    white-space: pre-wrap;
+  }
+
+  .fold {
+    align-self: flex-start;
+    padding: 2px 6px;
+    border: 0;
+    background: none;
+    font-size: 13px;
+    color: var(--ink-3);
+  }
+
+  .fail {
+    align-self: stretch;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 12px 14px;
+    border-radius: var(--radius-s);
+    background: var(--danger-soft);
+    color: var(--danger);
+    font-size: 14px;
+  }
+
+  .blank {
+    margin: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    padding: 16px;
+    text-align: center;
+  }
+
+  .blank .well {
+    width: 56px;
+    height: 56px;
+    border-radius: 18px;
+  }
+
+  .blank .well svg {
+    width: 28px;
+    height: 28px;
+  }
+
+  .blank .chips {
+    justify-content: center;
+  }
+
+  .blank .chip {
+    min-height: 40px;
+    padding: 8px 14px;
+    border-radius: 14px;
+    white-space: normal;
+    text-align: left;
+  }
+
+  .composer {
+    display: flex;
+    align-items: flex-end;
+    gap: 6px;
+    padding: 8px 10px 10px;
+    border-top: 1px solid var(--line);
+  }
+
+  .composer textarea {
+    flex: 1;
+    min-width: 0;
+    min-height: 44px;
+    max-height: 140px;
+    padding: 10px 14px;
+    border: 1px solid var(--line);
+    border-radius: 22px;
+    background: var(--bg);
+    outline: none;
+    resize: none;
+    line-height: 1.4;
+  }
+
+  .composer textarea:focus {
+    border-color: var(--accent);
+  }
+
+  .round {
+    width: 44px;
+    height: 44px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--accent-ink);
+  }
+
+  .round:disabled {
+    background: var(--surface-2);
+    color: var(--ink-3);
+  }
+
+  .round.ghost {
+    background: var(--surface-2);
+    color: var(--ink);
+  }
+
+  /* Listening: the ring around the microphone follows the loudness of the voice. */
+  .round.live {
+    background: var(--danger);
+    color: #fff;
+    outline: calc(2px + var(--level, 0) * 26px) solid rgba(255, 123, 114, .28);
+    transition: outline-width .1s;
+  }
+
+  /* Dialogue mode: after every answer the microphone opens by itself. */
+  .round.dialog {
+    box-shadow: inset 0 0 0 2px var(--accent);
+    color: var(--accent);
+  }
+
+  .round.wait {
+    background: var(--surface-2);
+    color: var(--ink-3);
+  }
+
+  .changed {
+    align-self: stretch;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-s);
+    overflow: hidden;
+  }
+
+  .changed-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 44px;
+    padding: 0 12px;
+    border: 0;
+    background: none;
+    font-size: 14px;
+    color: var(--ink-2);
+    text-align: left;
+  }
+
+  .changed-head svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .changed-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 0 8px 8px;
+  }
+
+  .changed-file {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 40px;
+    padding: 0 6px;
+    border: 0;
+    border-radius: 8px;
+    background: none;
+    font-size: 13px;
+    text-align: left;
+  }
+
+  .changed-file:active {
+    background: var(--surface-2);
+  }
+
+  .kind {
+    flex: none;
+    width: 18px;
+    font-family: var(--mono);
+    font-weight: 700;
+    text-align: center;
+  }
+
+  .kind.added {
+    color: var(--ok);
+  }
+
+  .kind.removed {
+    color: var(--danger);
+  }
+
+  .kind.changed {
+    color: var(--accent);
+  }
+
+  .diff {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+  }
+
+  /* A difference the way git shows it: added lines on green, removed on red, hunk headers apart. */
+  .diff div {
+    padding: 0 8px;
+  }
+
+  .diff .plus {
+    color: var(--ok);
+    background: color-mix(in srgb, var(--ok) 14%, transparent);
+  }
+
+  .diff .minus {
+    color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 14%, transparent);
+  }
+
+  .diff .hunk {
+    margin-top: 6px;
+    color: var(--accent);
+    background: var(--surface-2);
+  }
+
+  .diff .hunk:first-child {
+    margin-top: 0;
+  }
+
+  .aside {
+    align-self: center;
+    font-size: 13px;
+    color: var(--ink-3);
+  }
+
+  .attach {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 10px;
+    padding: 4px 4px 4px 12px;
+    border-radius: 12px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 14px;
+  }
+
+  .seen {
+    align-self: flex-end;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 13px;
+  }
+
+  .seen svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .thread .title {
+    font-weight: 600;
+  }
+
+  /* What a step did, opened by a tap on its row: the lines a file gained and lost, the code, the pictures. */
+  .detail pre {
+    margin: 6px 0 0;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .detail .diff {
+    margin-top: 6px;
+    border-radius: var(--radius-s);
+    overflow: hidden;
+  }
+
+  .detail img {
+    display: block;
+    max-width: 100%;
+    max-height: 60vh;
+    margin-top: 8px;
+    border-radius: var(--radius-s);
+    border: 1px solid var(--line);
+  }
+
+  .tool .more {
+    margin-left: auto;
+    color: var(--ink-3);
+    display: inline-flex;
+  }
+
+  /* The plan of the work in hand: a line under the header, the steps on a tap. */
+  .planbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 8px 16px;
+    border: 0;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface-2);
+    color: var(--ink-2);
+    font-size: 13px;
+    text-align: left;
+  }
+
+  .planbar .count {
+    flex: none;
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .steps {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .step {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    color: var(--ink-2);
+  }
+
+  .step .mark {
+    flex: none;
+    display: inline-flex;
+    color: var(--ink-3);
+  }
+
+  .step.doing {
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  .step.doing .mark {
+    color: var(--accent);
+  }
+
+  .step.done .mark {
+    color: var(--ok);
+  }
+
+  .step.skipped {
+    text-decoration: line-through;
+  }
+
+  /* Work handed out to run side by side: a line for each piece under the step that started it. */
+  .parts {
+    align-self: stretch;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-left: 18px;
+    font-size: 13px;
+  }
+
+  .part {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .part .spinner {
+    width: 12px;
+    height: 12px;
+  }
+
+  .part .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--ok);
+  }
+
+  .part.error .dot {
+    background: var(--danger);
+  }
+
+  .part .name {
+    flex: none;
+    font-weight: 600;
+  }
+
+  /* A form of questions from the agent: choices to tick and a line for an answer of one's own. */
+  .ask {
+    align-self: stretch;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .ask .actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .ask .actions .btn {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 0 10px;
+    font-size: 15px;
+    white-space: nowrap;
+  }
+
+  .ask .question {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .ask .q {
+    font-weight: 600;
+  }
+
+  .ask .option {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 44px;
+    padding: 6px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-s);
+  }
+
+  .ask .option input {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    margin: 0;
+    accent-color: var(--accent);
+  }
+
+  .ask .option:has(input:checked) {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  /* What the agent is doing right now, and how full the model's window is. */
+  .meter {
+    height: 2px;
+    background: var(--line);
+  }
+
+  .meter div {
+    height: 100%;
+    width: 0;
+    background: var(--accent);
+    transition: width .4s;
+  }
+
+  .meter.high div {
+    background: var(--danger);
+  }
+
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    color: var(--ink-2);
+    font-size: 13px;
+  }
+
+  .status .spinner {
+    width: 14px;
+    height: 14px;
+  }
+
+  .thought {
+    align-self: stretch;
+    border-left: 2px solid var(--line);
+    padding: 2px 0 2px 12px;
+    color: var(--ink-3);
+    font-size: 13px;
+  }
+
+  .thought summary {
+    list-style: none;
+    font-weight: 600;
+    color: var(--ink-2);
+  }
+
+  .thought div {
+    margin-top: 6px;
+    white-space: pre-wrap;
+  }
+</style>
+<body>
+<header class="bar">
+  <div class="who">
+    <button class="well" id="mark" aria-label="Выбрать агента"></button>
+    <button class="name truncate" id="pick" aria-label="Выбрать агента"><span id="name">Assi</span></button>
+    <button class="model" id="model" aria-label="Модель этого чата"><span class="truncate" id="model-text" data-raw></span><span data-icon="down"></span></button>
+  </div>
+  <button class="icon-btn" id="voice" aria-label="Озвучивать ответы"></button>
+  <button class="icon-btn" id="threads" aria-label="Чаты" data-icon="message"></button>
+  <button class="icon-btn" id="close" aria-label="Закрыть чат" data-icon="close"></button>
+</header>
+<div class="meter" id="meter" hidden><div></div></div>
+<button class="planbar" id="planbar" hidden></button>
+<div class="log" id="log"></div>
+<div class="status" id="status" hidden>
+  <span class="spinner"></span>
+  <span class="grow truncate" id="status-text"></span>
+  <span id="status-time"></span>
+</div>
+<div class="queue" id="queue" hidden></div>
+<div class="attach" id="attach" hidden>
+  <span data-icon="clip"></span>
+  <span class="grow truncate" id="attach-text"></span>
+  <button class="icon-btn" id="attach-drop" aria-label="Не прикладывать" data-icon="close"></button>
+</div>
+<footer class="composer">
+  <button class="round ghost" id="clip" aria-label="Приложить файл или картинку" data-icon="clip"></button>
+  <input type="file" id="files" multiple hidden>
+  <textarea id="input" rows="1" placeholder="Что сделать?" enterkeyhint="enter"></textarea>
+  <button class="round ghost" id="mic" aria-label="Сказать голосом" data-icon="mic"></button>
+  <button class="round" id="send" aria-label="Отправить" disabled></button>
+</footer>
+<script src="/ui/kit/kit.js"></script>
+<script>
+  const h = ui.h;
+  const TOOL_NAMES = {
+    fs_list: 'Смотрит файлы', fs_read: 'Читает', fs_write: 'Пишет', fs_edit: 'Правит', fs_delete: 'Удаляет',
+    js_eval: 'Выполняет код', ui_open: 'Открывает экран', ui_eval: 'Проверяет экран', ui_console: 'Читает консоль',
+    ui_screenshot: 'Смотрит на экран', snapshot_list: 'Смотрит снимки', snapshot_restore: 'Откатывает',
+    agent_run: 'Поручает агенту', ask_owner: 'Спрашивает', draft_begin: 'Открывает черновик',
+    module_check: 'Проверяет модуль', base_find: 'Смотрит в личные данные', base_add: 'Записывает в личные данные',
+    routine_set: 'Заводит рутину', routine_list: 'Смотрит рутины', plan_propose: 'Предлагает план', plan_step: 'Отмечает шаг',
+    subtasks: 'Раздаёт работу',
+  };
+  const IDEAS = ['Сделай экран заметок с поиском', 'Что ты умеешь?', 'Создай агента для разбора почты'];
+  const FOLD_AFTER = 4;
+
+  const log = document.getElementById('log');
+  const input = document.getElementById('input');
+  const send = document.getElementById('send');
+  const mic = document.getElementById('mic');
+  const voice = document.getElementById('voice');
+  let agentId = localStorage.getItem('chat.agent') || 'assi';
+  let attached = false;   // something waits to go with the next message: a screen, pictures, files
+  let threadId = null;
+  let agents = [];
+  let busy = false;
+  let chatLoadVersion = 0;
+  let agentEventsVersion = 0;
+  let bubble = null;      // the answer being written
+  let written = '';
+  let drawing = false;
+  let hearing = false;
+  let speaking = false;
+  const tools = {};       // tool call id -> its row
+
+  const narrow = () => matchMedia('(max-width: 520px)').matches;
+  const nearBottom = () => log.scrollHeight - log.scrollTop - log.clientHeight < 160;
+  const toBottom = () => { log.scrollTop = log.scrollHeight; };
+  const current = () => agents.find(agent => agent.id === agentId) || { id: 'assi', title: 'Assi', icon: 'spark', description: '' };
+
+  function setBusy(value) {
+    busy = value;
+    refreshSend();
+    if (!value) setStatus('');
+  }
+
+  // ---- what is going on ---------------------------------------------------------------------
+
+  const statusRow = document.getElementById('status');
+  let statusSince = 0;
+  let statusTimer = null;
+  let step = 1;
+  let loadingModel = '';
+  let thought = null;
+
+  /** The line above the input: what the agent is busy with and for how long. Empty hides it. */
+  function setStatus(text) {
+    const stick = nearBottom();
+    statusRow.hidden = !text;
+    clearInterval(statusTimer);
+    if (!text) return;
+    document.getElementById('status-text').textContent = text + (step > 1 ? ' · шаг ' + step : '');
+    statusSince = Date.now();
+    const tick = () => {
+      const seconds = Math.round((Date.now() - statusSince) / 1000);
+      document.getElementById('status-time').textContent = seconds >= 3 ? seconds + ' с' : '';
+    };
+    tick();
+    statusTimer = setInterval(tick, 1000);
+    if (stick) toBottom();
+  }
+
+  /** The model's thinking, shown as it comes: folded once the answer starts. */
+  function thinking(piece) {
+    if (!thought) {
+      const body = h('div', { 'data-raw': '' });
+      thought = add(h('details', { class: 'thought', open: true }, h('summary', {}, 'Размышляет'), body));
+      thought.body = body;
+    }
+    const stick = nearBottom();
+    thought.body.textContent += piece;
+    if (stick) toBottom();
+  }
+
+  function thoughtDone() {
+    if (!thought) return;
+    thought.open = false;
+    thought.querySelector('summary').textContent = 'Размышления';
+    thought = null;
+  }
+
+  /** The thin line under the header: how much of the model's window the conversation takes. */
+  function setMeter(used, size) {
+    const meter = document.getElementById('meter');
+    meter.hidden = !size;
+    if (!size) return;
+    const share = Math.min(1, used / size);
+    meter.firstElementChild.style.width = Math.round(share * 100) + '%';
+    meter.classList.toggle('high', share > 0.7);
+    meter.onclick = () => ui.toast('Окно модели занято на ' + Math.round(share * 100) + '%: ' + used.toLocaleString('ru') + ' из '
+      + size.toLocaleString('ru') + ' токенов. После 70% разговор сворачивается в краткое изложение');
+  }
+
+  assi.on('local.state', state => {
+    loadingModel = state.loading ? state.model : '';
+    if (busy && state.loading) setStatus('Загружаю модель «' + state.model + '» в память');
+    else if (busy) setStatus('Модель читает запрос');
+  });
+
+  function refreshSend() {
+    // While the agent works the button stops it — unless something is typed: that is sent into the work.
+    const stops = busy && !input.value.trim();
+    send.replaceChildren(ui.icon(stops ? 'stop' : 'send'));
+    send.disabled = !busy && !input.value.trim();
+    send.setAttribute('aria-label', stops ? 'Остановить' : 'Отправить');
+  }
+
+  function add(node) {
+    const stick = nearBottom();
+    const blank = log.querySelector('.blank');
+    if (blank) blank.remove();
+    log.append(node);
+    if (stick) toBottom();
+    return node;
+  }
+
+  async function blank(stillCurrent) {
+    const agent = current();
+    // The agent is told which screen is open behind the chat, so say so to the owner too.
+    const where = agent.id === 'assi' ? await assi.native('ui.where') : {};
+    if (stillCurrent && !stillCurrent()) return;
+    const hint = where.title ? 'Открыт экран «' + where.title + '». Скажите, что в нём изменить, — или о чём угодно другом.'
+      : 'Опишите, что добавить или изменить в приложении.';
+    if (log.children.length && !log.querySelector('.blank')) return;
+    log.replaceChildren(h('div', { class: 'blank' },
+      h('div', { class: 'well' }, ui.mark(agent)),
+      h('div', {},
+        h('h3', {}, agent.id === 'assi' ? 'Чем помочь?' : agent.title),
+        h('p', { class: 'muted small', style: 'margin-top: 4px' }, agent.id === 'assi' ? hint : agent.description)),
+      agent.id === 'assi' && h('div', { class: 'chips' },
+        IDEAS.map(text => h('button', { class: 'chip', onclick: () => submit(text) }, text)))));
+  }
+
+  function userRow(text) { add(h('div', { class: 'me', 'data-raw': '' }, text)); }
+
+  function answerRow(text) {
+    return add(h('div', { class: 'it md', 'data-raw': '', html: ui.md(text) }));
+  }
+
+  /** Long runs of tool rows fold into one line so the conversation stays readable. */
+  function foldTools() {
+    let run = [];
+    const flush = () => {
+      if (run.length > FOLD_AFTER) {
+        const hidden = run.slice(0, run.length - 2);
+        const before = hidden[0].previousElementSibling;
+        if (before && before.classList.contains('fold')) {
+          before.textContent = 'Ещё действий: ' + hidden.length;
+        } else {
+          const toggle = h('button', { class: 'fold' }, 'Ещё действий: ' + hidden.length);
+          toggle.onclick = () => { hidden.forEach(row => { row.hidden = false; }); toggle.remove(); };
+          hidden[0].before(toggle);
+        }
+        hidden.forEach(row => { row.hidden = true; });
+      }
+      run = [];
+    };
+    for (const row of Array.from(log.children)) {
+      if (row.classList.contains('tool') && !row.classList.contains('run')) run.push(row);
+      else if (!row.classList.contains('fold') && !row.classList.contains('detail')) flush();
+    }
+  }
+
+  function toolRow(event) {
+    let row = tools[event.id];
+    if (!row) {
+      row = h('button', { class: 'tool' });
+      row.onclick = () => {
+        const next = row.nextElementSibling;
+        if (next && next.classList.contains('detail')) { next.remove(); return; }
+        if (!row.dataset.summary && !row.detail && !(row.images || []).length) return;
+        const stick = nearBottom();
+        row.after(h('div', { class: 'detail' },
+          // The one-line outcome, unless what follows is that same output in full.
+          (!row.detail || row.detail.indexOf(row.dataset.summary || '') !== 0) && row.dataset.summary,
+          // What the step did to a file is shown as git would; code that ran, as it is.
+          row.detail && (/^@@ /.test(row.detail) ? diffView(row.detail) : h('pre', { 'data-raw': '' }, row.detail)),
+          (row.images || []).map(image => h('img', { src: image, alt: 'Снимок экрана' }))));
+        if (stick) toBottom();
+      };
+      tools[event.id] = add(row);
+    }
+    if (event.args !== undefined) row.dataset.args = event.args;
+    if (event.summary) row.dataset.summary = event.summary;
+    if (event.detail) row.detail = event.detail;
+    if (event.images && event.images.length) row.images = event.images;
+    row.className = 'tool ' + event.status;
+    row.replaceChildren(
+      event.status === 'run' ? h('span', { class: 'spinner' }) : h('span', { class: 'dot' }),
+      h('span', { class: 'what' }, TOOL_NAMES[event.name] || event.name),
+      h('span', { class: 'truncate', 'data-raw': '' }, row.dataset.args || ''));
+    // A step with something to look at — changed lines, code, a picture — says so.
+    if (row.detail || (row.images || []).length) row.append(h('span', { class: 'more' }, ui.icon(row.images ? 'image' : 'down')));
+    // On a phone the chat covers the screen the agent has just opened: offer a way to it.
+    if (event.name === 'ui_open' && event.status === 'ok' && event.live && narrow()) {
+      add(h('button', { class: 'chip on', onclick: () => assi.native('ui.chat', false) }, 'Показать экран'));
+    }
+  }
+
+  // ---- a draft: a rework that waits for the owner's decision --------------------------------------
+
+  function draftRow(draft) {
+    const old = document.getElementById('draft-' + draft.id);
+    const files = draft.files || [];
+    const list = h('div', { class: 'changed-list', hidden: true },
+      files.map(file => h('button', { class: 'changed-file', onclick: async () => {
+        const text = await assi.native('draft.diff', draft.id, file.path);
+        ui.sheet([h('h3', { class: 'mono', style: 'font-size: 14px' }, ui.raw(file.path)),
+          h('p', { class: 'small muted' }, 'Разница между приложением и черновиком.'), diffView(text)]);
+      } },
+        h('span', { class: 'kind ' + file.kind }, KINDS[file.kind]),
+        h('span', { class: 'grow truncate mono' }, ui.raw(file.path)))));
+    const decide = async take => {
+      if (!take && !(await ui.confirm('Выбросить черновик? Приложение останется прежним, а сделанное в черновике пропадёт.', 'Отклонить', true))) return;
+      await assi.native(take ? 'draft.accept' : 'draft.discard', draft.id);
+      ui.toast(take ? 'Черновик принят: изменения в приложении' : 'Черновик отклонён');
+    };
+    const card = h('div', { class: 'ask card', id: 'draft-' + draft.id },
+      h('div', {}, h('div', { class: 'small muted' }, 'Черновик'), h('h3', { 'data-raw': '' }, draft.title)),
+      h('p', { class: 'small muted' }, 'Приложение пока не изменилось. Посмотрите, что получилось, и решите.'),
+      h('div', { class: 'changed' },
+        h('button', { class: 'changed-head', onclick: () => { list.hidden = !list.hidden; } },
+          ui.icon('edit'), h('span', { class: 'grow' }, 'Изменено файлов: ' + files.length), ui.icon('down')),
+        list),
+      h('div', { class: 'actions' },
+        h('button', { class: 'btn danger', onclick: () => decide(false) }, 'Отклонить'),
+        h('button', { class: 'btn', onclick: async () => { await assi.native('draft.open', draft.id); if (narrow()) assi.native('ui.chat', false); } }, ui.icon('eye'), 'Посмотреть'),
+        h('button', { class: 'btn primary', onclick: () => decide(true) }, 'Принять')));
+    // The card goes after the latest answer: that is where the owner looks for it.
+    if (old) old.remove();
+    add(card);
+    toBottom();
+  }
+
+  // ---- the plan of a big piece of work -----------------------------------------------------------
+
+  let planNow = null;
+  const STEP_ICON = { todo: 'box', doing: 'right', done: 'check', skipped: 'close' };
+
+  function planSteps(plan) {
+    return h('div', { class: 'steps' }, plan.steps.map(step =>
+      h('div', { class: 'step ' + step.status },
+        h('span', { class: 'mark' }, ui.icon(STEP_ICON[step.status] || 'box')),
+        h('span', { class: 'grow', 'data-raw': '' }, step.text, step.note && h('div', { class: 'small muted' }, step.note)))));
+  }
+
+  /** The line under the header: which step the work is at. Hidden when there is no plan in hand. */
+  function setPlan(plan) {
+    planNow = plan;
+    const bar = document.getElementById('planbar');
+    const steps = plan && plan.state === 'approved' ? plan.steps : [];
+    const left = steps.filter(step => step.status === 'todo' || step.status === 'doing');
+    bar.hidden = !left.length;
+    if (bar.hidden) return;
+    const now = steps.find(step => step.status === 'doing') || left[0];
+    bar.replaceChildren(ui.icon('list'),
+      h('span', { class: 'grow truncate', 'data-raw': '' }, now.text),
+      h('span', { class: 'count' }, ui.raw(ui.t('{} из {}', steps.length - left.length, steps.length))));
+  }
+
+  document.getElementById('planbar').onclick = () => {
+    if (planNow) ui.sheet([h('h3', { 'data-raw': '' }, planNow.title || ui.t('План')), planSteps(planNow)]);
+  };
+
+  /** The plan as the agent proposes it: a go-ahead, or what to change. */
+  function planRow(event) {
+    if (document.getElementById(event.id)) return;
+    const change = h('textarea', { class: 'input', rows: 2, placeholder: 'Что изменить в плане' });
+    const decide = async text => {
+      const taken = await assi.native('agent.answer', agentId, threadId, event.id, text);
+      card.remove();
+      if (!taken) ui.toast('Этот вопрос уже не ждёт ответа');
+      else if (text) userRow(text);
+      if (taken) setStatus('Жду ответа модели');
+      toBottom();
+    };
+    const card = h('div', { class: 'ask card', id: event.id },
+      h('h3', { 'data-raw': '' }, event.plan.title || ui.t('План')),
+      planSteps(event.plan),
+      change,
+      h('div', { class: 'actions' },
+        h('button', { class: 'btn', onclick: () => {
+          if (!change.value.trim()) { ui.toast('Напишите, что изменить'); change.focus(); return; }
+          decide(change.value.trim());
+        } }, 'Изменить'),
+        h('button', { class: 'btn primary', onclick: () => decide('') }, 'Начать')));
+    add(card);
+    if (busy) setStatus('Ждёт вашего решения по плану');
+    toBottom();
+  }
+
+  /** How a piece of handed-out work goes: a line under the step that started it. */
+  function partLine(event) {
+    const row = tools[event.call];
+    if (!row) return;
+    let box = row.nextElementSibling;
+    while (box && box.classList.contains('detail')) box = box.nextElementSibling;
+    if (!box || !box.classList.contains('parts')) {
+      box = h('div', { class: 'parts' });
+      row.after(box);
+    }
+    let line = Array.from(box.children).find(node => node.dataset.name === event.name);
+    if (!line) {
+      line = h('div', { class: 'part', 'data-name': event.name });
+      box.append(line);
+    }
+    line.className = 'part ' + event.state;
+    line.replaceChildren(
+      event.state === 'run' ? h('span', { class: 'spinner' }) : h('span', { class: 'dot' }),
+      h('span', { class: 'name', 'data-raw': '' }, event.name),
+      h('span', { class: 'truncate muted' }, event.note));
+  }
+
+  /**
+   * A form of questions from the agent. Each question has choices — one to pick, or several —
+   * and a line for an answer of one's own; the agent waits until the form is sent.
+   */
+  function askRow(event) {
+    if (document.getElementById(event.id)) return;
+    const form = event.form || {};
+    const questions = form.questions || [];
+    const state = questions.map(() => ({ picked: [], own: '' }));
+    const send = h('button', { class: 'btn primary wide', disabled: true }, 'Ответить');
+    const ready = () => { send.disabled = !state.every(item => item.picked.length || item.own.trim()); };
+    const card = h('div', { class: 'ask card', id: event.id },
+      form.title && h('h3', { 'data-raw': '' }, form.title),
+      questions.map((question, index) => {
+        const many = Boolean(question.multiple);
+        const own = h('input', { class: 'input', placeholder: (question.options || []).length ? 'Свой вариант' : 'Ваш ответ' });
+        own.oninput = () => { state[index].own = own.value; ready(); };
+        const boxes = [];
+        const options = (question.options || []).map(option => {
+          const box = h('input', { type: many ? 'checkbox' : 'radio', name: event.id + '-' + index });
+          boxes.push([box, option]);
+          box.onchange = () => {
+            state[index].picked = boxes.filter(pair => pair[0].checked).map(pair => pair[1]);
+            ready();
+          };
+          return h('label', { class: 'option' }, box,
+            h('span', { class: 'grow', 'data-raw': '' }, option),
+            option === question.recommended && h('span', { class: 'badge' }, 'советую'));
+        });
+        return h('div', { class: 'question' },
+          h('div', { class: 'q', 'data-raw': '' }, question.question),
+          many && h('div', { class: 'small muted' }, 'Можно выбрать несколько'),
+          options, own);
+      }),
+      send);
+    send.onclick = async () => {
+      const text = questions.map((question, index) => {
+        const parts = state[index].picked.slice();
+        if (state[index].own.trim()) parts.push(state[index].own.trim());
+        return (questions.length > 1 ? (index + 1) + '. ' : '') + question.question + '\n— ' + parts.join('; ');
+      }).join('\n');
+      send.disabled = true;
+      const taken = await assi.native('agent.answer', agentId, threadId, event.id, text);
+      card.remove();
+      if (taken) { userRow(text); setStatus('Жду ответа модели'); } else ui.toast('Этот вопрос уже не ждёт ответа');
+      toBottom();
+    };
+    add(card);
+    if (busy) setStatus('Ждёт вашего ответа');
+    toBottom();
+  }
+
+  /** A difference as git shows it: hunk headers, added lines on green, removed on red. */
+  function diffView(text) {
+    return h('pre', { class: 'diff', 'data-raw': '' }, text.split('\n').map(line =>
+      h('div', { class: line.indexOf('@@') === 0 ? 'hunk' : line[0] === '+' ? 'plus' : line[0] === '-' ? 'minus' : '' }, line || ' ')));
+  }
+
+  /** A picture the agent took earlier, when the chat is opened again: folded until tapped. */
+  function shotRow(image) {
+    const rows = log.querySelectorAll('.tool');
+    const last = rows[rows.length - 1];
+    if (!last) return;
+    last.images = (last.images || []).concat([image]);
+    if (!last.querySelector('.more')) last.append(h('span', { class: 'more' }, ui.icon('image')));
+  }
+
+  function attachRow(label) {
+    add(h('div', { class: 'seen' }, ui.icon(label.indexOf('Экран: ') === 0 ? 'eye' : 'clip'), label));
+  }
+
+  const KINDS = { added: '+', changed: '~', removed: '−' };
+
+  /** What an answer changed in the app, with a look at each file and a way to take it all back. */
+  function changesRow(mark) {
+    const files = mark.files || [];
+    const undo = h('button', { class: 'btn small' }, ui.icon('undo'), 'Отменить эти изменения');
+    const list = h('div', { class: 'changed-list', hidden: true },
+      files.map(file => h('button', { class: 'changed-file', onclick: () => showDiff(mark.snapshot, file) },
+        h('span', { class: 'kind ' + file.kind }, KINDS[file.kind]),
+        h('span', { class: 'grow truncate mono' }, file.path))),
+      h('div', { style: 'padding: 6px 6px 0' }, undo));
+    const head = h('button', { class: 'changed-head', onclick: () => { list.hidden = !list.hidden; } },
+      ui.icon('edit'), h('span', { class: 'grow' }, 'Изменено файлов: ' + files.length), ui.icon('down'));
+    undo.onclick = async () => {
+      const sure = await ui.confirm('Вернуть приложение к состоянию до этого ответа? Изменения, сделанные позже, тоже отменятся. Данные модулей не пострадают.', 'Отменить', true);
+      if (sure) assi.native('snap.restore', mark.snapshot);
+    };
+    // The module's own checks, run by the app after the change: passed or not, with the lines on a tap.
+    const checks = (mark.checks || []).map(item => {
+      const lines = h('pre', { class: 'mono', 'data-raw': '', hidden: true, style: 'white-space: pre-wrap; margin: 6px 12px 10px; font-size: 12px' }, item.text);
+      return h('div', {},
+        h('button', { class: 'changed-head', onclick: () => { lines.hidden = !lines.hidden; } },
+          h('span', { style: 'display: inline-flex; color: ' + (item.ok ? 'var(--ok)' : 'var(--danger)') }, ui.icon(item.ok ? 'check' : 'close')),
+          h('span', { class: 'grow' }, ui.raw(ui.t(item.ok ? 'Проверки модуля {} прошли' : 'Проверки модуля {} не прошли', item.module))),
+          ui.icon('down')),
+        lines);
+    });
+    add(h('div', { class: 'changed' }, head, list, checks));
+  }
+
+  async function showDiff(snapshot, file) {
+    const text = await assi.native('snap.diff', snapshot, file.path);
+    ui.sheet([
+      h('h3', { class: 'mono', style: 'font-size: 14px' }, file.path),
+      h('p', { class: 'small muted' }, 'Разница между состоянием до этого ответа и нынешним.'),
+      diffView(text),
+    ]);
+  }
+
+  function failRow(message) {
+    const needsSetup = /Настройки/.test(message);
+    add(h('div', { class: 'fail' }, h('div', {}, message),
+      needsSetup && h('button', { class: 'btn small', onclick: openSettings }, 'Открыть настройки')));
+  }
+
+  function openSettings() {
+    if (narrow()) assi.native('ui.chat', false);
+    assi.open('ui/settings/index.html');
+  }
+
+  function draw() {
+    drawing = false;
+    if (!bubble) return;
+    const stick = nearBottom();
+    bubble.innerHTML = ui.md(written);
+    if (stick) toBottom();
+  }
+
+  function onAgent(event) {
+    if (event.agent !== agentId || event.thread !== threadId) return;
+    noteAgentEvent(event);
+    switch (event.type) {
+      case 'user':
+        // What the owner said in the middle of the work joins it; anything else starts a new one.
+        if (!event.steer) { step = 1; setStatus('Отправляю запрос'); }
+        setBusy(true);
+        userRow(event.text);
+        toBottom();
+        break;
+      case 'status':
+        step = event.step || 1;
+        setStatus(loadingModel ? 'Загружаю модель «' + loadingModel + '» в память' : event.local ? 'Модель читает запрос' : 'Жду ответа модели');
+        break;
+      case 'thought':
+        if (!thought) setStatus('Размышляет');
+        thinking(event.text);
+        break;
+      case 'usage': setMeter(event.used, event.window); break;
+      case 'ask': askRow(event); break;
+      case 'draft': draftRow(event.draft); break;
+      case 'drafted': {
+        // The card leaves a line behind, so the chat shows what was decided.
+        const card = document.getElementById('draft-' + event.id);
+        if (card) card.replaceWith(h('div', { class: 'aside' }, event.taken ? 'Черновик принят: изменения в приложении' : 'Черновик отклонён'));
+        break;
+      }
+      case 'plan': if (event.id) planRow(event); else setPlan(event.plan); break;
+      case 'part': partLine(event); break;
+      case 'queue': showQueue(event.items); break;
+      case 'model': showModel(event.model); break;
+      case 'asked': { const form = document.getElementById(event.id); if (form) form.remove(); break; }
+      case 'delta':
+        if (!bubble) { thoughtDone(); setStatus('Пишет ответ'); bubble = answerRow(''); written = ''; }
+        written += event.text;
+        if (!drawing) { drawing = true; requestAnimationFrame(draw); }
+        break;
+      case 'message': draw(); thoughtDone(); bubble = null; written = ''; break;
+      case 'attach': attachRow(event.text); break;
+      case 'changes': changesRow(event); break;
+      case 'tool':
+        toolRow(Object.assign({ live: true }, event));
+        if (event.status === 'run') setStatus('Выполняю: ' + event.name);
+        break;
+      case 'error': failRow(event.message); break;
+      case 'done': foldTools(); break;
+      case 'idle': setBusy(false); thoughtDone(); bubble = null; if (dialog) listenAgain(); break;
+    }
+  }
+
+  /** Who is on the other side: the agent's name and the model it runs on. */
+  async function header() {
+    agents = await assi.native('agent.list');
+    if (!agents.some(agent => agent.id === agentId)) agentId = 'assi';
+    const agent = current();
+    document.getElementById('mark').replaceChildren(ui.mark(agent));
+    document.getElementById('name').textContent = agent.title;
+    input.placeholder = attached ? (screenAttached ? 'Что сделать с этим экраном?' : 'Что с этим сделать?')
+      : agent.id === 'assi' ? 'Что сделать?' : 'Сообщение для «' + agent.title + '»';
+    speaking = (await assi.native('speech.status')).tts;
+    voice.replaceChildren(ui.icon(speaking ? 'speaker' : 'mute'));
+    voice.classList.toggle('on', speaking);
+  }
+
+  // ---- reconnect reconciliation ---------------------------------------------------------------
+  // History contains completed messages only. Keep the live bubble until the agent is idle,
+  // then replace it with an authoritative snapshot. No token replay is attempted here.
+  let historyRefreshWanted = false;
+  let historyRefreshRunning = false;
+  let historyRefreshTimer = null;
+  let historyWatchIdle = false;
+  let historyIdleSeen = false;
+  let historyOnline = true;
+  let historyRefreshError = false;
+
+  function resetHistoryRefresh() {
+    historyRefreshWanted = false;
+    historyWatchIdle = false;
+    historyIdleSeen = false;
+    historyRefreshError = false;
+    if (historyRefreshTimer !== null) clearTimeout(historyRefreshTimer);
+    historyRefreshTimer = null;
+  }
+
+  function scheduleHistoryRefresh(delay = 0) {
+    historyRefreshWanted = true;
+    if (historyRefreshTimer !== null) clearTimeout(historyRefreshTimer);
+    historyRefreshTimer = null;
+    if (historyRefreshRunning || !historyOnline || document.visibilityState === 'hidden') return;
+    historyRefreshTimer = setTimeout(refreshHistoryAfterReconnect, delay);
+  }
+
+  function noteAgentEvent(event) {
+    agentEventsVersion++;
+    if (historyWatchIdle && event.type === 'idle' && !event.more) {
+      historyIdleSeen = true;
+      scheduleHistoryRefresh();
+    }
+  }
+
+  async function refreshHistoryAfterReconnect() {
+    historyRefreshTimer = null;
+    if (!historyRefreshWanted || historyRefreshRunning || !historyOnline || document.visibilityState === 'hidden') return;
+    if (!threadId) { scheduleHistoryRefresh(1500); return; }
+    historyRefreshRunning = true;
+    const who = agentId, thread = threadId, ticket = chatLoadVersion;
+    const sameChat = () => ticket === chatLoadVersion && who === agentId && thread === threadId;
+    try {
+      if (await assi.native('agent.busy', who, thread)) return;
+      if (!sameChat()) return;
+      const version = agentEventsVersion;
+      const history = await assi.native('agent.history', who, thread);
+      // The task may have started or finished while the history request was in flight.
+      const running = await assi.native('agent.busy', who, thread);
+      if (!sameChat() || running || version !== agentEventsVersion || !historyOnline) return;
+      renderHistory(history, false, who, thread, ticket);
+      historyRefreshWanted = false;
+      historyRefreshError = false;
+      // If HTTP overtook the last SSE deltas, their later idle must reconcile once more.
+      // If idle was missed during disconnection, the next idle is harmless to refresh too.
+      if (historyIdleSeen) { historyWatchIdle = false; historyIdleSeen = false; }
+    } catch (error) {
+      if (sameChat() && !historyRefreshError) {
+        historyRefreshError = true;
+        ui.toast('Не удалось обновить разговор: ' + error.message);
+      }
+    } finally {
+      historyRefreshRunning = false;
+      // Poll only while reconciliation is pending: this also covers an idle lost during the outage.
+      if (historyRefreshWanted) scheduleHistoryRefresh(1500);
+    }
+  }
+
+  assi.on('desk.reconnected', () => {
+    historyWatchIdle = true;
+    historyIdleSeen = false;
+    historyRefreshError = false;
+    scheduleHistoryRefresh();
+  });
+  assi.on('connection', connection => {
+    historyOnline = !!connection && connection.state === 'online';
+    if (historyRefreshTimer !== null) clearTimeout(historyRefreshTimer);
+    historyRefreshTimer = null;
+    if (historyOnline && historyRefreshWanted) scheduleHistoryRefresh();
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'hidden' && historyRefreshWanted) scheduleHistoryRefresh();
+  });
+  // ---- end reconnect reconciliation -----------------------------------------------------------
+
+  function renderHistory(history, running, who = agentId, thread = threadId, ticket = chatLoadVersion) {
+    const sameChat = () => ticket === chatLoadVersion && who === agentId && thread === threadId;
+    Object.keys(tools).forEach(id => delete tools[id]);
+    bubble = null;
+    written = '';
+    thought = null;
+    setMeter(0, 0);
+    assi.native('agent.plan', who, thread).then(value => { if (sameChat()) setPlan(value); }).catch(() => {});
+    assi.native('agent.queue', who, thread).then(value => { if (sameChat()) showQueue(value); }).catch(() => {});
+    assi.native('agent.model', who, thread).then(value => { if (sameChat()) showModel(value); }).catch(() => {});
+    log.replaceChildren();
+    if (!history.length) blank(sameChat).catch(error => { if (sameChat()) failRow(error.message); });
+    for (const item of history) {
+      if (item.type === 'user') userRow(item.text);
+      else if (item.type === 'assistant') answerRow(item.text);
+      else if (item.type === 'tool') toolRow(item);
+      else if (item.type === 'attach') attachRow(item.text);
+      else if (item.type === 'shot') shotRow(item.image);
+      else if (item.type === 'thought') { thinking(item.text); thoughtDone(); }
+      else if (item.type === 'ask') askRow(item);
+      else if (item.type === 'draft') draftRow(item.draft);
+      else if (item.type === 'plan') planRow(item);
+      else if (item.type === 'changes') changesRow(item);
+      else if (item.type === 'note') add(h('div', { class: 'aside' }, item.text));
+    }
+    foldTools();
+    setBusy(running);
+    toBottom();
+  }
+
+  async function load() {
+    const ticket = ++chatLoadVersion;
+    resetHistoryRefresh();
+    await header();
+    if (ticket !== chatLoadVersion) return;
+    const who = agentId;
+    const selectedThread = await assi.native('agent.thread', who);
+    if (ticket !== chatLoadVersion || who !== agentId) return;
+    threadId = selectedThread;
+    const version = agentEventsVersion;
+    const [history, running] = await Promise.all([
+      assi.native('agent.history', who, selectedThread), assi.native('agent.busy', who, selectedThread),
+    ]);
+    if (ticket !== chatLoadVersion || who !== agentId || selectedThread !== threadId) return;
+    renderHistory(history, running, who, selectedThread, ticket);
+    if (running || version !== agentEventsVersion) {
+      historyWatchIdle = true;
+      scheduleHistoryRefresh(1500);
+    }
+  }
+
+  // ---- what waits while the agent works --------------------------------------------------------
+
+  let waiting = [];   // the owner's messages that have not reached the model yet
+
+  /**
+   * The messages sent while the agent works, above the input until they reach the model. Each
+   * says how it will get there — into the work in hand at its next step, or after the answer —
+   * and a tap changes that; a tap on the text takes the message back to be changed.
+   */
+  function showQueue(items) {
+    waiting = items || [];
+    const box = document.getElementById('queue');
+    const stick = nearBottom();
+    box.hidden = !waiting.length;
+    box.replaceChildren(
+      h('div', { class: 'head' }, 'Ждут отправки: ' + waiting.length),
+      ...waiting.map(item => h('div', { class: 'item' },
+        h('button', { class: 'text', 'aria-label': 'Изменить сообщение', onclick: () => takeBack(item) }, ui.raw(item.text)),
+        h('button', {
+          class: 'how' + (item.steer ? ' steer' : ''),
+          onclick: () => assi.native('agent.requeue', agentId, threadId, item.id, item.steer ? 'after' : 'steer'),
+        }, item.steer ? 'на следующем шаге' : 'после ответа'),
+        h('button', { class: 'icon-btn', 'aria-label': 'Убрать из очереди', onclick: () => assi.native('agent.unqueue', agentId, threadId, item.id) },
+          ui.icon('close')))));
+    if (stick) toBottom();
+  }
+
+  async function takeBack(item) {
+    const taken = await assi.native('agent.unqueue', agentId, threadId, item.id);
+    if (!taken) return;
+    input.value = input.value.trim() ? input.value.trim() + '\n' + taken.text : taken.text;
+    grow();
+    input.focus();
+    if (taken.attached) assi.native('inbox.peek').then(showAttach);
+  }
+
+  async function stopWork() {
+    const texts = waiting.map(item => item.text);
+    await assi.native('agent.stop', agentId, threadId);
+    // What was waiting is not lost with the work: it comes back to the input.
+    if (texts.length && !input.value.trim()) {
+      input.value = texts.join('\n');
+      grow();
+    }
+  }
+
+  // ---- the model of this chat ---------------------------------------------------------------------
+
+  const EFFORTS = [
+    ['', 'Как решит провайдер'], ['none', 'Без размышлений'], ['minimal', 'Минимальное'], ['low', 'Низкое'],
+    ['medium', 'Среднее'], ['high', 'Высокое'], ['xhigh', 'Максимальное'],
+  ];
+  let chatModel = {};   // what the chat runs on: {own, provider, model, effort, vision, window}
+
+  function showModel(state) {
+    chatModel = state || {};
+    document.getElementById('model-text').textContent = chatModel.model
+      ? chatModel.model + (chatModel.effort ? ' · ' + chatModel.effort : '') : ui.t('модель не выбрана');
+    // A chat with a choice of its own shows it in the accent colour.
+    document.getElementById('model').classList.toggle('own', Boolean(chatModel.own));
+  }
+
+  const refreshModel = () => assi.native('agent.model', agentId, threadId).then(showModel);
+
+  /** Another model, or another effort of thinking, for this chat alone — also while the agent works. */
+  async function pickModel() {
+    const [providers, roles, state] = await Promise.all([
+      assi.native('models.providers'), assi.native('models.roles'), assi.native('agent.model', agentId, threadId),
+    ]);
+    if (!providers.length) { ui.toast('Сначала добавьте провайдера моделей в настройках'); return; }
+    showModel(state);
+    // What the agent runs on when the chat asks for nothing of its own.
+    const assigned = roles[current().role];
+    const usual = (assigned && assigned.model ? assigned : roles.main) || {};
+    const usualProvider = providers.some(item => item.id === usual.provider) ? usual.provider : providers[0].id;
+    const field = (label, control) => h('label', { class: 'field' }, h('span', {}, label), control);
+
+    const provider = h('select', { class: 'input' }, providers.map(item => h('option', { value: item.id }, ui.raw(item.name))));
+    provider.value = providers.some(item => item.id === state.provider) ? state.provider : usualProvider;
+    const model = h('input', { class: 'input mono', value: state.model || '', placeholder: 'Название модели', autocapitalize: 'off', autocomplete: 'off' });
+    const vision = h('input', { type: 'checkbox', class: 'switch', checked: state.vision !== false });
+    const found = h('div', { class: 'models', hidden: true, 'data-raw': '' });
+    const browse = h('button', { class: 'btn small' }, 'Показать модели провайдера');
+    let all = [];
+    const show = () => {
+      const query = model.value.trim().toLowerCase();
+      const matches = all.filter(item => item.id.toLowerCase().includes(query));
+      found.hidden = !all.length;
+      found.replaceChildren(...(matches.length ? matches : all).slice(0, 200).map(item =>
+        h('button', { onclick: () => { model.value = item.id; found.hidden = true; if (item.vision !== undefined) vision.checked = item.vision; } },
+          h('span', { class: 'grow truncate' }, item.id), item.vision && ui.icon('eye'))));
+    };
+    browse.onclick = async () => {
+      browse.disabled = true;
+      browse.textContent = 'Загружаю…';
+      try {
+        all = await assi.native('models.list', provider.value);
+        if (!all.length) ui.toast('Провайдер не вернул ни одной модели');
+        show();
+      } catch (error) {
+        ui.toast(error.message);
+      }
+      browse.disabled = false;
+      browse.textContent = 'Показать модели провайдера';
+    };
+    model.addEventListener('input', () => { if (all.length) show(); });
+    provider.addEventListener('change', () => { all = []; found.hidden = true; });
+
+    // The models chosen in chats before, and those the agents are set to: one tap instead of typing.
+    let recent = [];
+    try { recent = JSON.parse(localStorage.getItem('chat.models') || '[]'); } catch (error) { recent = []; }
+    const known = recent.concat(Object.keys(roles).filter(role => role === 'main' || role.indexOf('agent:') === 0).map(role => roles[role]))
+      .filter(item => item && item.model && providers.some(entry => entry.id === item.provider))
+      .filter((item, index, list) => list.findIndex(other => other.model === item.model && other.provider === item.provider) === index).slice(0, 8);
+    const quick = known.length > 1 && h('div', { class: 'chips', 'data-raw': '' }, known.map(item =>
+      h('button', {
+        class: 'chip',
+        onclick: () => { provider.value = item.provider; model.value = item.model; vision.checked = item.vision !== false; all = []; found.hidden = true; },
+      }, item.model)));
+
+    let effort = state.effort || '';
+    const efforts = h('div', { class: 'chips' });
+    const drawEfforts = () => efforts.replaceChildren(...EFFORTS.map(([value, label]) =>
+      h('button', { class: 'chip' + (value === effort ? ' on' : ''), onclick: () => { effort = value; drawEfforts(); } }, label)));
+    drawEfforts();
+
+    let close = null;
+    const apply = async choice => {
+      try {
+        showModel(await assi.native('agent.setModel', agentId, threadId, choice));
+      } catch (error) {
+        ui.toast(error.message);
+        return;
+      }
+      close();
+      if (busy) ui.toast('Идущая работа перейдёт на эту модель со следующего шага');
+    };
+    const save = () => {
+      const name = model.value.trim();
+      if (!name) { ui.toast('Укажите модель'); return; }
+      const same = name === (usual.model || '') && provider.value === usualProvider;
+      // Only what differs from the agent's usual model is the chat's own.
+      const choice = {};
+      if (!same) Object.assign(choice, { provider: provider.value, model: name, vision: vision.checked });
+      else if (vision.checked !== (usual.vision !== false)) choice.vision = vision.checked;
+      if (effort !== (same ? usual.effort || '' : '')) choice.effort = effort;
+      if (!same) {
+        recent = [{ provider: provider.value, model: name, vision: vision.checked }]
+          .concat(recent.filter(item => item.model !== name || item.provider !== provider.value)).slice(0, 6);
+        localStorage.setItem('chat.models', JSON.stringify(recent));
+      }
+      apply(Object.keys(choice).length ? choice : null);
+    };
+    close = ui.sheet([
+      h('h3', {}, 'Модель этого чата'),
+      h('p', { class: 'small muted' }, 'Только для этого чата: остальные работают на том, что задано в настройках.',
+        busy && ' Ассистент сейчас работает — на новую модель он перейдёт со следующего шага.'),
+      quick,
+      field('Провайдер', provider),
+      field('Модель', model),
+      h('div', {}, browse),
+      found,
+      h('label', { class: 'row' }, h('span', { class: 'grow' }, 'Понимает изображения'), vision),
+      h('div', { class: 'field' }, h('span', {}, 'Усилие размышления'), efforts),
+      h('div', { class: 'actions' },
+        state.own && h('button', { class: 'btn', onclick: () => apply(null) }, 'Как в настройках'),
+        h('button', { class: 'btn primary', onclick: save }, 'Применить')),
+    ]);
+  }
+
+  function switchTo(id) {
+    agentId = id;
+    localStorage.setItem('chat.agent', id);
+    return load();
+  }
+
+  async function submit(text) {
+    text = (text || input.value).trim();
+    if (!text) return;
+    input.value = '';
+    grow();
+    const accepted = await assi.native('agent.send', agentId, text, threadId, attached);
+    if (accepted) showAttach(null);
+  }
+
+  function grow() {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight + 2, 140) + 'px';
+    refreshSend();
+  }
+
+  // ---- the screen of another app, captured by the assistant gesture or the floating button ------
+
+  let screenAttached = false;
+
+  /** Shows what waits to go with the next message: `{labels: [...]}` from the shell, or nothing. */
+  function showAttach(inbox) {
+    const labels = (inbox && inbox.labels) || [];
+    attached = labels.length > 0;
+    screenAttached = labels.some(label => label.indexOf('Экран: ') === 0);
+    document.getElementById('attach').hidden = !attached;
+    document.getElementById('attach-text').textContent = labels.join(', ');
+    if (attached) input.placeholder = screenAttached ? 'Что сделать с этим экраном?' : 'Что с этим сделать?';
+  }
+
+  document.getElementById('attach-drop').onclick = () => { assi.native('inbox.drop'); showAttach(null); header(); };
+  assi.on('inbox', async inbox => {
+    showAttach(inbox);
+    // A question about another app's screen is a new subject: it gets a chat of its own.
+    if (screenAttached && !log.querySelector('.blank') && !busy) {
+      await assi.native('agent.newThread', agentId);
+      load();
+    }
+  });
+  assi.on('share.text', text => { input.value = (input.value + ' ' + text).trim(); grow(); });
+  assi.native('inbox.peek').then(showAttach);
+
+  /** A picked file as a data: URL; big pictures are scaled down first, so they travel fast. */
+  function readFile(file) {
+    return new Promise((resolve, reject) => {
+      const plain = () => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('Не удалось прочитать ' + file.name));
+        reader.readAsDataURL(file);
+      };
+      if (!file.type.startsWith('image/') || file.type === 'image/gif' || file.type === 'image/svg+xml') { plain(); return; }
+      const image = new Image();
+      image.onload = () => {
+        const scale = Math.min(1, 1568 / Math.max(image.width, image.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(image.width * scale);
+        canvas.height = Math.round(image.height * scale);
+        canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(image.src);
+        resolve(canvas.toDataURL('image/jpeg', 0.88));
+      };
+      image.onerror = plain;
+      image.src = URL.createObjectURL(file);
+    });
+  }
+
+  const files = document.getElementById('files');
+  // What can go along with a message: a file or a picture — or an action shown on the phone.
+  document.getElementById('clip').onclick = async () => {
+    const state = await assi.native('record.status').catch(() => ({ screen: false }));
+    let close = null;
+    close = ui.sheet([
+      h('div', { class: 'list' },
+        h('button', { onclick: () => { close(); files.click(); } },
+          h('span', { class: 'muted' }, ui.icon('clip')),
+          h('span', { class: 'grow' }, h('div', { style: 'font-weight: 600' }, 'Файл или картинка'))),
+        h('button', { onclick: async () => {
+          close();
+          if (!state.screen) { ui.toast('Сначала включите «Видеть экран» в настройках, вкладка «Телефон»'); return; }
+          try { await assi.native('record.start'); } catch (error) { ui.toast(error.message); }
+        } },
+          h('span', { class: 'muted' }, ui.icon('eye')),
+          h('span', { class: 'grow' },
+            h('div', { style: 'font-weight: 600' }, 'Показать действие на телефоне'),
+            h('div', { class: 'small muted' }, 'Сделайте что-нибудь в другом приложении — ассистент запомнит шаги и научится это повторять')))),
+    ]);
+  };
+  files.onchange = async () => {
+    for (const file of Array.from(files.files)) {
+      if (file.size > 25 * 1048576) { ui.toast(file.name + ': больше 25 МБ, не приложен'); continue; }
+      try {
+        showAttach(await assi.native('inbox.add', { name: file.name, data: await readFile(file) }));
+      } catch (error) {
+        ui.toast(error.message);
+      }
+    }
+    files.value = '';
+  };
+
+  // ---- agents and chats ----------------------------------------------------------------------
+
+  function pickAgent() {
+    let close = null;
+    const rows = agents.map(agent =>
+      h('button', { onclick: () => { close(); switchTo(agent.id); } },
+        h('span', { class: 'well' }, ui.mark(agent)),
+        h('span', { class: 'grow' },
+          h('div', { style: 'font-weight: 600' }, agent.title),
+          h('div', { class: 'small muted' }, agent.description || '')),
+        agent.id === agentId && h('span', { class: 'badge' }, 'сейчас')));
+    close = ui.sheet([
+      h('h3', {}, 'С кем говорить'),
+      h('div', { class: 'list' }, rows),
+      h('button', {
+        class: 'btn soft wide',
+        onclick: () => { close(); switchTo('assi').then(() => { input.value = 'Создай агента, который '; grow(); input.focus(); }); },
+      }, 'Новый агент'),
+    ]);
+  }
+
+  async function pickThread() {
+    const threads = await assi.native('agent.threads', agentId);
+    let close = null;
+    const open = async id => {
+      close();
+      await assi.native('agent.openThread', agentId, id);
+      load();
+    };
+    const remove = async (event, thread) => {
+      event.stopPropagation();
+      const sure = await ui.confirm('Удалить чат «' + (thread.title || 'без названия') + '»? Сделанное в нём останется.', 'Удалить', true);
+      if (!sure) return;
+      close();
+      await assi.native('agent.deleteThread', agentId, thread.id);
+      load();
+    };
+    const rows = threads.map(thread =>
+      h('button', { class: 'thread', onclick: () => open(thread.id) },
+        h('span', { class: 'grow' },
+          h('div', { class: 'title truncate' }, thread.title || 'Без названия'),
+          h('div', { class: 'small muted' }, ui.ago(thread.time))),
+        thread.id === threadId && h('span', { class: 'badge' }, 'открыт'),
+        h('span', { class: 'icon-btn', role: 'button', 'aria-label': 'Удалить чат', onclick: event => remove(event, thread) }, ui.icon('trash'))));
+    close = ui.sheet([
+      h('h3', {}, 'Чаты с «' + current().title + '»'),
+      h('button', {
+        class: 'btn primary wide',
+        onclick: async () => { close(); await assi.native('agent.newThread', agentId); load(); },
+      }, ui.icon('plus'), 'Новый чат'),
+      threads.length ? h('div', { class: 'list' }, rows) : h('div', { class: 'empty' }, 'Прежних чатов пока нет.'),
+    ]);
+  }
+
+  // ---- voice -----------------------------------------------------------------------------------
+
+  async function listen() {
+    if (dialog) { assi.native('live.stop'); return; }
+    if (hearing) { assi.native('speech.stopListening'); return; }
+    hearing = true;
+    mic.classList.add('live');
+    try {
+      const text = await assi.native('speech.listen');
+      if (!text) {
+        ui.toast('Ничего не расслышал');
+      } else if (!input.value.trim() && !busy && (await assi.native('pref.get', 'voice.autosend', 'on')) !== 'off') {
+        submit(text);
+      } else {
+        input.value = (input.value + ' ' + text).trim();
+        grow();
+      }
+    } catch (error) {
+      failRow(error.message);
+    }
+    hearing = false;
+    mic.classList.remove('live', 'wait');
+    mic.style.removeProperty('--level');
+  }
+
+  assi.on('speech', event => {
+    if (!hearing) return;
+    mic.classList.toggle('live', event.state === 'listening' || event.state === 'speech');
+    mic.classList.toggle('wait', event.state === 'processing');
+    if (event.level !== undefined) mic.style.setProperty('--level', Math.min(1, event.level * 6));
+  });
+  assi.on('tts', event => { if (event.error) ui.toast(event.error); });
+
+  // ---- a live conversation: the microphone stays open, and the owner can speak over the answer ------
+
+  let dialog = false;
+
+  function setDialog(on) {
+    dialog = on;
+    mic.classList.toggle('dialog', on);
+    if (!on) mic.classList.remove('live', 'wait');
+  }
+
+  // A long press on the microphone starts it; a tap on the microphone ends it.
+  mic.addEventListener('contextmenu', async event => {
+    event.preventDefault();
+    if (dialog) { assi.native('live.stop'); return; }
+    try {
+      await assi.native('live.start', agentId, threadId);
+      setDialog(true);
+      ui.toast('Живой разговор: говорите когда угодно, меня можно перебивать');
+    } catch (error) {
+      ui.toast(error.message);
+    }
+  });
+
+  assi.on('live', event => {
+    if (event.error) ui.toast(event.error);
+    if (event.state === 'off') { setDialog(false); mic.style.removeProperty('--level'); return; }
+    setDialog(true);
+    mic.classList.toggle('live', event.state === 'hearing' || event.state === 'listening');
+    mic.classList.toggle('wait', event.state === 'thinking');
+    if (event.state === 'hearing') mic.style.setProperty('--level', Math.min(1, event.level * 6));
+  });
+  assi.native('live.status').then(state => setDialog(state.active));
+
+  /** Kept for the turn-by-turn flow: in a live conversation the shell listens by itself. */
+  function listenAgain() {}
+
+  voice.onclick = async () => {
+    speaking = !speaking;
+    await assi.native('pref.set', 'tts.on', speaking ? 'on' : 'off');
+    if (!speaking) assi.native('speech.stop');
+    voice.replaceChildren(ui.icon(speaking ? 'speaker' : 'mute'));
+    voice.classList.toggle('on', speaking);
+    if (speaking) {
+      const roles = await assi.native('models.roles');
+      ui.toast(roles.tts && roles.tts.model ? 'Ответы будут озвучиваться' : 'Выберите голос в настройках, раздел «Голос»');
+    }
+  };
+
+  input.addEventListener('input', grow);
+  send.onclick = () => (busy && !input.value.trim() ? stopWork() : submit());
+  mic.onclick = listen;
+  document.getElementById('pick').onclick = pickAgent;
+  document.getElementById('mark').onclick = pickAgent;
+  document.getElementById('model').onclick = pickModel;
+  document.getElementById('threads').onclick = pickThread;
+  document.getElementById('close').onclick = () => assi.native('ui.chat', false);
+
+
+  assi.on('agent', onAgent);
+  assi.on('chat.agent', id => switchTo(id));
+  assi.on('chat.visible', async visible => {
+    if (!visible) return;
+    // Another screen may have started a new chat or sent a request while this one was hidden.
+    if ((await assi.native('agent.thread', agentId)) !== threadId) load();
+    else { header().then(toBottom); refreshModel(); }
+  });
+  refreshSend();
+  load().catch(error => failRow(error.message));
+</script>
+</body>
+</html>

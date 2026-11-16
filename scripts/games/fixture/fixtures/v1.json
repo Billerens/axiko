@@ -1,0 +1,6 @@
+{"format": 1, "game": "fixture", "ver": 1, "seq": 17, "created": 1763000000000, "savedAt": 1763100000000, "lastTick": 1763100000000,
+ "run": {"gold": "4.2e3", "carts": 9},
+ "layers": {"depth": {"currency": "2", "count": 1, "best": "2", "state": {"deepest": 31}}},
+ "meta": {"seed": 4242, "achievements": {"first-cart": 1763001000000}, "applied": [], "stockUsed": [], "taken": {},
+          "stats": {"playMs": 2400000, "sessions": 5, "offlineMs": 9000000, "trips": 2}},
+ "card": "+12,6/с · вагонеток 9 · самоцветов 2"}

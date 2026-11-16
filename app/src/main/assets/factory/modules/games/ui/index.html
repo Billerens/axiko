@@ -1,0 +1,632 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Игротека</title>
+<link rel="stylesheet" href="/ui/kit/kit.css">
+<link rel="stylesheet" href="/modules/games/engine/game.css">
+<style>
+  .plates {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .plates::-webkit-scrollbar {
+    display: none;
+  }
+
+  .plates:empty {
+    display: none;
+  }
+
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 12px;
+  }
+
+  .game {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+    min-height: 150px;
+    padding: 14px;
+    border-radius: var(--radius);
+    border: 1px solid var(--line);
+    background: var(--surface);
+    text-align: left;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  .game:active {
+    background: var(--surface-2);
+  }
+
+  .game .pic {
+    flex: none;
+    width: 48px;
+    height: 48px;
+    display: grid;
+    place-items: center;
+    border-radius: 12px;
+    background: var(--surface-2);
+    color: var(--ink);
+  }
+
+  .game .pic svg {
+    width: 26px;
+    height: 26px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .game .name {
+    font-weight: 600;
+    font-size: 16px;
+    line-height: 1.25;
+  }
+
+  .game .line {
+    font-size: 14px;
+    color: var(--ink-2);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .game .when {
+    font-size: 13px;
+    color: var(--ink-3);
+  }
+
+  /* The description of another module's card: three lines at most. */
+  .game .about {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .game .marks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .game .marks:empty,
+  [data-module-slot]:empty {
+    display: none;
+  }
+
+  .game .text {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .flag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  .flag.danger {
+    background: var(--danger-soft);
+    color: var(--danger);
+  }
+
+  details.archive > summary {
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    cursor: pointer;
+  }
+
+  details.archive > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  details.archive[open] > summary svg.i {
+    transform: rotate(90deg);
+  }
+
+  details.archive .cards {
+    margin-top: 10px;
+  }
+
+  /* The cover screen of the Fold: one column of rows 64 px high. */
+  @media (max-width: 419px) {
+    .cards {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 8px;
+    }
+
+    .game {
+      flex-direction: row;
+      align-items: center;
+      min-height: 64px;
+      padding: 8px 12px;
+      gap: 12px;
+    }
+
+    .game .pic {
+      width: 44px;
+      height: 44px;
+    }
+
+    .game .text {
+      flex: 1;
+    }
+
+    .game .about {
+      display: block;
+    }
+
+    /* «Игра дня · 14 ноября» says what the card is: kept on the narrow screen too. */
+    .game .when.day {
+      display: block;
+    }
+
+    .game .when {
+      display: none;
+    }
+  }
+</style>
+<body>
+<main class="page">
+  <header class="topbar">
+    <button class="icon-btn" onclick="assi.back()" aria-label="Назад" data-icon="back"></button>
+    <h1>Игротека</h1>
+    <button class="icon-btn" id="new" aria-label="Новая игра" data-icon="plus"></button>
+    <button class="icon-btn" id="settings" aria-label="Настройки Игротеки" data-icon="settings"></button>
+  </header>
+  <div class="plates" id="plates"></div>
+  <div id="sections" class="section" style="gap: 24px"></div>
+</main>
+<script src="/ui/kit/kit.js"></script>
+<script src="/modules/games/engine/big.js"></script>
+<script src="/modules/games/engine/fmt.js"></script>
+<script src="/modules/games/engine/rng.js"></script>
+<script src="/modules/games/engine/core.js"></script>
+<script src="/modules/games/engine/icons.js"></script>
+<script src="/modules/games/engine/game.js"></script>
+<script>
+  const MAIN = 'modules/games/main.js';
+  const h = ui.h;
+  const WEEK = 7 * 86400000;
+  let data = null;
+  let loading = null;
+  let reloadPending = false;
+  let generation = 0;
+  let detailQueue = [];
+  let detailBusy = false;
+  let detailObserver = null;
+  const detailKeys = new Set();
+  const cardNodes = new Map();
+  // Numbers and «2 ч назад» in the interface's language (the words around them come from i18n-en.json).
+  Fmt.setup({ lang: window.__lang === 'en' ? 'en' : 'ru' });
+
+  const call = (fn, ...args) => assi.call(MAIN, fn, ...args);
+
+  /** The game's own SVG without anything that could run. */
+  function picture(markup) {
+    const holder = document.createElement('span');
+    holder.className = 'pic';
+    if (markup) {
+      holder.innerHTML = markup.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+        .replace(/(href|src)\s*=\s*("|')\s*javascript:[^"']*\2/gi, '');
+      const svg = holder.querySelector('svg');
+      if (svg) {
+        svg.removeAttribute('width');
+        svg.removeAttribute('height');
+      } else {
+        holder.replaceChildren(GameIcons.el('dice'));
+      }
+    } else {
+      holder.appendChild(GameIcons.el('dice'));
+    }
+    return holder;
+  }
+
+  function marks(item) {
+    const marks = [];
+    if (item.badge) marks.push(h('span', { class: 'flag' }, 'накопилось' + (item.accrued ? ' ' + item.accrued.text : '')));
+    if (item.offline && item.offline.ok === false) marks.push(h('span', { class: 'flag danger' }, 'нужна сеть'));
+    if (item.pinned) marks.push(h('span', { class: 'flag' }, 'в меню'));
+    return marks;
+  }
+
+  function card(item) {
+    const node = h('button', { class: 'game', 'data-game': item.id },
+      picture(item.icon),
+      h('div', { class: 'text' },
+        h('div', { class: 'name' }, item.title),
+        h('div', { class: 'line' }, item.card || item.about || 'Новая игра'),
+        item.savedAt ? h('div', { class: 'when' }, 'был ' + Fmt.ago(item.savedAt, data.now)) : null,
+        h('div', { class: 'marks' }, marks(item))));
+    cardNodes.set(item.id, node);
+    let timer = 0;
+    let long = false;
+    node.addEventListener('pointerdown', () => {
+      long = false;
+      timer = setTimeout(() => {
+        long = true;
+        if (navigator.vibrate) navigator.vibrate(10);
+        more(item);
+      }, 500);
+    });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach(name => node.addEventListener(name, () => clearTimeout(timer)));
+    node.addEventListener('contextmenu', event => event.preventDefault());
+    node.addEventListener('click', () => {
+      if (long) return;
+      assi.open(item.entry);
+    });
+    return node;
+  }
+
+  function section(title, items) {
+    if (!items.length) return null;
+    return h('section', { class: 'section' }, h('h2', {}, title), h('div', { class: 'cards' }, items.map(card)));
+  }
+
+  /** A card of another module («Игра дня», «Шляпа»): opens its screen, no menu of the hub. */
+  function moduleCard(item) {
+    return h('button', { class: 'game', 'data-module': item.module, onclick: () => assi.open(item.open) },
+      picture(item.icon),
+      h('div', { class: 'text' },
+        h('div', { class: 'name' }, item.title),
+        item.text ? h('div', { class: 'line about' }, item.text) : null,
+        item.date ? h('div', { class: 'when day' }, (item.label && item.label !== item.title ? item.label + ' · ' : '') + dayText(item.date)) : null));
+  }
+
+  /** «14 ноября» from «2026-11-14». */
+  function dayText(key) {
+    const parts = String(key).split('-').map(Number);
+    if (parts.length !== 3 || parts.some(isNaN)) return key;
+    return new Date(parts[0], parts[1] - 1, parts[2]).toLocaleDateString(window.__lang === 'en' ? 'en' : 'ru', { day: 'numeric', month: 'long' });
+  }
+
+  function moduleSection(title, items) {
+    if (!items.length) return null;
+    return h('section', { class: 'section' }, title ? h('h2', {}, title) : null, h('div', { class: 'cards' }, items.map(moduleCard)));
+  }
+
+  function sorted(list) {
+    return list.slice().sort((a, b) => {
+      if (a.order >= 0 || b.order >= 0) return (a.order < 0 ? 1e9 : a.order) - (b.order < 0 ? 1e9 : b.order);
+      return (b.opened || 0) - (a.opened || 0) || a.title.localeCompare(b.title, 'ru');
+    });
+  }
+
+  function render() {
+    const box = document.getElementById('sections');
+    cardNodes.clear();
+    const list = sorted(data.games);
+    const top = h('div', { 'data-module-slot': 'top' });
+    const below = h('div', { 'data-module-slot': 'below' });
+    if (!list.length) {
+      const empty = h('div', { class: 'card flat empty', id: 'empty' },
+        h('p', {}, 'Игр пока нет. Скажите, во что хотите играть, — агент сделает. Или установите игру из assi-store.'),
+        h('div', { style: 'margin-top: 14px' }, h('button', { class: 'btn primary', onclick: () => assi.chat() }, 'Попросить агента')));
+      box.replaceChildren(...[top, empty, below].filter(Boolean));
+      renderModules();
+      return;
+    }
+    const archived = list.filter(g => g.archived);
+    const live = list.filter(g => !g.archived);
+    const trial = live.filter(g => g.trial);
+    const rest = live.filter(g => !g.trial);
+    const playing = rest.filter(g => g.opened && data.now - g.opened < WEEK);
+    const all = rest.filter(g => playing.indexOf(g) < 0);
+    const parts = [top, section('Играю', playing), section(playing.length ? 'Все игры' : 'Игры', all), section('На пробу', trial), below];
+    if (archived.length) {
+      parts.push(h('details', { class: 'archive' },
+        h('summary', {}, ui.icon('right'), h('h2', {}, 'Архив · ' + archived.length)),
+        h('div', { class: 'cards' }, archived.map(card))));
+    }
+    box.replaceChildren(...parts.filter(Boolean));
+    renderModules();
+  }
+
+  /** Extra module cards arrive independently; keep the game buttons, focus and scroll intact. */
+  function renderModules() {
+    const others = data.modules || [];
+    const top = document.querySelector('[data-module-slot="top"]');
+    const below = document.querySelector('[data-module-slot="below"]');
+    const featured = moduleSection('', others.filter(m => m.top));
+    const rest = moduleSection('Другие игры Assi', others.filter(m => !m.top));
+    if (top) top.replaceChildren(...(featured ? [featured] : []));
+    if (below) below.replaceChildren(...(rest ? [rest] : []));
+  }
+
+  function plates() {
+    const box = document.getElementById('plates');
+    const l = data.links || {};
+    const list = [];
+    const plate = (name, icon, text, on) => list.push(h('button', { class: 'g-plate' + (on ? ' on' : ''), 'data-link': name, onclick: () => Game.ui.linkSheet(name, null, { onChange: refresh }) },
+      GameIcons.el(icon), text));
+    if (l.passenger && l.passenger.on) plate('passenger', 'train', l.passenger.text, l.passenger.state === 'trip');
+    if (l.steps && l.steps.on) {
+      plate('steps', 'energy', l.steps.text, false);
+      if (l.steps.charge) plate('steps', 'steps', l.steps.chargeText, true);
+    }
+    if (l.bet && l.bet.on) plate('bet', 'dice', l.bet.text, !!l.bet.today);
+    box.replaceChildren(...list);
+  }
+
+  function forgetMirror(id) {
+    try { localStorage.removeItem('games:' + id); } catch (error) { /* private mode */ }
+  }
+
+  function more(item) {
+    const rows = [];
+    let close = null;
+    const add = (icon, text, fn, danger) => {
+      const b = h('button', { style: danger ? 'color: var(--danger)' : '' }, GameIcons.el(icon), h('span', { class: 'grow' }, text));
+      b.addEventListener('click', () => { close(); fn(); });
+      rows.push(b);
+    };
+    add('pin', item.pinned ? 'Убрать из меню' : 'Закрепить в меню', async () => {
+      await call('catalogSet', 'pin', item.id, !item.pinned);
+      ui.toast(item.pinned ? 'Убрано из меню' : 'Закреплено в меню');
+      refresh();
+    });
+    add('link', 'Ярлык на рабочий стол', async () => {
+      try {
+        await assi.native('shortcut.pin', item.title, item.entry);
+      } catch (error) {
+        ui.toast(error.message);
+      }
+    });
+    add('history', 'Сохранения', () => Game.ui.savesSheet(item.id, { onRestore: () => { forgetMirror(item.id); ui.toast('Сохранение возвращено'); refresh(); } }));
+    add('settings', 'Настройки игры', () => assi.open('modules/games/ui/settings.html?game=' + encodeURIComponent(item.id)));
+    add('share', 'Экспорт сохранения', async () => {
+      try {
+        const r = await call('exportSave', item.id);
+        if (r.text) await assi.call('lib/assi.js', 'share', r.text, item.title + ': сохранение');
+        else ui.toast('Сохранение большое, оно в файле ' + r.path);
+      } catch (error) {
+        ui.toast(error.message);
+      }
+    });
+    add('import', 'Импорт сохранения', () => importSheet(item));
+    if (item.trial) add('check', 'Перенести в «Все игры»', async () => { await call('catalogSet', 'trial', item.id, false); refresh(); });
+    add('reset', 'Начать заново', () => resetSheet(item));
+    add('box', item.archived ? 'Вернуть из архива' : 'В архив', async () => { await call('catalogSet', 'archive', item.id, !item.archived); refresh(); });
+    add('trash', 'Удалить', async () => {
+      const sure = await ui.confirm('Удалить «' + item.title + '»? Папка игры уйдёт в архив Игротеки, сохранения останутся.', 'Удалить', true);
+      if (!sure) return;
+      try {
+        await call('remove', item.id);
+        ui.toast('Игра удалена');
+      } catch (error) {
+        ui.toast(error.message);
+      }
+      refresh();
+    }, true);
+    const content = [h('h3', {}, item.title)];
+    if (item.about) content.push(h('p', { class: 'muted' }, item.about));
+    if (item.offline && item.offline.ok === false) {
+      content.push(h('div', { class: 'card danger' }, h('div', { style: 'font-weight: 600' }, 'Нужна сеть: игра грузит из интернета'),
+        item.offline.hits.slice(0, 5).map(hit => h('div', { class: 'small mono' }, hit.path + ':' + hit.line + ' ' + hit.url))));
+    }
+    content.push(h('div', { class: 'list' }, rows));
+    close = ui.sheet(h('div', { class: 'g-sheet' }, content));
+  }
+
+  // «Импорт сохранения»: a JSON file (an export) or its text pasted; the current state stays a copy.
+  function importSheet(item) {
+    const text = h('textarea', { class: 'g-import', rows: '6', placeholder: 'Вставьте текст сохранения' });
+    const file = h('input', { type: 'file', accept: '.json,application/json,text/plain', style: 'display: none' });
+    file.addEventListener('change', async () => {
+      const f = file.files && file.files[0];
+      if (f) text.value = await f.text();
+    });
+    const take = async () => {
+      const json = text.value.trim();
+      if (!json) {
+        ui.toast('Сначала выберите файл или вставьте текст');
+        return;
+      }
+      try {
+        await call('importSave', item.id, json);
+        close();
+        forgetMirror(item.id);
+        ui.toast('Сохранение загружено, прежнее — копией в «Сохранениях»');
+        refresh();
+      } catch (error) {
+        ui.toast(error.message);
+      }
+    };
+    const close = ui.sheet(h('div', { class: 'g-sheet' },
+      h('h3', {}, 'Импорт сохранения: «' + item.title + '»'),
+      h('p', { class: 'g-note' }, 'Файл экспорта или его текст. Нынешнее состояние останется копией в «Сохранениях».'),
+      file,
+      h('button', { class: 'g-btn small', onclick: () => file.click() }, 'Выбрать файл'),
+      text,
+      h('button', { class: 'g-btn primary', onclick: take }, 'Загрузить'),
+      h('button', { class: 'g-btn small', onclick: () => close() }, 'Отмена')));
+  }
+
+  function resetSheet(item) {
+    const go = h('button', { class: 'g-btn primary', id: 'reset-hold' }, 'Удерживайте, чтобы начать заново');
+    const close = ui.sheet(h('div', { class: 'g-sheet' },
+      h('h3', {}, 'Начать «' + item.title + '» заново?'),
+      h('p', { class: 'g-note' }, 'Весь прогресс, ачивки и статистика игры начнутся с нуля. Прежнее состояние останется копией в «Сохранениях».'),
+      go, h('button', { class: 'g-btn small', onclick: () => close() }, 'Отмена')));
+    Game.ui.hold(go, 1200, async () => {
+      close();
+      try {
+        await call('reset', item.id);
+        forgetMirror(item.id);
+        ui.toast('Игра начата заново, прежняя — в сохранениях');
+      } catch (error) {
+        ui.toast(error.message);
+      }
+      refresh();
+    });
+  }
+
+  function current(ticket) {
+    return ticket === generation && document.visibilityState !== 'hidden';
+  }
+
+  /** One expensive game preview at a time, and only for cards near the viewport. */
+  function queueDetails(ticket, items) {
+    if (!current(ticket)) return;
+    items.forEach(item => {
+      const key = ticket + ':' + item.id;
+      if (!item.detailsPending || detailKeys.has(key)) return;
+      detailKeys.add(key);
+      detailQueue.push({ ticket, item, key });
+    });
+    drainDetails();
+  }
+
+  async function drainDetails() {
+    if (detailBusy) return;
+    detailBusy = true;
+    try {
+      while (detailQueue.length) {
+        const job = detailQueue.shift();
+        try {
+          if (!current(job.ticket)) continue;
+          const detail = await call('catalogDetails', job.item.id);
+          if (!current(job.ticket) || detail.id !== job.item.id) continue;
+          // A save changed while the catalog was loading: refresh its whole card on the next load.
+          if (detail.seq !== job.item.seq) continue;
+          Object.assign(job.item, detail);
+          const node = cardNodes.get(job.item.id);
+          if (node) node.querySelector('.marks').replaceChildren(...marks(job.item));
+        } catch (error) {
+          // A removed game or failed preview must not prevent opening the remaining games.
+          console.warn('Игротека: ' + job.item.id + ': ' + error.message);
+        } finally {
+          detailKeys.delete(job.key);
+        }
+      }
+    } finally {
+      detailBusy = false;
+    }
+  }
+
+  function watchDetails(ticket) {
+    if (!current(ticket)) return;
+    if (typeof IntersectionObserver === 'function') {
+      const byId = new Map(data.games.map(item => [item.id, item]));
+      const observer = new IntersectionObserver(entries => {
+        if (!current(ticket)) return;
+        const visible = [];
+        entries.forEach(entry => {
+          if (!entry.isIntersecting) return;
+          observer.unobserve(entry.target);
+          const item = byId.get(entry.target.getAttribute('data-game'));
+          if (item) visible.push(item);
+        });
+        queueDetails(ticket, visible);
+      }, { rootMargin: '200px 0px' });
+      detailObserver = observer;
+      cardNodes.forEach(node => observer.observe(node));
+    } else {
+      queueDetails(ticket, data.games.filter(item => !item.archived));
+      const archive = document.querySelector('details.archive');
+      if (archive) archive.addEventListener('toggle', () => {
+        if (archive.open) queueDetails(ticket, data.games.filter(item => item.archived));
+      });
+    }
+  }
+
+  async function extras(ticket) {
+    try {
+      const extra = await call('catalogExtras');
+      if (!current(ticket)) return;
+      data.modules = extra.modules;
+      data.links = extra.links;
+      renderModules();
+      plates();
+    } catch (error) {
+      console.warn('Игротека: дополнительные карточки: ' + error.message);
+    }
+  }
+
+  /** Mutations request a fresh snapshot even when an older request is still in flight. */
+  function refresh() {
+    if (loading) {
+      reloadPending = true;
+      return loading;
+    }
+    return load();
+  }
+
+  function load() {
+    if (loading) return loading;
+    const ticket = ++generation;
+    if (detailObserver) detailObserver.disconnect();
+    detailQueue = [];
+    detailKeys.clear();
+    const box = document.getElementById('sections');
+    if (!data) box.replaceChildren(h('p', { class: 'muted', role: 'status' }, 'Загружаю игры…'));
+    loading = (async () => {
+      try {
+        data = await call('catalog', { details: false });
+      } catch (error) {
+        if (data) ui.toast('Каталог не обновился: ' + error.message);
+        else box.replaceChildren(h('div', { class: 'card danger' },
+          h('p', {}, 'Каталог не открылся: ' + error.message),
+          h('button', { class: 'btn', onclick: refresh }, 'Повторить')));
+        return;
+      }
+      plates();
+      render();
+      // Let the browser paint the usable cards before asking the engine for optional work.
+      requestAnimationFrame(() => setTimeout(() => {
+        if (!current(ticket)) return;
+        extras(ticket);
+        watchDetails(ticket);
+      }, 0));
+    })().finally(() => {
+      loading = null;
+      if (reloadPending) {
+        reloadPending = false;
+        return load();
+      }
+    });
+    return loading;
+  }
+
+  document.getElementById('new').onclick = () => assi.chat();
+  document.getElementById('settings').onclick = () => assi.open('modules/games/ui/settings.html');
+  assi.on('games.links', () => {
+    const ticket = generation;
+    if (data && current(ticket)) call('links').then(l => {
+      if (current(ticket)) { data.links = l; plates(); }
+    }).catch(error => console.warn('Игротека: связки: ' + error.message));
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') load();
+    else {
+      if (detailObserver) detailObserver.disconnect();
+      detailQueue = [];
+      detailKeys.clear();
+    }
+  });
+
+  load().then(() => {
+    if (location.hash === '#bet') Game.ui.betSheet(null, { onChange: refresh });
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Меню</title>
+<link rel="stylesheet" href="/ui/kit/kit.css">
+<style>
+  /* The shell shows this page in a strip of its own: a bar below the screen, or a rail at its
+  left side when the screen is wide. The strip's shape tells which: a rail is taller than wide. */
+  html, body {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    background: var(--surface);
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  nav {
+    display: flex;
+    height: 100%;
+    border-top: 1px solid var(--line);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  nav button {
+    flex: 1 0 64px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    padding: 0 2px;
+    border: 0;
+    background: none;
+    color: var(--ink-3);
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  nav button .pill {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 52px;
+    height: 28px;
+    border-radius: 14px;
+  }
+
+  nav button .i, nav button img {
+    width: 22px;
+    height: 22px;
+  }
+
+  nav button img {
+    border-radius: 6px;
+    object-fit: cover;
+  }
+
+  nav button .label {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  nav button.on {
+    color: var(--accent);
+  }
+
+  nav button.on .pill {
+    background: var(--accent-soft);
+  }
+
+  nav button:active .pill {
+    background: var(--surface-2);
+  }
+
+  @media (orientation: portrait) {
+    nav {
+      flex-direction: column;
+      gap: 6px;
+      padding: 14px 0;
+      border-top: 0;
+      border-right: 1px solid var(--line);
+      overflow-x: hidden;
+      overflow-y: auto;
+    }
+
+    nav button {
+      flex: none;
+      height: 58px;
+    }
+  }
+</style>
+<body>
+<nav id="menu"></nav>
+<script src="/ui/kit/kit.js"></script>
+<script>
+  // The items are in ui/nav.json: {"items": [{"title", "icon", "open" | "chat"}]}.
+  //   icon — a name from the kit's set, or the path of a picture in the workspace (svg, png…);
+  //   open — the screen to show; chat — instead of a screen, the chat with this agent.
+  const h = ui.h;
+  let items = [];
+  let where = '';
+
+  const folder = path => path.replace(/[?#].*$/, '').replace(/[^/]*$/, '');
+
+  /** The item whose screen the owner is on: the same file, or the same folder (a module's other screens). */
+  function current() {
+    const exact = items.find(item => item.open && item.open.replace(/[?#].*$/, '') === where);
+    if (exact) return exact;
+    return items.filter(item => item.open && folder(item.open).length > 3 && where.indexOf(folder(item.open)) === 0)
+      .sort((a, b) => folder(b.open).length - folder(a.open).length)[0];
+  }
+
+  function mark() {
+    const active = current();
+    document.querySelectorAll('#menu button').forEach((button, index) => button.classList.toggle('on', items[index] === active));
+  }
+
+  async function picture(item) {
+    const icon = item.icon || 'box';
+    if (/\.svg$/i.test(icon)) {
+      const text = await fetch('/' + icon.replace(/^\//, '')).then(response => (response.ok ? response.text() : ''));
+      return ui.mark({ iconSvg: text, icon: 'box' });
+    }
+    if (/\.(png|jpe?g|webp|gif)$/i.test(icon)) return h('img', { src: '/' + icon.replace(/^\//, ''), alt: '' });
+    return ui.icon(icon);
+  }
+
+  async function load() {
+    try {
+      const data = await fetch('/ui/nav.json?' + Date.now()).then(response => response.json());
+      items = (data.items || []).filter(item => item && item.title && (item.open || item.chat));
+    } catch (error) {
+      items = [{ title: 'Главная', icon: 'home', open: 'ui/home/index.html' }];
+    }
+    const pictures = await Promise.all(items.map(picture));
+    document.getElementById('menu').replaceChildren(...items.map((item, index) =>
+      h('button', {
+        onclick: () => (item.chat ? assi.native('ui.chat', true, item.chat) : assi.open(item.open)),
+      }, h('span', { class: 'pill' }, pictures[index]), h('span', { class: 'label' }, item.title))));
+    mark();
+  }
+
+  assi.on('where', path => { where = path; mark(); });
+  assi.on('nav', load);
+  // "ui.where" names no path for the home screen: it is where the app starts.
+  assi.native('ui.where').then(place => { where = where || place.path || 'ui/home/index.html'; mark(); });
+  load();
+</script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "title": "Игротека",
+  "description": "Игры на поездку: идут и без сети, копят, пока вас нет",
+  "entry": "ui/index.html",
+  "autostart": true,
+  "models": [
+    {"id": "games.stock", "title": "Игротека: запас контента"},
+    {"id": "games.local", "title": "Игротека: контент без сети"},
+    {"id": "games.bet", "title": "Игротека: условие ставки"},
+    {"id": "art.draw", "title": "Художник: рисунки модулей и игр (lib/art)"}
+  ]
+}
