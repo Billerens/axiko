@@ -194,7 +194,7 @@ object LocalLlm {
     private fun provide() {
         val providers = Models.providers()
         for (i in 0 until providers.length()) if (providers.getJSONObject(i).optString("id") == PROVIDER) return
-        providers.put(JSONObject().put("id", PROVIDER).put("name", "На устройстве").put("baseUrl", BASE).put("key", ""))
+        providers.put(JSONObject().put("id", PROVIDER).put("name", "На устройстве").put("baseUrl", BASE))
         Models.setProviders(providers)
     }
 

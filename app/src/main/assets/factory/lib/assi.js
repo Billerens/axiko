@@ -100,9 +100,23 @@ function httpClient() {
   return client;
 }
 
+/** A request that names a secret as {{secret:name}} is sent by the shell, which alone puts the value in. */
+function namesSecret(options) {
+  try {
+    return /\{\{secret:[A-Za-z0-9_.-]+\}\}/.test(JSON.stringify([options.url, options.headers || null,
+      options.json === undefined ? null : options.json, options.body === undefined ? null : options.body]));
+  } catch (error) { return false; }
+}
+
 exports.http = {
   request: function (options) {
     if (typeof options === 'string') options = { url: options };
+    if (namesSecret(options)) {
+      var sent = { url: options.url };
+      ['method', 'headers', 'json', 'body'].forEach(function (name) { if (options[name] !== undefined) sent[name] = options[name]; });
+      var got = native('http.secret', sent);
+      return { status: got.status, ok: got.ok, headers: got.headers, text: got.text, json: function () { return JSON.parse(got.text); } };
+    }
     var headers = options.headers || {};
     var builder = new okhttp3.Request.Builder().url(options.url);
     Object.keys(headers).forEach(function (name) { builder.header(name, String(headers[name])); });
@@ -376,6 +390,13 @@ exports.widget = {
 
 exports.secret = {
   /** The value, or null when the owner has not given it yet. */
+  /** Whether the secret is set. Enough for nearly everything: the value itself is not needed to use it. */
+  has: function (name) { return native('secret.has', name) === true; },
+  /**
+   * The value of a module's own secret. Prefer not to hold it at all: name it in the request as
+   * '{{secret:name}}' (address, header or body of assi.http.request) and the shell puts it in.
+   * Secrets of the shell (provider keys, tokens of servers and sign-ins) are not given.
+   */
   get: function (name) { var value = native('secret.get', name); return value === undefined ? null : value; },
   /** Asks the owner to type it (never ask for secrets in the chat); true when saved. */
   ask: function (name, title, hint) { return native('secret.ask', name, title || 'Введите значение', hint || ''); },

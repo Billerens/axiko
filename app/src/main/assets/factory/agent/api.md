@@ -102,7 +102,9 @@ assi.permission(['RECORD_AUDIO']) → true/false
 assi.clipboard.get() / .set(text); assi.openUrl(url); assi.share(text)
 assi.rows(uri, columns, where, args, order, limit)   // content-провайдеры: календарь, контакты, SMS
 assi.pref(key) / assi.pref(key, value)               // общие настройки приложения (строки)
-assi.secret.ask(name, title) → true/false; assi.secret.get(name) → значение или null   // пароли и ключи
+assi.secret.ask(name, title) → true/false; assi.secret.has(name) → true/false           // пароли и ключи
+// Значение не читают, а называют в запросе: assi.http.request({ url, headers: { Authorization: 'Bearer {{secret:имя}}' } })
+// — оболочка подставит его сама (адрес, заголовок или тело; только HTTPS) и уберёт из ответа.
 assi.shell('ls -la') → { code, out }; assi.shell('pm list packages', { privileged: true })   // права ADB — через Shizuku
 assi.oauth.connect(name, { authUrl, tokenUrl, clientId, clientSecret, scope, extra }) → вход в браузере; assi.oauth.token(name) → токен доступа
 assi.mcp.servers() / .tools(server) / .call(server, tool, args)   // серверы MCP, подключённые владельцем
@@ -190,7 +192,7 @@ s.get([1, 2, 3]); s.draw([4, 5]); s.ahead(рекорд, { ahead: 6 }); s.status(
 - Чаты агента с владельцем: `agent.send(id, text, thread?)`, `agent.stop(id, thread?)`, `agent.history(id, thread?)`, `agent.busy(id, thread?)` — без `thread` это открытый сейчас чат; `agent.threads(id)`, `agent.thread(id)`, `agent.newThread(id)`, `agent.openThread(id, thread)`, `agent.deleteThread(id, thread)`.
 - Сообщение, отправленное, пока агент работает, ждёт в очереди: `agent.send(id, text, thread, false, 'steer'|'after')` — попасть в идущую работу между её шагами или дождаться ответа (без пятого аргумента решает настройка `chat.busy`); `agent.queue(id, thread?)` → `[{id, text, steer}]`, `agent.unqueue(id, thread, item)`, `agent.requeue(id, thread, item, 'steer'|'after')`.
 - Модель одного чата: `agent.model(id, thread?)` → `{own, provider, model, effort, vision, window}`; `agent.setModel(id, thread, {provider, model, vision?, effort?})` — другая модель только для этого чата, `{effort}` — та же модель с другим усилием, `null` — как в настройках. Идущая работа переходит на новую модель со следующего шага.
-- Модели: `models.providers`, `models.roles` (`{роль: {provider, model, vision, effort}}`), `models.resolve(role)`, `models.complete(role, body)`, `models.list(providerId)`.
+- Модели: `models.providers`, `models.roles` (`{роль: {provider, model, vision, effort}}`), `models.resolve(role)`, `models.complete(role, body)`, `models.list(providerId)`. Ключи провайдеров хранит оболочка: `models.providers` и `models.resolve` отдают только `hasKey` (в списке провайдеров на месте ключа стоит маска `••••••••`; `models.setProviders` принимает новый ключ в поле `key`, а маску и пустое значение оставляет без изменений), запросы к модели идут через `models.complete`.
 - Голос: `speech.listen(maxSeconds?)`, `speech.stopListening`, `speech.say(text)`, `speech.stop`, `speech.transcribe(path, {segments}?)`, `speech.render(text, path, mode?)`, `speech.status`.
 - Непрерывное распознавание: `speech.stream.start({maxMinutes})` (по умолчанию 10) — микрофон открыт, каждая фраза приходит событием `speech.phrase` `{text, startMs, endMs, time}` (мс от начала, `time` — когда фраза началась) на экраны и в движок; `speech.stream.stop`. Имя на это время не слушается. Нужна модель распознавания на телефоне.
 - Чувства: `sense.status`; экран других приложений — `screen.read`, `screen.shot`, `screen.click(n)`, `screen.type(text, n?)`, `screen.scroll(n, forward)`, `screen.tap(x, y)`, `screen.swipe(...)`, `screen.global('back'|'home'|…)`, `screen.openApp(name)`; уведомления — `notices.active`, `notices.recent(n)`, `notices.dismiss(key)`, `notices.open(key)`; свои — `notify(options)` → id, `notify.cancel(id)`.
@@ -204,7 +206,7 @@ s.get([1, 2, 3]); s.draw([4, 5]); s.ahead(рекорд, { ahead: 6 }); s.status(
 - Модули: `modules.list`, `modules.remove(id)`, `icon.set('module'|'agent', id, {icon}|{image}|{})`.
 - Командная строка: `shell.run(command, privileged?, timeoutSeconds?)`, `shizuku.status`.
 - Расписание и ярлыки: `job.list`, `shortcut.pin(title, path)` — ярлык экрана на рабочий стол телефона.
-- Изменения и расход: `snap.changes(id)`, `snap.diff(id, path)`, `usage.summary(days)`; секреты — `secret.get/set/ask/remove/names`; вложения следующего сообщения — `inbox.peek/add/drop`.
+- Изменения и расход: `snap.changes(id)`, `snap.diff(id, path)`, `usage.summary(days)`; секреты — `secret.has/ask/set/remove/names`, `secret.get` только для секретов модулей (секреты оболочки — ключи провайдеров, токены MCP и входов — не читаются), `http.secret(options)` — запрос с `{{secret:имя}}`; вложения следующего сообщения — `inbox.peek/add/drop`.
 - Резервная копия: всё личное (рабочая папка, данные модулей, чаты, настройки, секреты) одним зашифрованным файлом `.axb` — «Настройки → Система → Резервная копия» (`ui/settings/index.html?tab=system`). Сохранить копию, восстановить из неё и включить автокопию может только владелец на этом экране: пароль спрашивает системный диалог оболочки, через чат и страницы он не проходит, поэтому инструмента агента нет — подскажите, куда нажать. Операции `backup.*` служат экрану настроек; из них читайте только `backup.status` → `{last?: {at, name, bytes, auto, files}, auto: {mode, keep, time, folder, folderOk, password, next}, history, busy?, error?}`. Модели, Linux-окружение и входы на сайтах в копию не входят.
 - Прочее: `snap.list`, `snap.restore(id)`, `snap.storage` (объём истории и общих объектов), `snap.migrate` (проверить и продолжить перенос старой истории), `pref.get(key)`, `pref.set(key, value)`, `webcache.info`, `webcache.clear`, `sys.info`, `log.engine(n)`.
 

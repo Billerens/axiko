@@ -1,6 +1,7 @@
 package app.assi.agent
 
 import app.assi.App
+import app.assi.core.Vault
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
@@ -9,6 +10,10 @@ import org.json.JSONObject
  * Which model does what. Providers are any OpenAI-compatible endpoints (base URL + key);
  * roles say which provider and model serve the main agent, each sub-agent, each AI function
  * of a module, and speech. A role without its own assignment uses the main one.
+ *
+ * A provider's key is a secret of the shell: it is kept in the vault under `provider.<id>`, is put
+ * into requests here and is given to no page, script or model. The list of providers says only
+ * whether a key is set.
  */
 object Models {
     const val MAIN = "main"
@@ -40,10 +45,73 @@ object Models {
     /** Assumed for a cloud model whose window the owner did not state. */
     const val CLOUD_WINDOW = 128_000
 
-    /** `[{id, name, baseUrl, key}]` */
-    fun providers(): JSONArray = runCatching { JSONArray(App.prefs.getString(PROVIDERS, "[]")) }.getOrElse { JSONArray() }
+    private fun stored(): JSONArray = runCatching { JSONArray(App.prefs.getString(PROVIDERS, "[]")) }.getOrElse { JSONArray() }
+    private fun keyName(id: String) = "provider.$id"
 
-    fun setProviders(list: JSONArray) = App.prefs.edit().putString(PROVIDERS, list.toString()).apply()
+    /** The key of a provider, for the request that needs it; empty when none is set. */
+    private fun keyOf(id: String): String = runCatching { Vault.get(keyName(id)) }.getOrNull().orEmpty().trim()
+
+    /**
+     * Keys used to lie in the list itself, in the open. Any found there (an install made before this,
+     * a restored old backup, a list written past [setProviders]) are moved to the vault. Returns true
+     * when it moved any: what was written to disk with them (chats, tasks) is then cleaned by the caller.
+     */
+    @Synchronized
+    fun settle(): Boolean {
+        val list = stored()
+        val moved = ArrayList<Pair<String, String>>()
+        for (i in 0 until list.length()) {
+            val provider = list.optJSONObject(i) ?: continue
+            val key = (provider.opt("key") as? String)?.trim().orEmpty().takeIf { it != KEY_MASK }.orEmpty()
+            if (provider.has("key")) provider.remove("key")
+            if (key.isEmpty()) continue
+            Vault.set(keyName(provider.optString("id")), key)
+            moved.add(keyName(provider.optString("id")) to key)
+        }
+        if (stored().toString() != list.toString()) App.prefs.edit().putString(PROVIDERS, list.toString()).commit()
+        return moved.isNotEmpty()
+    }
+
+    /**
+     * What stands in a provider's `key` when one is set. Pages written when the key itself was there
+     * (the owner's own copy of the settings among them) go on saying "a key is set", and sending the
+     * mask back changes nothing.
+     */
+    const val KEY_MASK = "••••••••"
+
+    /** `[{id, name, baseUrl, hasKey, key?}]` — never the key itself: `key` is [KEY_MASK] when one is set. */
+    fun providers(): JSONArray {
+        settle()
+        val list = stored()
+        for (i in 0 until list.length()) list.optJSONObject(i)?.let {
+            val has = Vault.has(keyName(it.optString("id")))
+            it.put("hasKey", has)
+            if (has) it.put("key", KEY_MASK)
+        }
+        return list
+    }
+
+    /**
+     * Saves the list. A `key` in an entry is taken into the vault and not kept in the list; an entry
+     * without one, or with the mask it was given, keeps the key it had; `dropKey: true` removes it.
+     * Keys of providers that are gone are removed.
+     */
+    @Synchronized
+    fun setProviders(list: JSONArray) {
+        val clean = JSONArray()
+        val kept = HashSet<String>()
+        for (i in 0 until list.length()) {
+            val provider = JSONObject((list.optJSONObject(i) ?: continue).toString())
+            val id = provider.optString("id")
+            val key = (provider.opt("key") as? String)?.trim().orEmpty().takeIf { it != KEY_MASK }.orEmpty()
+            if (key.isNotEmpty()) Vault.set(keyName(id), key) else if (provider.optBoolean("dropKey")) Vault.remove(keyName(id))
+            provider.remove("key"); provider.remove("hasKey"); provider.remove("dropKey")
+            kept.add(id)
+            clean.put(provider)
+        }
+        Vault.names().filter { it.startsWith("provider.") && it.removePrefix("provider.") !in kept }.forEach { Vault.remove(it) }
+        App.prefs.edit().putString(PROVIDERS, clean.toString()).commit()
+    }
 
     /** `{role: {provider, model, vision?, effort?, ...options}}` */
     fun roles(): JSONObject = runCatching { JSONObject(App.prefs.getString(ROLES, "{}")!!) }.getOrElse { JSONObject() }
@@ -88,7 +156,7 @@ object Models {
             ?: throw LlmError("Не задан ни один провайдер моделей. Откройте «Настройки» и добавьте его.")
         val baseUrl = provider.optString("baseUrl").trim().trimEnd('/')
         if (baseUrl.isEmpty()) throw LlmError("У провайдера «${provider.optString("name")}» не указан адрес.")
-        return Target(provider.optString("id"), baseUrl, provider.optString("key").trim(), assignment.getString("model"), assignment)
+        return Target(provider.optString("id"), baseUrl, keyOf(provider.optString("id")), assignment.getString("model"), assignment)
     }
 
     /**
@@ -109,7 +177,7 @@ object Models {
                 .map { JSONObject().put("id", it.getString("id")) })
         }
         val request = Request.Builder().url(provider.optString("baseUrl").trim().trimEnd('/') + "/models").apply {
-            val key = provider.optString("key").trim()
+            val key = keyOf(provider.optString("id"))
             if (key.isNotEmpty()) header("Authorization", "Bearer $key")
         }.build()
         Llm.client.newCall(request).execute().use { response ->

@@ -6,6 +6,7 @@ import app.assi.core.Linux
 import app.assi.core.Pages
 import app.assi.core.Probe
 import app.assi.core.Shell
+import app.assi.core.Vault
 import app.assi.core.Workspace
 import app.assi.sense.Notices
 import app.assi.sense.Screen
@@ -365,9 +366,10 @@ object Tools {
             name == "shell" || name == "linux" -> "$ " + args.optString("command") + "\n\n" + text
             else -> null
         }
-        Result(text, true, detail?.take(12_000))
+        // Whatever the tool read, ran or fetched: a stored secret in it is replaced by its name before a model sees it.
+        Result(Vault.scrub(text), true, detail?.let { Vault.scrub(it) }?.take(12_000))
     } catch (error: Throwable) {
-        Result("Ошибка: " + Engine.describe(error), ok = false)
+        Result(Vault.scrub("Ошибка: " + Engine.describe(error)), ok = false)
     }
 
     /**

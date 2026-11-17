@@ -655,7 +655,8 @@ class Conversation(
             }
             emit(JSONObject().put("type", "done").put("stopped", cancelled))
         } catch (error: Throwable) {
-            val message = if (error is LlmError) error.message.orEmpty() else Engine.describe(error)
+            // A provider may quote the key it refused in its answer.
+            val message = app.assi.core.Vault.scrub(if (error is LlmError) error.message.orEmpty() else Engine.describe(error))
             failure = message
             emit(JSONObject().put("type", "error").put("message", message))
             if (!lasting) throw error

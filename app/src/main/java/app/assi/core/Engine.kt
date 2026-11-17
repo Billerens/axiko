@@ -51,6 +51,13 @@ object Engine {
 
     private val wraps = WrapFactory().apply { isJavaPrimitiveWrap = false }
 
+    /**
+     * Classes a script does not see: the vault, what hands out provider keys, and the keystore the vault's
+     * key lives in. A name ending with a dot is a package. Reflection still reaches them; this closes the
+     * plain way, the one a script would take without meaning harm.
+     */
+    private val SEALED = listOf("app.assi.core.Vault", "app.assi.agent.Models", "java.security.KeyStore", "java.security.KeyStoreSpi", "android.security.")
+
     private val factory = object : ContextFactory() {
         override fun makeContext(): Context = super.makeContext().apply {
             isInterpretedMode = true
@@ -58,6 +65,8 @@ object Engine {
             wrapFactory = wraps
             applicationClassLoader = App.instance.classLoader
             instructionObserverThreshold = 50_000
+            // Everything in the phone is in a script's reach except where secrets are kept and unsealed.
+            setClassShutter { name -> SEALED.none { name == it || name.startsWith("$it$") || it.endsWith(".") && name.startsWith(it) } }
         }
 
         override fun hasFeature(cx: Context, featureIndex: Int): Boolean = when (featureIndex) {

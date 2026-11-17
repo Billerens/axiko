@@ -21,6 +21,8 @@ import javax.crypto.spec.GCMParameterSpec
  * Passwords and keys the modules need (a mailbox password, a search API key). They are typed
  * by the owner into a system dialog, never into the chat, and kept encrypted with a key that
  * lives in the phone's keystore, so they are not readable in a backup or a file listing.
+ * The shell's own secrets are kept here too (the keys of model providers among them); which names
+ * are the shell's, and what scripts may do with the rest, is in [Secrets].
  */
 object Vault {
     private const val ALIAS = "assi-vault"
@@ -55,6 +57,17 @@ object Vault {
     fun remove(name: String) = store.edit().remove(name).apply()
 
     fun names(): List<String> = store.all.keys.sorted()
+
+    /** Whether a value is kept under the name; nothing is decrypted to say so. */
+    fun has(name: String): Boolean = store.contains(name)
+
+    /** Every value with its name. Read anew each time: no decrypted copy is kept where a script could find it. */
+    fun known(): List<Pair<String, String>> =
+        names().mapNotNull { name -> runCatching { get(name) }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { name to it } }
+
+    /** [text] as a model may see it: every stored secret is replaced by a mark with its name (see [Secrets.scrub]). */
+    fun scrub(text: String): String =
+        if (text.length < Secrets.MIN) text else runCatching { Secrets.scrub(text, known()) }.getOrDefault(text)
 
     /**
      * Asks the owner to type the secret and keeps it under [name]; false when the owner

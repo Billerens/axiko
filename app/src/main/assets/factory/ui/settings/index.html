@@ -405,7 +405,7 @@
         h('span', { class: 'grow' },
           h('div', { style: 'font-weight: 600' }, provider.name),
           h('div', { class: 'value' }, provider.baseUrl)),
-        h('span', { class: 'badge' }, provider.key ? 'ключ задан' : 'без ключа'))));
+        h('span', { class: 'badge' }, provider.hasKey ? 'ключ задан' : 'без ключа'))));
     if (!providers.length) list.replaceChildren(h('div', { class: 'empty' }, 'Пока ни одного. Добавьте провайдера, чтобы Axiko заработал.'));
 
     const rows = [roleRow('main', 'Основной агент', 'Axiko: меняет приложение')];
@@ -472,10 +472,12 @@
 
   function editProvider(provider) {
     const isNew = !provider;
-    const draft = Object.assign({ id: 'p' + Date.now().toString(36), name: '', baseUrl: '', key: '' }, provider);
+    const draft = Object.assign({ id: 'p' + Date.now().toString(36), name: '', baseUrl: '' }, provider);
+    delete draft.key; // what the shell gives here is a mask, never the key
     const name = h('input', { class: 'input', value: draft.name, placeholder: 'Например, OpenRouter' });
     const url = h('input', { class: 'input mono', value: draft.baseUrl, placeholder: 'https://…/v1', inputMode: 'url', autocapitalize: 'off' });
-    const key = h('input', { class: 'input mono', value: draft.key, type: 'password', placeholder: 'Можно оставить пустым', autocomplete: 'off' });
+    // The key goes one way: typed here, kept by the shell in the vault, never shown or given back.
+    const key = h('input', { class: 'input mono', value: '', type: 'password', placeholder: draft.hasKey ? 'Ключ задан. Оставьте пустым, чтобы не менять' : 'Можно оставить пустым', autocomplete: 'off' });
     const presets = isNew && h('div', { class: 'chips' }, PRESETS.map(preset =>
       h('button', { class: 'chip', onclick: () => { name.value = preset.baseUrl ? preset.name : ''; url.value = preset.baseUrl; (preset.baseUrl ? key : url).focus(); } }, preset.name)));
     let close = null;
@@ -483,9 +485,10 @@
       if (!url.value.trim()) { ui.toast('Укажите адрес'); return; }
       let host = '';
       try { host = new URL(url.value.trim()).host; } catch (error) { ui.toast('Адрес должен начинаться с http:// или https://'); return; }
-      Object.assign(draft, { name: name.value.trim() || host, baseUrl: url.value.trim().replace(/\/+$/, ''), key: key.value.trim() });
-      providers = isNew ? providers.concat([draft]) : providers.map(item => (item.id === draft.id ? draft : item));
-      await assi.native('models.setProviders', providers);
+      Object.assign(draft, { name: name.value.trim() || host, baseUrl: url.value.trim().replace(/\/+$/, '') });
+      if (key.value.trim()) draft.key = key.value.trim(); else delete draft.key;
+      await assi.native('models.setProviders', isNew ? providers.concat([draft]) : providers.map(item => (item.id === draft.id ? draft : item)));
+      providers = await assi.native('models.providers');
       close();
       render();
       if (isNew && !assigned('main')) editRole('main', 'Основной агент', draft.id);

@@ -51,7 +51,7 @@ object Native {
         "notice.full", "notice.removed", "notice.open", "notify.actions", "dnd", "off", "job.once",
         "vibrate.pattern", "app.visible", "speech.stream", "transcribe.segments", "speech.render",
         "theme.decor", "widget.image", "home.cards", "usage", "store.v1", "button.face", "launcher.icon",
-        "launcher.icons", "ui.scale", "store.adopt", "ui.probe", "bubble.looks", "store.pages", "store.kinds", "store.mods",
+        "launcher.icons", "ui.scale", "store.adopt", "ui.probe", "bubble.looks", "store.pages", "store.kinds", "store.mods", "secrets.sealed",
     )
 
     fun call(method: String, args: JSONArray): Any? = when (method) {
@@ -121,7 +121,8 @@ object Native {
         }
         "models.list" -> Models.list(args.getString(0))
         "models.resolve" -> Models.resolve(args.getString(0), args.optBoolean(1, true)).let {
-            JSONObject().put("provider", it.provider).put("baseUrl", it.baseUrl).put("key", it.key)
+            // Where the role's requests go, not what they are signed with: the key stays with the shell.
+            JSONObject().put("provider", it.provider).put("baseUrl", it.baseUrl).put("hasKey", it.key.isNotEmpty())
                 .put("model", it.model).put("options", it.options)
         }
         // A plain completion for a role: (role, {messages, ...}) → the provider's response.
@@ -452,16 +453,20 @@ object Native {
         "oauth.names" -> JSONArray(OAuth.names())
 
         // Secrets the owner typed into the system dialog (see Vault): passwords, API keys.
-        "secret.get" -> Vault.get(args.getString(0))
+        // The shell's own secrets (provider keys, tokens of servers and sign-ins) are not a script's to read or change.
+        "secret.get" -> Vault.get(own(args.getString(0)))
+        "secret.has" -> Vault.has(args.getString(0))
         "secret.set" -> {
-            Vault.set(args.getString(0), args.getString(1))
+            Vault.set(own(args.getString(0)), args.getString(1))
             true
         }
         "secret.remove" -> {
-            Vault.remove(args.getString(0))
+            Vault.remove(own(args.getString(0)))
             true
         }
-        "secret.names" -> JSONArray(Vault.names())
+        "secret.names" -> JSONArray(Vault.names().filterNot { Secrets.shell(it) })
+        // (options) — a request that names its secrets as {{secret:name}}; the shell puts them in and takes them out of the answer.
+        "http.secret" -> Secrets.request(args.getJSONObject(0))
         // (name, title, hint) — asks the owner to type it; true when saved.
         "secret.ask" -> Vault.ask(args.getString(0), args.optString(1, "Введите значение"), args.optString(2))
         // (texts) — vectors of meaning from the model of the "embed" role.
@@ -656,6 +661,11 @@ object Native {
     }
 
     /** An optional text argument: absent, null and empty all mean "not given". */
+    private fun own(name: String): String {
+        require(!Secrets.shell(name)) { "Секрет «$name» принадлежит оболочке: скрипты его не читают и не меняют." }
+        return name
+    }
+
     private fun text(args: JSONArray, index: Int): String? =
         if (args.isNull(index)) null else args.optString(index).takeIf { it.isNotBlank() }
 
