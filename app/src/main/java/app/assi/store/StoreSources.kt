@@ -35,7 +35,6 @@ fun interface StoreTransport {
  * A mod that cannot be laid over its target as its author made it: the target is another version, or
  * the files the mod touches are not what the author started from. [reasons] say which, in the owner's words.
  */
-class StoreModNeedsCarrying(message: String, val reasons: List<String>) : IllegalArgumentException(message)
 
 /** No credentials, insecure TLS override or cleartext fallback, including on redirects. */
 class StoreHttpTransport(client: OkHttpClient = OkHttpClient()) : StoreTransport {

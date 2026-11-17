@@ -190,7 +190,7 @@ class StoreInstaller(
         val plan = loadPlan(planId)
         // Taking a mod off is never refused for what its release did: that is a reason to take it off.
         if (plan.optJSONObject("mod")?.optBoolean("removal") != true) bans.find(plan.getString("artifactSha256"))?.let { throw StoreBanned(it) }
-        require(plan.getString("status") == "ready") { "Сначала разрешите конфликты обновления." }
+        require(plan.getString("status") == "ready") { if (plan.getString("status") == "carrying") "Мод ещё не перенесён на вашу версию пакета." else "Сначала разрешите конфликты обновления." }
         require(plan.getString("digest") == expectedDigest) { "План изменился после проверки." }
         verifyCandidate(plan); verifyLive(plan)
         val mod = plan.optJSONObject("mod")
@@ -277,28 +277,77 @@ class StoreInstaller(
 
     private fun jsonStrings(list: JSONArray): List<String> = (0 until list.length()).map { list.getString(it) }
     private fun layers(record: JSONObject): List<JSONObject> = record.optJSONArray("mods")?.let { list -> (0 until list.length()).map { list.getJSONObject(it) } } ?: emptyList()
-    /** What files were before a mod changed them: kept outside the workspace, by package and by mod. */
-    private fun beforeDir(packageKey: String, modKey: String): File = File(File(File(File(stateDir, "mods"), StoreFormat.hash(packageKey)), StoreFormat.hash(modKey)), "files")
+    private fun modDir(packageKey: String, modKey: String): File = File(File(File(stateDir, "mods"), StoreFormat.hash(packageKey)), StoreFormat.hash(modKey))
+    /**
+     * What files were before a mod changed them: kept outside the workspace, by package, by mod and by
+     * the laying they belong to. A new version of a mod is a new laying, so the copies of the one that
+     * stands are never written over by a plan that may yet fail.
+     */
+    private fun beforeDir(packageKey: String, modKey: String, laying: String): File = File(File(modDir(packageKey, modKey), token(laying)), "files")
     /** What a plan brings in: the files of a release or, when a mod is taken off, the files as they were before it. */
     private fun incomingDir(plan: JSONObject): File = plan.optJSONObject("mod")?.takeIf { it.optBoolean("removal") }
-        ?.let { beforeDir(plan.getString("installationKey"), it.getString("key")) } ?: File(File(releases, StoreFormat.hash(plan.getString("artifactSha256"))), "payload")
+        ?.let { beforeDir(plan.getString("installationKey"), it.getString("key"), it.getString("laying")) } ?: File(File(releases, StoreFormat.hash(plan.getString("artifactSha256"))), "payload")
+
+    /** Copies kept for layings that no longer stand (a mod taken off, or replaced by its next version) are of no use. */
+    private fun sweep(packageKey: String, record: JSONObject) {
+        val kept = layers(record).associate { it.getString("key") to it.getString("laying") }
+        File(File(stateDir, "mods"), StoreFormat.hash(packageKey)).listFiles().orEmpty().filter { it.isDirectory }.forEach { mod ->
+            mod.listFiles().orEmpty().filter { it.isDirectory && kept[mod.name] != it.name }.forEach { runCatching { deleteTree(it) } }
+        }
+    }
+
+    /**
+     * The files of a package as they would be without one of its mods, and where the bytes of each are.
+     * A file that is still what the mod made it goes back to what was there before; one changed since
+     * stays as it is and is named in [changedSince]. With no layer this is the package as it stands.
+     */
+    private class Ground(val files: Map<String, String>, val from: Map<String, File>, val changedSince: List<String>)
+    private fun ground(packageKey: String, live: File, local: Map<String, String>, layer: JSONObject?): Ground {
+        val files = HashMap(local); val from = HashMap(local.keys.associateWith { File(live, it) })
+        if (layer == null) return Ground(files, from, emptyList())
+        val before = beforeDir(packageKey, layer.getString("key"), layer.getString("laying")); val was = fileHashes(before)
+        val wrote = layer.getJSONObject("files"); val changed = ArrayList<String>()
+        for (path in wrote.keys().asSequence().toList() + jsonStrings(layer.getJSONArray("removed"))) {
+            val made = if (wrote.has(path)) wrote.getString(path) else null
+            if (local[path] != made) { if (local[path] != was[path]) changed.add(path); continue }
+            val back = was[path]
+            if (back == null) { files.remove(path); from.remove(path) } else { files[path] = back; from[path] = File(before, path) }
+        }
+        return Ground(files, from, changed.sorted())
+    }
+
+    /** Files of an installed package that are the owner's own: different from its release and not what a mod made them. */
+    private fun ownerEdited(record: JSONObject, local: Map<String, String>): Set<String> {
+        val base = record.getJSONObject("baseFiles"); val mods = layers(record)
+        return local.filter { (path, hash) -> base.optString(path) != hash && mods.none { it.getJSONObject("files").optString(path) == hash } }.keys
+    }
+
+    /** What a plan does to the files that stand; `localModified` marks a file the owner had edited. */
+    private fun changesOf(local: Map<String, String>, now: Map<String, String>, owner: Set<String>): JSONArray =
+        JSONArray((local.keys + now.keys).filter { local[it] != now[it] }.sorted().map { path ->
+            JSONObject().put("path", path).put("kind", if (now[path] == null) "delete" else if (local[path] == null) "add" else "update").put("localModified", path in owner)
+        })
 
     /** The record of a package with a mod's layer added or, for a removal, taken away. Copies of what the mod replaces are kept first. */
     private fun layered(plan: JSONObject, mod: JSONObject, old: JSONObject, target: File, stage: File): JSONObject {
         val record = JSONObject(old.toString()); val modKey = StoreFormat.hash(mod.getString("key"))
+        val standing = layers(old).firstOrNull { it.getString("key") == modKey }
         val others = layers(old).filterNot { it.getString("key") == modKey }
         if (mod.optBoolean("removal")) return record.put("mods", JSONArray(others))
-        val was = fileHashes(target); val now = fileHashes(stage)
-        val touched = (was.keys + now.keys).filter { was[it] != now[it] }.sorted()
-        val before = beforeDir(plan.getString("installationKey"), modKey)
-        deleteTree(before)
-        touched.filter { was.containsKey(it) }.forEach { copyFile(File(target, it), File(before, it)) }
+        // With an earlier version of this mod standing, "before the mod" is what was there before that version.
+        val key = plan.getString("installationKey")
+        val ground = ground(key, target, fileHashes(target), standing); val now = fileHashes(stage)
+        val touched = (ground.files.keys + now.keys).filter { ground.files[it] != now[it] }.sorted()
+        val laying = UUID.randomUUID().toString()
+        val before = beforeDir(key, modKey, laying)
+        touched.forEach { path -> ground.from[path]?.let { copyFile(it, File(before, path)) } }
         val layer = JSONObject().put("key", modKey).put("id", mod.getString("id")).put("sourceId", plan.getString("sourceId")).put("title", plan.getString("title"))
-            .put("version", plan.getString("version")).put("publisher", plan.getString("publisher")).put("mode", mod.getString("mode"))
+            .put("version", plan.getString("version")).put("publisher", plan.getString("publisher")).put("mode", mod.getString("mode")).put("laying", laying)
             .put("targetVersion", old.getString("version")).put("artifactSha256", plan.getString("artifactSha256")).put("catalogEntry", plan.getJSONObject("catalogEntry"))
             .put("files", JSONObject(touched.filter { now.containsKey(it) }.associateWith { now.getValue(it) }))
-            .put("added", JSONArray(touched.filter { !was.containsKey(it) })).put("removed", JSONArray(touched.filter { !now.containsKey(it) }))
-            .put("ownerEdits", JSONArray()).put("appliedAt", System.currentTimeMillis())
+            .put("added", JSONArray(touched.filter { !ground.files.containsKey(it) })).put("removed", JSONArray(touched.filter { !now.containsKey(it) }))
+            .put("ownerEdits", mod.optJSONArray("ownerEdits") ?: JSONArray()).put("appliedAt", System.currentTimeMillis())
+        mod.optJSONObject("report")?.let { layer.put("report", it) }
         return record.put("mods", JSONArray(others + layer))
     }
 
@@ -317,9 +366,14 @@ class StoreInstaller(
             .put("mod", mod.put("extends", record.getString("id")).put("targetTitle", record.optString("title")).put("targetVersion", record.getString("version")))
 
     /**
-     * A mod laid over its target exactly as its author made it. That is possible when the target is the
-     * very version the sample was made on and every file the mod touches is still what the author
-     * started from. Any other case is a carry-over by an agent, which this function does not do.
+     * A plan to lay a mod over its target. When the target is the very version the sample was made on
+     * and every file the mod touches is still what the author started from, the sample is laid over as
+     * it is (`mode: direct`) and the plan is ready. In any other case nothing is laid over yet: the plan
+     * waits in the status `carrying` for an agent to carry the mod over to what the owner has
+     * (`mode: ported`, see the carry functions below), and says why in `mod.carry.reasons`.
+     *
+     * A version of the same mod that already stands is replaced: the new one is laid over the package
+     * as it would be without the old one.
      */
     @Synchronized
     fun prepareMod(sourceId: String, entry: JSONObject, manifestBytes: ByteArray, archiveFile: File): JSONObject {
@@ -334,43 +388,54 @@ class StoreInstaller(
             ?: throw IllegalArgumentException("Мод меняет пакет «$targetId», а он не стоит под управлением магазина. Сначала установите или примите его.")
         val record = registry.getJSONObject(key)
         val modKey = StoreFormat.sha256((sourceId + "\n" + manifest.getString("id")).toByteArray())
-        require(layers(record).none { it.getString("key") == modKey }) { "Этот мод уже стоит. Чтобы поставить другую его версию, сначала снимите прежнюю." }
+        val standing = layers(record).firstOrNull { it.getString("key") == modKey }
+        if (standing != null) {
+            val compared = StoreFormat.compareVersions(manifest.getString("version"), standing.getString("version"))
+            require(compared >= 0) { "У вас стоит более новая версия этого мода." }
+            require(compared > 0) { if (standing.getString("artifactSha256") == entry.getJSONObject("archive").getString("sha256")) "Эта версия мода уже стоит." else "Архив той же версии мода изменился. Нужен новый номер выпуска." }
+        }
+        sweep(key, record)
         val live = targetFile(record.getString("target"))
         val release = verifyRelease(archiveFile, entry, manifestBytes)
         val sample = File(release, "payload")
         val reference = manifest.getJSONObject("reference"); val base = reference.getJSONObject("base")
         val local = fileHashes(live); val incoming = fileHashes(sample)
+        val ground = ground(key, live, local, standing)
         val removed = jsonStrings(reference.getJSONArray("removed"))
         // Why it cannot be laid over as it is: each reason is one the owner can read.
         val reasons = ArrayList<String>()
+        fun some(paths: List<String>) = paths.take(4).joinToString() + if (paths.size > 4) " и ещё ${paths.size - 4}" else ""
         if (record.getString("version") != reference.getString("version")) reasons.add("образец сделан на версии ${reference.getString("version")}, а у вас стоит ${record.getString("version")}")
-        val changed = base.keys().asSequence().filter { local[it] != base.getString(it) }.toList()
-        if (changed.isNotEmpty()) reasons.add("у вас другие файлы, чем те, с которыми работал автор: ${changed.take(4).joinToString()}${if (changed.size > 4) " и ещё ${changed.size - 4}" else ""}")
-        val taken = incoming.keys.filter { !base.has(it) && local.containsKey(it) && local[it] != incoming[it] }
-        if (taken.isNotEmpty()) reasons.add("файлы, которые мод добавляет, у вас уже есть: ${taken.take(4).joinToString()}")
-        val unknown = removed.filter { !base.has(it) && local.containsKey(it) }
-        if (unknown.isNotEmpty()) reasons.add("мод удаляет файлы, исходного вида которых в нём нет: ${unknown.take(4).joinToString()}")
-        if (reasons.isNotEmpty()) throw StoreModNeedsCarrying("Этот мод нельзя наложить как есть: ${reasons.joinToString("; ")}. Его должен перенести на вашу версию агент.", reasons)
+        val changed = base.keys().asSequence().filter { ground.files[it] != base.getString(it) }.toList()
+        if (changed.isNotEmpty()) reasons.add("у вас другие файлы, чем те, с которыми работал автор: ${some(changed)}")
+        val taken = incoming.keys.filter { !base.has(it) && ground.files.containsKey(it) && ground.files[it] != incoming[it] }
+        if (taken.isNotEmpty()) reasons.add("файлы, которые мод добавляет, у вас уже есть: ${some(taken)}")
+        val unknown = removed.filter { !base.has(it) && ground.files.containsKey(it) }
+        if (unknown.isNotEmpty()) reasons.add("мод удаляет файлы, исходного вида которых в нём нет: ${some(unknown)}")
+        if (ground.changedSince.isNotEmpty()) reasons.add("файлы прежней версии мода изменены после её установки: ${some(ground.changedSince)}")
+        val direct = reasons.isEmpty()
         val planId = UUID.randomUUID().toString()
         val planDir = File(plansDir, planId).apply { mkdirs() }
         val candidate = File(planDir, "candidate")
         try {
-            copyTree(live, candidate)
-            val changes = JSONArray()
-            for ((path, hash) in incoming) {
-                if (local[path] == hash) continue
-                copyFile(File(sample, path), File(candidate, path))
-                changes.put(JSONObject().put("path", path).put("kind", if (local.containsKey(path)) "update" else "add").put("localModified", false))
+            // The package without the standing version of this mod: what the new one is laid over.
+            require(candidate.mkdirs())
+            ground.from.forEach { (path, file) -> copyFile(file, File(candidate, path)) }
+            if (direct) {
+                for ((path, hash) in incoming) if (ground.files[path] != hash) copyFile(File(sample, path), File(candidate, path))
+                for (path in removed) File(candidate, path).takeIf { it.isFile }?.let { require(it.delete()) }
             }
-            for (path in removed) if (local.containsKey(path)) {
-                require(File(candidate, path).delete())
-                changes.put(JSONObject().put("path", path).put("kind", "delete").put("localModified", false))
+            val changes = changesOf(local, fileHashes(candidate), ownerEdited(record, local))
+            if (direct) {
+                require(changes.length() > 0) { "Мод ничего не меняет в установленном пакете." }
+                validateRuntime(candidate, record.getJSONObject("manifest"))
             }
-            require(changes.length() > 0) { "Мод ничего не меняет в установленном пакете." }
-            validateRuntime(candidate, record.getJSONObject("manifest"))
+            val mod = JSONObject().put("key", modKey).put("id", manifest.getString("id")).put("mode", if (direct) "direct" else "ported").put("removal", false)
+            standing?.let { mod.put("replaces", it.getString("version")) }
+            if (!direct) mod.put("carry", JSONObject().put("state", "open").put("reasons", JSONArray(reasons)))
             val plan = modPlan(planId, sourceId, manifest.getString("id"), key, record, entry.getString("title"), manifest.getString("version"), manifest.getString("publisher"),
                 manifest, entry, entry.getJSONObject("archive").getString("sha256"), local, incoming, changes, JSONArray(),
-                readJson(File(release, "analysis.json")).getJSONArray("findings"), JSONObject().put("key", modKey).put("id", manifest.getString("id")).put("mode", "direct").put("removal", false))
+                readJson(File(release, "analysis.json")).getJSONArray("findings"), mod)
             refreshPlan(plan, candidate)
             return publicPlan(plan)
         } catch (error: Exception) { deleteTree(planDir); throw error }
@@ -384,8 +449,9 @@ class StoreInstaller(
     fun prepareModRemoval(packageKey: String, modKey: String): JSONObject {
         val record = registry().optJSONObject(StoreFormat.hash(packageKey)) ?: error("Установленный пакет не найден.")
         val layer = layers(record).firstOrNull { it.getString("key") == StoreFormat.hash(modKey) } ?: error("Такого мода у пакета нет.")
+        sweep(packageKey, record)
         val live = targetFile(record.getString("target")); val local = fileHashes(live)
-        val before = beforeDir(packageKey, modKey); val was = fileHashes(before)
+        val before = beforeDir(packageKey, modKey, layer.getString("laying")); val was = fileHashes(before)
         val wrote = layer.getJSONObject("files"); val gone = jsonStrings(layer.getJSONArray("removed"))
         val planId = UUID.randomUUID().toString()
         val planDir = File(plansDir, planId).apply { mkdirs() }
@@ -408,10 +474,195 @@ class StoreInstaller(
             }
             val plan = modPlan(planId, layer.getString("sourceId"), layer.getString("id"), StoreFormat.hash(packageKey), record, layer.getString("title"), layer.getString("version"),
                 layer.optString("publisher"), record.getJSONObject("manifest"), layer.getJSONObject("catalogEntry"), layer.getString("artifactSha256"), local, was, changes, conflicts,
-                JSONArray(), JSONObject().put("key", StoreFormat.hash(modKey)).put("id", layer.getString("id")).put("mode", layer.optString("mode")).put("removal", true))
+                JSONArray(), JSONObject().put("key", StoreFormat.hash(modKey)).put("id", layer.getString("id")).put("mode", layer.optString("mode")).put("laying", layer.getString("laying")).put("removal", true))
             refreshPlan(plan, candidate)
             return publicPlan(plan)
         } catch (error: Exception) { deleteTree(planDir); throw error }
+    }
+
+    // ---- carrying a mod over to what the owner has ---------------------------------------------------
+    //
+    // The work of an agent in a conversation of its own (see StoreAgent). It reads the brief, the author's
+    // files and what they were before, and the package as it stands; it writes only into the candidate of
+    // this one plan. Nothing here runs code, and nothing reaches the package until the owner applies the plan.
+
+    private class Carry(val plan: JSONObject, val record: JSONObject, val release: File, val candidate: File, val live: File)
+
+    private fun carry(planId: String, open: Boolean = true): Carry {
+        val plan = loadPlan(planId); val mod = plan.optJSONObject("mod")
+        require(mod != null && mod.has("carry")) { "Этот план не переносит мод." }
+        require(plan.getString("status") != "applied") { "Этот план уже установлен." }
+        require(!open || mod.getJSONObject("carry").getString("state") == "open") { "Перенос этого мода уже сдан. Чтобы переделать его, подготовьте мод заново." }
+        verifyCandidate(plan); verifyLive(plan)
+        return Carry(plan, plan.getJSONObject("previousRecord"), File(releases, StoreFormat.hash(plan.getString("artifactSha256"))), candidate(planId), targetFile(plan.getString("target")))
+    }
+
+    private val carrySides = listOf("reference", "base", "asset", "current", "candidate", "release")
+    private fun carrySide(c: Carry, side: String, path: String): File {
+        StoreFormat.path(path)
+        return when (side) {
+            "reference" -> File(File(c.release, "payload"), path)
+            "base" -> File(File(c.release, "archive/base"), path)
+            "asset" -> File(File(c.release, "archive/assets"), path)
+            "current" -> File(c.live, path)
+            "candidate" -> File(c.candidate, path)
+            "release" -> File(baseDirectory(c.record), path)
+            else -> throw IllegalArgumentException("Неизвестная сторона $side. Есть: ${carrySides.joinToString()}.")
+        }
+    }
+
+    /** The plan after a change of its candidate: the list of changes follows the files, and so does the digest. */
+    private fun carried(c: Carry): JSONObject {
+        val local = fileHashes(c.live)
+        c.plan.put("changes", changesOf(local, fileHashes(c.candidate), ownerEdited(c.record, local)))
+        refreshPlan(c.plan, c.candidate)
+        return publicPlan(c.plan)
+    }
+
+    private fun carryPut(c: Carry, path: String, bytes: ByteArray) {
+        StoreFormat.path(path)
+        require(bytes.size <= StoreFormat.MAX_FILE) { "Файл слишком велик." }
+        // The check every release goes through. Failing it here is a fault of this carry-over, not of the mod's author: nothing is banned.
+        try { scanSource(path, bytes, JSONArray()) } catch (violation: StoreViolation) { throw IllegalArgumentException("Так записать нельзя: ${violation.message}") }
+        val target = File(c.candidate, path); val parent = requireNotNull(target.parentFile)
+        require((parent.mkdirs() || parent.isDirectory) && !target.isDirectory) { "Путь $path занят каталогом." }
+        FileOutputStream(target).use { it.write(bytes); it.fd.sync() }
+    }
+
+    /**
+     * What is to be carried over: the mod, the package, why the sample does not fit as it is, and the
+     * files concerned, a page at a time. With [tree] the page lists every file of the package as it stands.
+     */
+    @Synchronized
+    fun carryTask(planId: String, tree: Boolean = false, offset: Int = 0): JSONObject {
+        val c = carry(planId, open = false); val plan = c.plan; val mod = plan.getJSONObject("mod")
+        val reference = plan.getJSONObject("manifest").getJSONObject("reference")
+        val sample = fileHashes(File(c.release, "payload")); val base = fileHashes(File(c.release, "archive/base")); val assets = File(c.release, "archive/assets")
+        val local = fileHashes(c.live); val now = fileHashes(c.candidate); val owner = ownerEdited(c.record, local)
+        val removed = jsonStrings(reference.getJSONArray("removed"))
+        val paths = (if (tree) local.keys else sample.keys + base.keys + removed + (local.keys + now.keys).filter { local[it] != now[it] }).distinct().sorted()
+        require(offset in 0..paths.size) { "Смещение за пределами списка." }
+        val end = minOf(paths.size, offset + 60)
+        val files = JSONArray(paths.subList(offset, end).map { path ->
+            JSONObject().put("path", path).put("reference", sample.containsKey(path)).put("base", base.containsKey(path)).put("current", local.containsKey(path))
+                .put("removedByMod", path in removed).put("ownerEdited", path in owner)
+                // The author's exact change is known only where the mod carries what the file was before.
+                .put("withoutBase", sample.containsKey(path) && !base.containsKey(path) && local.containsKey(path))
+                .put("sameAsAuthorStart", base[path] != null && base[path] == local[path])
+                .put("candidate", when { now[path] == local[path] -> "untouched"; now[path] == null -> "deleted"; local[path] == null -> "added"; else -> "changed" })
+        })
+        val out = JSONObject().put("planId", planId).put("state", mod.getJSONObject("carry").getString("state"))
+            .put("mod", JSONObject().put("id", mod.getString("id")).put("title", plan.getString("title")).put("version", plan.getString("version")).put("replaces", mod.optString("replaces")))
+            .put("target", JSONObject().put("id", c.record.getString("id")).put("title", c.record.optString("title")).put("version", c.record.getString("version")))
+            .put("referenceVersion", reference.getString("version")).put("reasons", mod.getJSONObject("carry").getJSONArray("reasons"))
+            .put("tree", tree).put("files", files).put("filesTotal", paths.size).put("nextOffset", if (end < paths.size) end else JSONObject.NULL)
+        if (!tree && offset == 0) out.put("assets", JSONArray(fileHashes(assets).keys.map { JSONObject().put("path", it).put("size", File(assets, it).length()) }))
+        return out
+    }
+
+    /** A piece of a text file from one side of the carry-over; `brief` is the author's task and needs no path. */
+    @Synchronized
+    fun carryRead(planId: String, side: String, path: String, offset: Int = 0, limit: Int = 12000): JSONObject {
+        require(offset >= 0 && limit in 1..64000) { "Недопустимый диапазон чтения." }
+        val c = carry(planId, open = false)
+        val file = if (side == "brief") File(c.release, "archive/mod/brief.md") else carrySide(c, side, path)
+        require(Files.isRegularFile(file.toPath(), NOFOLLOW_LINKS)) { "Файла ${if (side == "brief") "задания" else path} нет на стороне $side." }
+        require(file.length() <= StoreFormat.MAX_FILE) { "Файл слишком велик." }
+        val bytes = file.readBytes()
+        val text = runCatching { StoreFormat.utf8(bytes) }.getOrNull()?.takeIf { content -> content.none { it == '\u0000' } }
+            ?: throw IllegalArgumentException("Это не текст. Такой файл берётся целиком: store_mod_copy.")
+        require(offset <= text.length) { "Смещение за концом файла." }
+        val end = minOf(text.length, offset + limit)
+        return JSONObject().put("path", if (side == "brief") "mod/brief.md" else path).put("side", side).put("content", text.substring(offset, end))
+            .put("offset", offset).put("nextOffset", end).put("totalLength", text.length).put("eof", end == text.length).put("sha256", StoreFormat.sha256(bytes))
+    }
+
+    @Synchronized
+    fun carryWrite(planId: String, path: String, content: String): JSONObject { val c = carry(planId); carryPut(c, path, content.toByteArray()); return carried(c) }
+
+    /** Replaces an exact piece of a candidate's text file; the piece must be there once, or [all] of its places are replaced. */
+    @Synchronized
+    fun carryEdit(planId: String, path: String, find: String, replace: String, all: Boolean = false): JSONObject {
+        val c = carry(planId); val file = carrySide(c, "candidate", path)
+        require(Files.isRegularFile(file.toPath(), NOFOLLOW_LINKS)) { "В кандидате нет файла $path." }
+        require(find.isNotEmpty()) { "Нужен фрагмент, который заменяется." }
+        val text = StoreFormat.utf8(file.readBytes())
+        val count = text.split(find).size - 1
+        require(count > 0) { "Фрагмент не найден в $path. Прочитайте файл со стороны candidate и возьмите точный текст." }
+        require(all || count == 1) { "Фрагмент встречается в $path $count раз. Дайте больше окружающего текста или all=true." }
+        carryPut(c, path, text.replace(find, replace).toByteArray())
+        return carried(c)
+    }
+
+    /** Takes a whole file, text or picture, from one of the sides into the candidate at [path]. */
+    @Synchronized
+    fun carryCopy(planId: String, side: String, source: String, path: String): JSONObject {
+        val c = carry(planId)
+        require(side != "candidate") { "Копируется файл с другой стороны: ${carrySides.filter { it != "candidate" }.joinToString()}." }
+        val file = carrySide(c, side, source)
+        require(Files.isRegularFile(file.toPath(), NOFOLLOW_LINKS)) { "Файла $source нет на стороне $side." }
+        carryPut(c, path, file.readBytes())
+        return carried(c)
+    }
+
+    @Synchronized
+    fun carryDelete(planId: String, path: String): JSONObject {
+        val c = carry(planId); val file = carrySide(c, "candidate", path)
+        require(Files.isRegularFile(file.toPath(), NOFOLLOW_LINKS)) { "В кандидате нет файла $path." }
+        require(file.delete()) { "Не удалось удалить $path." }
+        return carried(c)
+    }
+
+    /**
+     * The carry-over is handed in. [report] is `{summary, verbatim: [path], adapted: [{path, note}],
+     * skipped: [text], questions: [text]}`: every changed file is named once, as taken from the sample as
+     * it is or as done differently and why. What is called verbatim is compared with the sample here.
+     * The package must still be one that starts. From now on the plan is an ordinary one, ready for the
+     * owner to look at, have reviewed and apply.
+     */
+    @Synchronized
+    fun carryDone(planId: String, report: JSONObject): JSONObject {
+        val c = carry(planId); val plan = c.plan; val mod = plan.getJSONObject("mod")
+        val local = fileHashes(c.live); val now = fileHashes(c.candidate); val owner = ownerEdited(c.record, local)
+        val changes = changesOf(local, now, owner)
+        val changed = (0 until changes.length()).map { changes.getJSONObject(it).getString("path") }
+        require(changed.isNotEmpty()) { "В кандидате нет ни одного изменения: мод не перенесён. Если переносить нечего, скажите это владельцу, а пустой перенос не сдавайте." }
+        try { validateRuntime(c.candidate, c.record.getJSONObject("manifest")) }
+        catch (error: IllegalArgumentException) { throw IllegalArgumentException("После такого переноса пакет не запустится: ${error.message}") }
+        val summary = report.opt("summary") as? String
+        require(!summary.isNullOrBlank() && summary.length <= 4000) { "Нужен итог переноса (summary): что получит владелец, до 4000 символов." }
+        fun texts(key: String): JSONArray {
+            val list = report.optJSONArray(key) ?: JSONArray(); require(list.length() <= 40) { "Слишком длинный список $key." }
+            return JSONArray((0 until list.length()).map { index -> (list.opt(index) as? String)?.trim()?.takeIf { it.isNotEmpty() && it.length <= 1000 } ?: throw IllegalArgumentException("$key[$index] должен быть непустой строкой до 1000 символов.") })
+        }
+        val sample = fileHashes(File(c.release, "payload")); val base = fileHashes(File(c.release, "archive/base"))
+        val removed = jsonStrings(plan.getJSONObject("manifest").getJSONObject("reference").getJSONArray("removed"))
+        val named = HashSet<String>()
+        val verbatim = JSONArray(); val stated = report.optJSONArray("verbatim") ?: JSONArray()
+        for (index in 0 until stated.length()) {
+            val path = stated.opt(index) as? String ?: throw IllegalArgumentException("verbatim[$index] должен быть путём файла.")
+            require(path in changed && named.add(path)) { "verbatim[$index]: $path не изменён этим переносом или назван дважды." }
+            require(if (now[path] == null) path in removed else now[path] == sample[path]) { "$path отличается от образца автора: назовите его в adapted и скажите, что сделано иначе." }
+            verbatim.put(path)
+        }
+        val adapted = JSONArray(); val told = report.optJSONArray("adapted") ?: JSONArray()
+        for (index in 0 until told.length()) {
+            val item = told.optJSONObject(index) ?: throw IllegalArgumentException("adapted[$index] должен быть объектом {path, note}.")
+            val path = item.opt("path") as? String; val note = (item.opt("note") as? String)?.trim()
+            require(path != null && path in changed && named.add(path)) { "adapted[$index]: $path не изменён этим переносом или назван дважды." }
+            require(!note.isNullOrEmpty() && note.length <= 1000) { "adapted[$index]: нужно пояснение (note), что сделано иначе, чем в образце, и почему." }
+            adapted.put(JSONObject().put("path", path).put("note", note))
+        }
+        (changed - named).takeIf { it.isNotEmpty() }?.let { throw IllegalArgumentException("В отчёте не названы изменённые файлы: ${it.take(8).joinToString()}. Каждый должен быть в verbatim или в adapted.") }
+        val saved = JSONObject().put("summary", summary.trim()).put("verbatim", verbatim).put("adapted", adapted)
+            .put("skipped", texts("skipped")).put("questions", texts("questions"))
+            // Changed with nothing in the mod to say what the author started from: worth a closer look.
+            .put("withoutBase", JSONArray(changed.filter { sample.containsKey(it) && !base.containsKey(it) && local.containsKey(it) }))
+        mod.put("report", saved).put("ownerEdits", JSONArray(changed.filter { it in owner }))
+        mod.getJSONObject("carry").put("state", "done").put("doneAt", System.currentTimeMillis())
+        plan.put("changes", changes)
+        refreshPlan(plan, c.candidate)
+        return publicPlan(plan)
     }
 
     @Synchronized fun prepareRollback(packageKey: String): JSONObject {
@@ -615,7 +866,8 @@ class StoreInstaller(
     private fun refreshPlan(plan: JSONObject, candidate: File) {
         val hashes = fileHashes(candidate); val conflicts = plan.getJSONArray("conflicts")
         val unresolved = (0 until conflicts.length()).count { !conflicts.getJSONObject(it).optBoolean("resolved") }
-        plan.put("candidateSignature", signature(hashes)).put("status", if (unresolved == 0) "ready" else "conflicts")
+        val carrying = plan.optJSONObject("mod")?.optJSONObject("carry")?.optString("state") == "open"
+        plan.put("candidateSignature", signature(hashes)).put("status", if (carrying) "carrying" else if (unresolved == 0) "ready" else "conflicts")
         val review = JSONArray()
         val manifestFiles = plan.getJSONObject("manifest").getJSONArray("files")
         val virtuals = (0 until manifestFiles.length()).map { manifestFiles.getJSONObject(it).getString("path") }.mapNotNull { name -> virtualToInstalled(name)?.let { it to name } }.toMap()

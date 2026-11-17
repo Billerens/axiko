@@ -369,6 +369,19 @@ class StoreService(
         decorate(result, envelope)
     }
 
+    // ---- carrying a mod over: the executor's steps, each on the plan it was started for ----------------
+
+    fun carryTask(id: String, tree: Boolean = false, offset: Int = 0): JSONObject = synchronized(operationLock) { subject(id); installer.carryTask(id, tree, offset) }
+    fun carryRead(id: String, side: String, path: String, offset: Int = 0, limit: Int = 12000): JSONObject = synchronized(operationLock) { subject(id); installer.carryRead(id, side, path, offset, limit) }
+    fun carryWrite(id: String, path: String, content: String): JSONObject = synchronized(operationLock) { decorate(installer.carryWrite(id, path, content), subject(id)) }
+    fun carryEdit(id: String, path: String, find: String, replace: String, all: Boolean = false): JSONObject = synchronized(operationLock) { decorate(installer.carryEdit(id, path, find, replace, all), subject(id)) }
+    fun carryCopy(id: String, side: String, source: String, path: String): JSONObject = synchronized(operationLock) { decorate(installer.carryCopy(id, side, source, path), subject(id)) }
+    fun carryDelete(id: String, path: String): JSONObject = synchronized(operationLock) { decorate(installer.carryDelete(id, path), subject(id)) }
+    fun carryDone(id: String, report: JSONObject): JSONObject = synchronized(operationLock) { decorate(installer.carryDone(id, report), subject(id)) }
+
+    /** A mod carried over by an agent: what stands in its plan is that agent's work, not the author's archive. */
+    private fun ported(plan: JSONObject): Boolean = plan.optJSONObject("mod")?.optString("mode") == "ported"
+
     /** Taking a mod off is always allowed: a ban or a warning about its release is a reason to remove it, not an obstacle. */
     private fun removal(plan: JSONObject): Boolean = plan.optJSONObject("mod")?.optBoolean("removal") == true
 
@@ -545,7 +558,10 @@ class StoreService(
             .put("subject", StoreDisk.copy(current.getJSONObject("subject")))
             .put("coverage", StoreDisk.copy(coverage)).put("reviewedFiles", coverage.optJSONArray("filesReviewed") ?: JSONArray())
             .put("runtimeProfile", "trustedLegacy").put("capabilitiesEnforced", false).put("checksExecuted", false)
-        if (saved.getString("status") == "reject") {
+        // A violation that came with the carry-over is the carry-over's fault: the plan is rejected, the author's release is not banned.
+        val ported = ported(current)
+        if (saved.getString("status") == "reject" && ported) saved.put("banned", false)
+        if (saved.getString("status") == "reject" && !ported) {
             val findings = saved.getJSONArray("findings")
             val violations = JSONArray((0 until findings.length()).map { findings.getJSONObject(it) }.filter { it.getString("severity") == StoreRules.VIOLATION }.map(StoreDisk::copy))
             val subject = current.getJSONObject("subject")
@@ -556,7 +572,8 @@ class StoreService(
             saved.put("banned", true)
         }
         StoreDisk.write(reviewFile(id), saved)
-        StoreDisk.write(verdictFile(current.getString("artifactSha256")), StoreDisk.copy(saved).put("status", verdict))
+        // The word about an archive is carried to its next plans; a carried-over candidate is not that archive.
+        if (!ported) StoreDisk.write(verdictFile(current.getString("artifactSha256")), StoreDisk.copy(saved).put("status", verdict))
         StoreDisk.copy(saved)
     }
 
@@ -744,6 +761,14 @@ object Store {
             "store.catalog" -> service.catalogPage(args.optJSONObject(0) ?: JSONObject())
             "store.kinds" -> service.kindList()
             "store.mod.remove" -> service.removeMod(args.getString(0), args.getString(1))
+            // The executor's steps. Not among the operations a page may call: only the carry conversation reaches them.
+            "store.mod.carry.task" -> service.carryTask(args.getString(0), args.optBoolean(1, false), args.optInt(2, 0))
+            "store.mod.carry.read" -> service.carryRead(args.getString(0), args.getString(1), args.optString(2), args.optInt(3, 0), args.optInt(4, 12000))
+            "store.mod.carry.write" -> service.carryWrite(args.getString(0), args.getString(1), args.getString(2))
+            "store.mod.carry.edit" -> service.carryEdit(args.getString(0), args.getString(1), args.getString(2), args.getString(3), args.optBoolean(4, false))
+            "store.mod.carry.copy" -> service.carryCopy(args.getString(0), args.getString(1), args.getString(2), args.getString(3))
+            "store.mod.carry.delete" -> service.carryDelete(args.getString(0), args.getString(1))
+            "store.mod.carry.done" -> service.carryDone(args.getString(0), args.getJSONObject(1))
             "store.details" -> service.details(args.getString(0), args.getString(1))
             "store.media" -> service.media(args.getString(0), args.getString(1), args.getString(2), args.optInt(3, 0))
             "store.installed" -> service.installed()

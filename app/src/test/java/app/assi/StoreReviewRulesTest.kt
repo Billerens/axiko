@@ -181,7 +181,11 @@ class StoreReviewRulesTest {
         assertFalse(StoreReviewAccess.TOOLS.any { it.contains("ban") || it.contains("accept") || it.contains("discard") })
         val tools = Regex("tool\\(\"(store_[a-z_]+)\"").findAll(File("src/main/java/app/assi/agent/Tools.kt").readText()).map { it.groupValues[1] }.toSet()
         assertEquals(setOf("store_sources", "store_add_source", "store_catalog", "store_details", "store_prepare", "store_review_start", "store_review_status",
-            "store_plan", "store_read", "store_resolve", "store_review", "store_apply"), tools)
+            "store_plan", "store_read", "store_resolve", "store_review", "store_apply",
+            // Carrying a mod over: started from an ordinary chat, done with tools that write only into the plan's candidate.
+            "store_mod_carry", "store_mod_task", "store_mod_read", "store_mod_copy", "store_mod_write", "store_mod_edit", "store_mod_delete", "store_mod_done"), tools)
+        // The executor of a carry-over installs nothing and reviews nothing: its tools end at handing the work in.
+        assertFalse(app.assi.store.StoreAgent.CARRY_TOOLS.any { it.contains("apply") || it.contains("review") || it.contains("prepare") || it.contains("source") })
     }
 
     @Test fun validatorViolationBansTheReleaseButADamagedDownloadDoesNot() {

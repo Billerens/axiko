@@ -202,6 +202,8 @@
   function removeMod(packageKey, modKey, control) {
     return operation('remove-mod-' + modKey, control, async () => { const plan = await api('mod.remove', packageKey, modKey); state.pending = plan; showPlan(plan); renderPending(); });
   }
+  // How a mod stands on its package: as its author made it, or carried over to this version by an agent.
+  function howLaid(layer) { return layer.mode === 'ported' ? tr('Перенесена агентом на версию {}', layer.targetVersion || '') : tr('Как у автора'); }
   // What others made of this package: the mods that connected sources offer for it, and those that stand on it.
   async function modsOf(current, box, item, installed) {
     const token = current.token, layers = installed && Array.isArray(installed.mods) ? installed.mods : [];
@@ -213,13 +215,15 @@
     const row = (title, version, text, chips, action) => h('div', { class: 'store-plan-file store-mod', 'data-mod': title },
       h('div', { class: 'grow' }, h('strong', {}, raw(title + (version ? ' · ' + version : ''))), text ? note(raw(text)) : null, chips.length ? h('div', { class: 'store-meta' }, chips) : null), action);
     box.append(h('div', { class: 'store-mods', id: 'store-mods' }, h('h3', {}, tr('Доработки')),
-      note(tr('То, что другие сделали поверх этого пакета. Доработка накладывается как у автора, если у вас та же версия пакета и те же файлы.')),
+      note(tr('То, что другие сделали поверх этого пакета. Доработка накладывается как у автора, если у вас та же версия пакета и те же файлы. Иначе её переносит на ваш пакет агент.')),
       h('div', { class: 'store-plan-list' },
-        offered.map(mod => { const on = mod.status === 'installed' || mod.status === 'update'; return row(mod.title || packageId(mod), mod.version, mod.summary,
-          [on ? h('span', { class: 'store-chip success' }, tr('Установлено')) : null, mod.status === 'banned' ? h('span', { class: 'store-chip problem' }, tr('Забанен')) : null].filter(Boolean),
-          on ? button(tr('Снять'), event => removeMod(mod.installationKey, mod.modKey, event.currentTarget), { 'data-remove-mod': packageId(mod) })
+        offered.map(mod => { const on = mod.status === 'installed' || mod.status === 'update', layer = layers.find(item => item.key === mod.modKey); return row(mod.title || packageId(mod), mod.version, mod.summary,
+          [on ? h('span', { class: 'store-chip success' }, tr('Установлено')) : null, on && layer ? h('span', { class: 'store-chip', 'data-mod-mode': layer.mode || '' }, howLaid(layer)) : null,
+            mod.status === 'update' ? h('span', { class: 'store-chip' }, tr('Есть версия {}', mod.version)) : null, mod.status === 'banned' ? h('span', { class: 'store-chip problem' }, tr('Забанен')) : null].filter(Boolean),
+          on ? h('div', { class: 'store-plan-choice' }, [mod.status === 'update' ? button(tr('Обновить'), event => prepare(mod, event.currentTarget), { 'data-install-mod': packageId(mod), disabled: mod.compatible === false }) : null,
+              button(tr('Снять'), event => removeMod(mod.installationKey, mod.modKey, event.currentTarget), { 'data-remove-mod': packageId(mod) })].filter(Boolean))
             : button(tr('Установить'), event => prepare(mod, event.currentTarget), { 'data-install-mod': packageId(mod), disabled: mod.compatible === false || mod.status === 'banned' || mod.status === 'targetMissing' })); }),
-        gone.map(layer => row(layer.title || layer.id, layer.version, tr('Источник этой доработки больше не предлагает её.'), [h('span', { class: 'store-chip success' }, tr('Установлено'))],
+        gone.map(layer => row(layer.title || layer.id, layer.version, tr('Источник этой доработки больше не предлагает её.'), [h('span', { class: 'store-chip success' }, tr('Установлено')), h('span', { class: 'store-chip', 'data-mod-mode': layer.mode || '' }, howLaid(layer))],
           button(tr('Снять'), event => removeMod(installed.key, layer.key, event.currentTarget), { 'data-remove-mod': layer.id }))))));
   }
   function packageIcon(item, installedView) {
@@ -260,7 +264,10 @@
     if (isMod(item)) card.append(h('div', { class: 'store-mod-target', 'data-mod-target': item.extends || '' }, tr('Для пакета «{}»', item.targetTitle || item.extends || '')));
     card.append(badges, h('div', { class: 'store-source-line' }, raw(item.sourceTitle || sourceName(item.sourceId))));
     const actions = h('div', { class: 'store-card-actions' });
-    if (standing) actions.append(button(tr('Снять'), event => removeMod(item.installationKey, item.modKey, event.currentTarget), { 'data-remove-mod': packageId(item) }));
+    if (standing) {
+      if (item.status === 'update') actions.append(button(tr('Обновить'), event => prepare(item, event.currentTarget), { class: 'btn primary', 'data-install': packageId(item), disabled: item.compatible === false }));
+      actions.append(button(tr('Снять'), event => removeMod(item.installationKey, item.modKey, event.currentTarget), { 'data-remove-mod': packageId(item) }));
+    }
     else if (installedView && entryPath(item)) actions.append(button(tr('Открыть'), () => openInstalled(item), { class: 'btn primary', 'data-open-package': packageId(item) }));
     else if (!installed || item.status === 'update' || item.updateAvailable) actions.append(button(tr(installed ? 'Обновить' : unmanaged(item) ? 'Принять модуль' : 'Установить'), event => prepare(item, event.currentTarget), { class: 'btn primary', disabled: item.compatible === false || item.status === 'incompatible' || item.status === 'banned' || item.status === 'targetMissing', 'data-install': packageId(item) }));
     else if (entryPath(installed)) actions.append(button(tr('Открыть'), () => openInstalled(installed), { class: 'btn primary' }));
@@ -429,12 +436,16 @@
     if (installed && installed.localModified) current.body.append(h('p', { class: 'store-notice' }, tr('В пакете есть ваши доработки. Перед обновлением покажем изменения и возможные конфликты.')));
     if (!installed && unmanaged(display)) current.body.append(h('p', { class: 'store-notice', 'data-unmanaged-note': '' }, tr('Этот модуль уже стоит на устройстве, но установлен не через магазин. Каталог не знает его версии и не обновляет его. Примите его под управление магазина: файлы, совпавшие с выпуском, останутся как есть, по остальным решите вы.')));
     const standing = isMod(display) && (display.status === 'installed' || display.status === 'update');
-    if (isMod(display)) current.body.append(h('p', { class: 'store-notice', 'data-mod-note': '' }, tr('Доработка ставится поверх пакета и меняет его файлы. Если у вас та же версия пакета, на которой её сделал автор, и те же файлы, она накладывается как есть. Иначе её должен перенести на вашу версию агент.')));
+    if (isMod(display)) current.body.append(h('p', { class: 'store-notice', 'data-mod-note': '' }, tr('Доработка ставится поверх пакета и меняет его файлы. Если у вас та же версия пакета, на которой её сделал автор, и те же файлы, она накладывается как есть. Иначе её переносит на ваш пакет агент: для этого нужна модель, а результат может отличаться от образца.')));
     if (display.status && display.details) { const box = h('div', { class: 'store-about', 'aria-busy': 'true' }); current.body.append(box); about(current, box, display); }
     if (display.status && !isMod(display)) { const box = h('div', { class: 'store-about' }); current.body.append(box); modsOf(current, box, display, installed); }
     current.body.append(note(tr('Перед установкой загрузим конкретную версию, проверим структуру и хеши. Код пакета на этом шаге не запускается.')));
     const controls = h('div', { class: 'store-dialog-actions' });
-    if (standing) controls.append(button(tr('Снять доработку'), event => removeMod(display.installationKey, display.modKey, event.currentTarget), { class: 'btn primary', id: 'store-remove-mod' }));
+    if (standing) {
+      const newer = display.status === 'update' && compatible;
+      if (newer) controls.append(button(tr('Подготовить обновление'), event => prepare(display, event.currentTarget), { class: 'btn primary', id: 'store-prepare' }));
+      controls.append(button(tr('Снять доработку'), event => removeMod(display.installationKey, display.modKey, event.currentTarget), { class: newer ? 'btn' : 'btn primary', id: 'store-remove-mod' }));
+    }
     else if (compatible && display.status && display.status !== 'targetMissing' && (!installed || display.status === 'update' || display.updateAvailable)) controls.append(button(tr(installed ? 'Подготовить обновление' : unmanaged(display) ? 'Принять под управление магазина' : 'Подготовить установку'), event => prepare(display, event.currentTarget), { class: 'btn primary', id: 'store-prepare' }));
     if (installed && entryPath(installed)) controls.append(button(tr('Открыть пакет'), () => { closeDialog(); openInstalled(installed); }));
     if (installed && installed.rollbackAvailable) controls.append(button(tr('Вернуть предыдущую версию'), event => operation('prepare-rollback', event.currentTarget, async () => {
@@ -455,9 +466,9 @@
     });
   }
   function renderPending() {
-    const node = $('store-pending'), plan = state.pending && state.pending.status !== 'applied' ? state.pending : state.plans.find(item => ['ready','conflicts','blocked'].includes(item.status));
+    const node = $('store-pending'), plan = state.pending && state.pending.status !== 'applied' ? state.pending : state.plans.find(item => ['ready','conflicts','blocked','carrying'].includes(item.status));
     node.hidden = !plan || plan.status === 'applied'; if (node.hidden) { node.replaceChildren(); return; }
-    node.replaceChildren(h('div', { class: 'store-pending' }, h('div', {}, h('strong', {}, tr(state.reviewTask && state.reviewTask.planId === plan.id ? 'Агент проверяет пакет' : 'Подготовленная установка')), h('p', {}, raw((plan.title || plan.manifest && plan.manifest.id || plan.packageId || '') + ' · ' + (plan.version || '')))),
+    node.replaceChildren(h('div', { class: 'store-pending' }, h('div', {}, h('strong', {}, tr(plan.status === 'carrying' ? (plan.carryTask && plan.carryTask.status === 'running' ? 'Агент переносит доработку' : 'Доработка ждёт переноса') : state.reviewTask && state.reviewTask.planId === plan.id ? 'Агент проверяет пакет' : 'Подготовленная установка')), h('p', {}, raw((plan.title || plan.manifest && plan.manifest.id || plan.packageId || '') + ' · ' + (plan.version || '')))),
       button(tr('Продолжить'), event => operation('resume-plan', event.currentTarget, async () => { const [fresh, report] = await Promise.all([api('plan', plan.id), api('review', plan.id)]); showPlan(fresh, report); }), { id: 'store-resume-plan' })));
   }
   function readableStatus(value) { return tr(({ pass: 'Проверка завершена: находок нет', needsAttention: 'Найдены подозрения: решение за вами', reject: 'Нарушение правил: выпуск забанен', running: 'Агент проверяет пакет', pending: 'Проверка ещё не завершена', applied: 'Установка завершена' })[value] || value || 'Проверка ещё не завершена'); }
@@ -466,7 +477,7 @@
     const waiting = ['pending','running'].includes(report.status), earlier = waiting && report.inherited && report.inherited.status === 'needsAttention' ? report.inherited : null;
     const shown = earlier || report;
     const card = h('section', { class: 'store-review ' + (shown.status || ''), 'data-review-status': report.status || 'pending', 'data-review-inherited': earlier ? 'true' : 'false' },
-      h('strong', {}, earlier ? tr('Прежняя проверка этого выпуска нашла подозрения') : stopped && waiting ? tr('Проверка остановлена') : readableStatus(report.status)));
+      h('strong', {}, earlier ? tr('Прежняя проверка этого выпуска нашла подозрения') : stopped && waiting ? tr('Проверка остановлена') : report.status === 'reject' && report.banned === false ? tr('Нарушение правил при переносе: план отклонён, выпуск автора не забанен') : readableStatus(report.status)));
     if (stopped && waiting && !earlier) card.append(note(tr('Можно открыть диалог или запустить проверку заново. Пакет пока не установлен.')));
     if (shown.summary) card.append(note(raw(shown.summary)));
     const findings = Array.isArray(shown.findings) ? shown.findings : [];
@@ -479,7 +490,7 @@
   function showPlan(plan, report) {
     const previous = state.dialog, origin = previous && previous.origin;
     const adoption = !!plan.adoption, mod = plan.mod || null, removal = !!(mod && mod.removal);
-    const current = dialog(plan.status === 'applied' ? tr('Готово') : tr(plan.rollback || plan.operation === 'rollback' ? 'Возврат версии' : removal ? 'Снятие доработки' : mod ? 'Установка доработки' : adoption ? 'Принятие под управление магазина' : 'Проверка перед установкой'));
+    const current = dialog(plan.status === 'applied' ? tr('Готово') : tr(plan.rollback || plan.operation === 'rollback' ? 'Возврат версии' : removal ? 'Снятие доработки' : mod && plan.status === 'carrying' ? 'Перенос доработки' : mod ? 'Установка доработки' : adoption ? 'Принятие под управление магазина' : 'Проверка перед установкой'));
     if (origin) current.origin = origin; current.planId = plan.id;
     state.pending = plan; renderPending();
     const manifest = plan.manifest || {}, conflicts = Array.isArray(plan.conflicts) ? plan.conflicts.filter(c => !c.resolved) : [];
@@ -511,9 +522,35 @@
     }
     (Array.isArray(plan.previousBans) ? plan.previousBans : []).forEach(ban => current.body.append(banNotice(ban, true)));
     current.body.append(note(removal ? tr('Файлы пакета «{}» вернутся к тому, какими были до доработки. Личные данные и сохранения не затрагиваются.', mod.targetTitle || mod.extends || '')
+      : mod && plan.status === 'carrying' ? tr('Доработка ещё не перенесена на ваш пакет «{}» {}. Личные данные и сохранения не затрагиваются.', mod.targetTitle || mod.extends || '', mod.targetVersion || '')
+      : mod && mod.carry ? tr('Доработка перенесена агентом на ваш пакет «{}» {}. Результат может отличаться от образца автора. Личные данные и сохранения не затрагиваются.', mod.targetTitle || mod.extends || '', mod.targetVersion || '')
+      : mod && mod.replaces ? tr('Новая версия доработки заменяет прежнюю {} на пакете «{}» {}: версия пакета та же, файлы совпали. Личные данные и сохранения не затрагиваются.', mod.replaces, mod.targetTitle || mod.extends || '', mod.targetVersion || '')
       : mod ? tr('Доработка накладывается на пакет «{}» {} как у автора: версия та же, файлы совпали. Личные данные и сохранения не затрагиваются.', mod.targetTitle || mod.extends || '', mod.targetVersion || '')
       : adoption ? tr('Модуль уже стоит на устройстве. Файлов, совпавших с выпуском {}: {}. Личные данные и сохранения не заменяются.', plan.version || manifest.version || '', Number(plan.matchingFiles) || 0) : tr('Обновляется код пакета. Личные данные и сохранения не заменяются.')));
     if (blocked) current.body.append(h('div', { class: 'store-notice danger', 'data-plan-blocked': '' }, h('strong', {}, tr('Сначала нужно устранить препятствия')), h('ul', { class: 'store-plain-list' }, blockers.length ? blockers.map(reason => h('li', {}, raw(typeof reason === 'string' ? reason : reason.message || reason.reason || JSON.stringify(reason)))) : h('li', {}, tr('Подготовьте пакет заново после обновления источника.')))));
+    const carry = mod && !removal && mod.carry ? mod.carry : null;
+    if (carry && plan.status !== 'carrying' && mod.report) current.body.append(carryReport(mod));
+    if (carry && (plan.status === 'carrying' || blocked && carry.state === 'open')) {
+      // The sample does not fit as it is. Nothing is laid over until an agent has carried the mod over, in a
+      // conversation of its own, and the owner has looked at what came of it.
+      const job = plan.carryTask || null, running = !!job && job.status === 'running';
+      state.carryShown = job ? job.status : '';
+      current.root.setAttribute('data-plan-carrying', running ? 'running' : job ? 'stopped' : 'waiting');
+      current.body.append(h('div', { class: 'store-notice', 'data-carry-reasons': '' }, h('strong', {}, tr('Эту доработку нельзя наложить как у автора')),
+        h('ul', { class: 'store-plain-list' }, (Array.isArray(carry.reasons) ? carry.reasons : []).map(reason => h('li', {}, raw(reason))))));
+      current.body.append(note(tr('Агент перенесёт доработку на ваш пакет: прочитает задание и образец автора, сохранит ваши правки и при необходимости спросит вас. Для этого нужна модель и запросы к ней, а результат может отличаться от образца. Пакет не меняется, пока вы не посмотрите изменения и не установите их.')));
+      if (running) current.body.append(h('p', { class: 'store-notice', 'data-carry-running': '' }, tr('Агент переносит доработку. Его вопросы появятся в диалоге с ним.')));
+      else if (job) current.body.append(h('p', { class: 'store-notice', 'data-carry-stopped': '' }, tr('Перенос остановлен и не сдан. Его можно продолжить: сделанное сохранено.')));
+      const start = button(tr(job ? 'Продолжить перенос' : 'Перенести с агентом'), event => operation('carry-' + plan.id, event.currentTarget, async () => {
+        const started = await api('mod.carryStart', plan.id);
+        const fresh = await api('plan', plan.id); state.pending = fresh; showPlan(fresh);
+        try { await openReviewChat(started); } catch (error) { dialogStatus(tr('Перенос идёт, но чат открыть не удалось: {}', errorText(error)), true); }
+      }), { class: 'btn primary', id: 'store-carry-start', disabled: blocked });
+      const open = job && job.thread ? button(tr('Открыть диалог с агентом'), () => operation('open-review', null, () => openReviewChat(job)), { id: 'store-open-carry', class: running ? 'btn primary' : 'btn' }) : null;
+      current.footer.append(h('div', { class: 'store-dialog-actions' }, [discard(tr('Не устанавливать'), { id: 'store-discard' }), running ? null : start, open].filter(Boolean)));
+      if (running) watchCarry(plan.id);
+      return;
+    }
     if (Array.isArray(plan.dependencies) && plan.dependencies.length) current.body.append(h('details', { open: blocked }, h('summary', {}, tr('Зависимости: {}', plan.dependencies.length)), h('ul', { class: 'store-plain-list' }, plan.dependencies.map(item => h('li', {}, raw(item.id + ' ' + (item.version || '')), ' · ', tr(item.satisfied ? 'Установлено' : item.optional ? 'Необязательная связь' : 'Не установлено'))))));
     if (plan.rollback || plan.operation === 'rollback') current.body.append(h('p', { class: 'store-notice' }, tr('Возвращается предыдущий код. Данные сохраняются; старый код может не поддерживать более новый формат сохранения.')));
     if (conflicts.length) {
@@ -603,6 +640,35 @@
       h('details', { class: 'store-recheck' }, h('summary', {}, tr('Проверить ещё раз')), trust, h('div', { class: 'store-dialog-actions' }, agent)));
   }
   function visible() { return state.visible && !document.hidden; }
+  // What the agent says of a mod it carried over: read before the lists of files, like a review's findings.
+  function carryReport(mod) {
+    const report = mod.report || {}, list = value => Array.isArray(value) ? value : [];
+    const card = h('section', { class: 'store-review', 'data-carry-report': '' }, h('strong', {}, tr('Отчёт о переносе')), note(raw(report.summary || '')));
+    const section = (title, items, key, open) => { if (items.length) card.append(h('details', { 'data-carry': key, open: !!open }, h('summary', {}, tr(title, items.length)), h('ul', { class: 'store-plain-list' }, items))); };
+    const paths = value => list(value).map(path => h('li', {}, h('code', {}, raw(path))));
+    section('Сделано иначе, чем у автора: {}', list(report.adapted).map(item => h('li', {}, h('code', {}, raw(item.path)), ' — ', raw(item.note))), 'adapted', true);
+    section('Не перенесено: {}', list(report.skipped).map(text => h('li', {}, raw(text))), 'skipped', true);
+    section('Здесь были ваши правки, посмотрите внимательнее: {}', paths(mod.ownerEdits), 'owner', true);
+    section('Перенесено без исходного вида файла, посмотрите внимательнее: {}', paths(report.withoutBase), 'without-base', true);
+    section('Вопросы к вам: {}', list(report.questions).map(text => h('li', {}, raw(text))), 'questions', false);
+    section('Взято у автора как есть: {}', paths(report.verbatim), 'verbatim', false);
+    return card;
+  }
+  // While the agent carries a mod over, the open plan is asked again now and then: when the work is handed in
+  // or left, the dialog shows it without the owner having to reopen it.
+  function watchCarry(planId) {
+    if (state.carryPoll) clearTimeout(state.carryPoll);
+    state.carryPoll = setTimeout(async () => {
+      state.carryPoll = null;
+      if (!visible() || !state.dialog || state.dialog.planId !== planId) return;
+      try {
+        const fresh = await api('plan', planId);
+        if (!state.dialog || state.dialog.planId !== planId) return;
+        if (fresh.status !== 'carrying' || (fresh.carryTask ? fresh.carryTask.status : '') !== state.carryShown) { state.pending = fresh; showPlan(fresh, await api('review', planId).catch(() => null)); return; }
+      } catch (error) { return; }
+      watchCarry(planId);
+    }, 4000);
+  }
   function schedulePoll() {
     if (state.poll) clearTimeout(state.poll); state.poll = null;
     if (!visible() || !state.reviewTask) return;

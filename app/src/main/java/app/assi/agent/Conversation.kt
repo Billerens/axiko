@@ -521,7 +521,7 @@ class Conversation(
             var lean = lean(spec, target)
             var steps = 0
             while (!cancelled) {
-                val limit = if (StoreAgent.isReview(this)) MAX_REVIEW_STEPS else stepLimit
+                val limit = if (StoreAgent.restricted(this)) MAX_REVIEW_STEPS else stepLimit
                 if (++steps > limit) {
                     answer = limitReached(spec, target, lean, limit).ifBlank { answer }
                     break
@@ -534,7 +534,7 @@ class Conversation(
                     steered(target)
                 }
                 Usage.guard()
-                val tools = Tools.schemas(StoreAgent.tools(this, spec.tools ?: if (lean) LIGHT_TOOLS else null), Agent.mayDelegate(this) && !lean, target.vision, StoreAgent.isReview(this))
+                val tools = Tools.schemas(StoreAgent.tools(this, spec.tools ?: if (lean) LIGHT_TOOLS else null), Agent.mayDelegate(this) && !lean, target.vision, StoreAgent.restricted(this))
                 // With the voice on, the answer is spoken sentence by sentence as it is written.
                 val speaker = if (lasting && (Tts.enabled || Tts.voiceTurn)) Speaker() else null
                 // What the wait is for: the chat shows it with the step's number.
@@ -671,7 +671,7 @@ class Conversation(
                     // What this turn did to the app, shown in the chat with a way to take it back.
                     val mark = JSONObject().put("type", "changes").put("snapshot", snapshot)
                         .put("files", Workspace.changes(snapshot))
-                    if (!cancelled && draft == null && !StoreAgent.isReview(this)) runCatching { mark.put("checks", selfChecks(mark.getJSONArray("files"))) }
+                    if (!cancelled && draft == null && !StoreAgent.restricted(this)) runCatching { mark.put("checks", selfChecks(mark.getJSONArray("files"))) }
                     synchronized(messages) { marks.add(mark.put("at", messages.size)) }
                     emit(JSONObject(mark.toString()))
                 }
@@ -944,7 +944,7 @@ class Conversation(
      */
     fun lean(spec: Agent.Spec, target: Models.Target): Boolean {
         if (!target.onPhone) return false
-        val whole = (systemPrompt(spec).length + Tools.schemas(StoreAgent.tools(this, spec.tools), false, target.vision, StoreAgent.isReview(this)).toString().length) / 3
+        val whole = (systemPrompt(spec).length + Tools.schemas(StoreAgent.tools(this, spec.tools), false, target.vision, StoreAgent.restricted(this)).toString().length) / 3
         return whole > target.window * LEAN_AT
     }
 
