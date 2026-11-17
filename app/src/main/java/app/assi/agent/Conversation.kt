@@ -495,22 +495,27 @@ class Conversation(
         val snapshotWall = System.currentTimeMillis()
         val snapshotCpu = android.os.SystemClock.currentThreadTimeMillis()
         val snapshotApp = android.os.Process.getElapsedCpuTime()
-        val before = if (lasting) Workspace.signature() else null
-        val snapshot = if (lasting) Workspace.snapshot("${spec.title}: $text") else null
+        var before: String? = null
+        var snapshot: String? = null
         var answer = ""
         var failure: String? = null
         val entry = Tasks.begin(id, thread, label ?: text, parent?.task)
-        if (lasting) entry.add("snapshot", System.currentTimeMillis() - snapshotWall, android.os.SystemClock.currentThreadTimeMillis() - snapshotCpu, android.os.Process.getElapsedCpuTime() - snapshotApp)
         task = entry
         // The screen note rides inside the message, so the prompt before it stays cacheable.
         val said = text + (aside?.let { "\n\n[$it]" } ?: "")
         aside = null
         append(JSONObject().put("role", "user").put("content", if (where.isNullOrBlank()) said else "$said\n\n$WHERE_OPEN$where]"))
+        // The owner sees their message at once: nothing the shell does before asking the model holds it back.
         emit(JSONObject().put("type", "user").put("text", text))
         // On disk from the first moment and after every step: a task the app dies under can be
         // taken up again only if what was asked and what was done by then is still there.
         save()
         try {
+            if (lasting) {
+                // A snapshot that cannot be taken is told to the owner like any other failure of the turn.
+                before = Workspace.signature()
+                snapshot = entry.cost("snapshot") { Workspace.snapshot("${spec.title}: $text") }
+            }
             var target = target()
             attach(attached, target)
             var lean = lean(spec, target)

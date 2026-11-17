@@ -54,11 +54,28 @@ class SnapshotStore(
     private data class Digest(val hash: String, val size: Long)
     private val objectRoot get() = child(history, ".objects", internal = true)
 
+    /**
+     * What each committed manifest refers to, by snapshot: `(size, time of change) -> hashes`. A manifest
+     * is never rewritten once published, so it is read once; one that differs from what was read is read anew.
+     */
+    private val referenced = HashMap<String, Triple<Long, Long, Set<String>>>()
+
+    /**
+     * A file as it was when its bytes were last read: its size, time of change and identity, what it hashed to
+     * and when the reading began. A file that is the same in all three is not read again, the way the tree's
+     * signature and git's index trust them. One changed close to the reading is not trusted: a later write
+     * within the same tick of the clock would leave no trace, so it is read anew until its time is well behind.
+     */
+    private class Seen(val size: Long, val modified: Long, val key: Any?, val entry: Entry, val readAt: Long)
+    private val seen = HashMap<String, Seen>()
+
     companion object {
         const val FORMAT = 2
         const val LEGACY_MAX_FILE_BYTES = 5L * 1024 * 1024
         private val HASH = Regex("[a-f0-9]{64}")
         private val ID = Regex("[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+        /** How long before a reading a file must have been changed for the reading to be trusted later. */
+        private const val SETTLED_MS = 2000L
 
         fun validateId(id: String): String {
             require(ID.matches(id) && id != "." && id != "..") { "Некорректный идентификатор снимка." }
@@ -91,14 +108,17 @@ class SnapshotStore(
         try {
             val tree = scan(root)
             val verified = HashSet<String>()
-            val entries = tree.files.mapValues { (_, file) -> storeFile(file, verified) }
+            val objects = objectRoot
+            // Each entry is checked as it is made: its object is there and of its size, read in full when new or changed.
+            val entries = tree.files.mapValues { (_, file) -> storeFile(file, verified, objects) }
+            seen.keys.retainAll(tree.files.values.mapTo(HashSet()) { it.path })
             val meta = JSONObject().put("id", id).put("time", time).put("label", label.take(200))
             val snapshot = Snapshot(id, meta, entries, tree.directories)
             writeAtomic(child(pending, "manifest.json"), manifest(snapshot).toString().toByteArray())
             writeAtomic(child(pending, "meta.json"), meta.toString().toByteArray())
-            verify(snapshot, verified)
             move(pending, snapshotDirectory(id), replace = false)
             published = true
+            remember(snapshotDirectory(id), entries.values.mapTo(HashSet()) { it.hash })
             afterManifestCommitted?.invoke(id)
             return id
         } finally {
@@ -201,7 +221,7 @@ class SnapshotStore(
             syncDirectory(directory)
             migrated++
         }
-        collectGarbage()
+        discardUnreferenced(referencesExcept(emptySet(), contents = true))
         val summary = stats()
         return MigrationReport(migrated, summary.getInt("legacySnapshots"), summary.getInt("snapshots"),
             summary.getInt("objects"), summary.getLong("objectBytes"), summary.getLong("logicalBytes"))
@@ -335,9 +355,8 @@ class SnapshotStore(
         }
     }
 
-    private fun orderedDirectories(): List<File> = snapshotDirectories().sortedWith(
-        compareByDescending<File> { metadata(it).getLong("time") }.thenByDescending { it.name },
-    )
+    private fun orderedDirectories(): List<File> = snapshotDirectories().map { it to metadata(it).getLong("time") }
+        .sortedWith(compareByDescending<Pair<File, Long>> { it.second }.thenByDescending { it.first.name }).map { it.first }
 
     private fun verify(snapshot: Snapshot, verified: MutableSet<String>) {
         snapshot.files.values.forEach { verifyEntry(it, verified) }
@@ -354,12 +373,41 @@ class SnapshotStore(
         return file
     }
 
-    private fun storeFile(source: File, verified: MutableSet<String>): Entry {
+    private fun storeFile(source: File, verified: MutableSet<String>, objects: File? = null): Entry {
+        val readAt = System.currentTimeMillis()
+        val stamp = attributes(source)
+        if (objects != null) seen[source.path]?.let { known ->
+            val modified = stamp.lastModifiedTime().toMillis()
+            val unchanged = stamp.isRegularFile && known.size == stamp.size() && known.modified == modified && known.key == stamp.fileKey()
+            if (unchanged && modified < known.readAt - SETTLED_MS) {
+                // Its object may have gone with the last snapshot that held it: then the file is stored again below.
+                val kept = runCatching { attributes(File(File(objects, known.entry.hash.take(2)), known.entry.hash.drop(2))) }.getOrNull()
+                if (kept != null && kept.isRegularFile && kept.size() == known.entry.size) {
+                    verified.add(known.entry.hash)
+                    return known.entry.copy(executable = source.canExecute())
+                }
+            }
+        }
+        return storeRead(source, verified).also { entry ->
+            val after = attributes(source)
+            if (objects != null && sameFile(stamp, after)) seen[source.path] = Seen(after.size(), after.lastModifiedTime().toMillis(), after.fileKey(), entry, readAt)
+        }
+    }
+
+    private fun storeRead(source: File, verified: MutableSet<String>): Entry {
         repeat(3) { attempt ->
             val digest = digestStable(source)
             val entry = Entry(digest.hash, digest.size, source.canExecute())
             val target = blob(entry.hash)
-            if (exists(target)) { verifyEntry(entry, verified); return entry }
+            if (exists(target)) {
+                // An object is written once, under the name of its own hash, and never opened for writing again:
+                // here it is enough that it is there and of the right size. Its bytes are checked when they are
+                // needed, before a restore writes anything.
+                requireRegular(target)
+                require(target.length() == entry.size) { "Неверный размер объекта истории ${entry.hash}." }
+                verified.add(entry.hash)
+                return entry
+            }
             ensureDirectory(target.parentFile)
             val temporary = child(objectRoot, ".blob-" + UUID.randomUUID() + ".tmp", internal = true)
             try {
@@ -421,20 +469,40 @@ class SnapshotStore(
     private fun sameFile(before: BasicFileAttributes, after: BasicFileAttributes): Boolean =
         after.isRegularFile && before.size() == after.size() && before.lastModifiedTime() == after.lastModifiedTime() && before.fileKey() == after.fileKey()
 
-    private fun referencesExcept(excluded: Set<String>): Set<String> {
+    /**
+     * The objects every snapshot but the [excluded] ones refers to. Every committed manifest must be readable,
+     * or nothing is reclaimed. With [contents] each object is also read and compared with its hash: that is
+     * for a migration; taking and dropping a snapshot many times a day only need to know what is referred to.
+     */
+    private fun referencesExcept(excluded: Set<String>, contents: Boolean = false): Set<String> {
         val references = HashSet<String>()
         val verified = HashSet<String>()
+        val present = HashSet<String>()
         for (directory in snapshotDirectories()) {
+            present.add(directory.name)
             if (directory.name in excluded) continue
-            if (!exists(child(directory, "manifest.json"))) {
+            val manifest = child(directory, "manifest.json")
+            if (!exists(manifest)) {
                 scan(child(directory, "files")) // Valid legacy snapshots own their old files, not objects.
                 continue
             }
+            val attrs = attributes(manifest)
+            val known = referenced[directory.name]?.takeIf { !contents && it.first == attrs.size() && it.second == attrs.lastModifiedTime().toMillis() }
+            if (known != null) { references.addAll(known.third); continue }
             val snapshot = parse(directory)
-            verify(snapshot, verified)
-            references.addAll(snapshot.files.values.map { it.hash })
+            if (contents) verify(snapshot, verified)
+            references.addAll(remember(directory, snapshot.files.values.mapTo(HashSet()) { it.hash }))
         }
+        referenced.keys.retainAll(present)
         return references
+    }
+
+    private fun remember(directory: File, hashes: Set<String>): Set<String> {
+        val attrs = attributes(child(directory, "manifest.json"))
+        // The same few thousand hashes repeat in every manifest: one string for each, however many snapshots there are.
+        val shared = hashes.mapTo(HashSet()) { it.intern() }
+        referenced[directory.name] = Triple(attrs.size(), attrs.lastModifiedTime().toMillis(), shared)
+        return shared
     }
 
     private fun removeSnapshots(ids: Set<String>) {
@@ -444,6 +512,7 @@ class SnapshotStore(
             val deleting = child(history, ".deleting-" + id + "-" + UUID.randomUUID(), internal = true)
             move(directory, deleting, replace = false)
             deleteTree(deleting)
+            referenced.remove(id)
         }
         discardUnreferenced(references)
     }

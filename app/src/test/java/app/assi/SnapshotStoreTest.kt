@@ -247,6 +247,71 @@ class SnapshotStoreTest {
     }
 
     @Test
+    fun whatSnapshotsReferToIsRememberedAndStaysTrueAsTheyComeAndGo() {
+        val store = SnapshotStore(history)
+        val file = write(live, "main.js", "first")
+        val first = store.create(live, "first")
+        file.writeText("second")
+        val second = store.create(live, "second")
+
+        // Dropped: its own object goes, the other snapshot's stays, and nothing is remembered about the dropped one.
+        store.drop(first)
+        assertFalse(objectFile("first".toByteArray()).exists())
+        assertTrue(objectFile("second".toByteArray()).isFile)
+
+        // The same bytes again are stored again, and a snapshot taken by another instance is known to this one.
+        file.writeText("first")
+        val third = SnapshotStore(history).create(live, "third")
+        store.drop(second)
+        assertEquals(setOf(third), ids(store))
+        assertFalse(objectFile("second".toByteArray()).exists())
+        val restored = File(folder.root, "restored")
+        store.materialize(third, restored)
+        assertEquals(tree(live), tree(restored))
+
+        // A manifest damaged after it was read still stops reclamation.
+        val objectsBefore = tree(File(history, ".objects"))
+        objectFile("orphan".toByteArray()).apply { parentFile.mkdirs(); writeText("orphan") }
+        manifest(third).writeText("{broken")
+        runCatching { store.collectGarbage() }
+        assertEquals(objectsBefore + ("${hash("orphan".toByteArray()).take(2)}/${hash("orphan".toByteArray()).drop(2)}" to hash("orphan".toByteArray())), tree(File(history, ".objects")))
+    }
+
+    @Test
+    fun aFileIsReadAgainWheneverItMayHaveChanged() {
+        val store = SnapshotStore(history)
+        fun saved(id: String, name: String): String = File(folder.root, name).also { store.materialize(id, it) }.let { File(it, "main.js").readText() }
+        val file = write(live, "main.js", "alpha")
+        assertTrue(file.setLastModified(System.currentTimeMillis() - 60_000))
+        assertEquals("alpha", saved(store.create(live, "settled"), "one"))
+        assertEquals("alpha", saved(store.create(live, "untouched"), "two"))
+
+        // An edit of the same length moves the time of change: seen.
+        file.writeText("ALPHA")
+        assertEquals("ALPHA", saved(store.create(live, "edited"), "three"))
+
+        // A file changed just before it was read is not trusted by its time: a second write in the same tick is still seen.
+        val tick = file.lastModified()
+        file.writeText("OMEGA")
+        assertTrue(file.setLastModified(tick))
+        assertEquals("OMEGA", saved(store.create(live, "same tick"), "four"))
+    }
+
+    @Test
+    fun anUnchangedFileIsStoredAgainWhenItsObjectWentWithADroppedSnapshot() {
+        val store = SnapshotStore(history)
+        val file = write(live, "main.js", "only here")
+        assertTrue(file.setLastModified(System.currentTimeMillis() - 60_000))
+        store.drop(store.create(live, "dropped"))
+        assertFalse(objectFile("only here".toByteArray()).exists())
+
+        val id = store.create(live, "again")
+        val restored = File(folder.root, "restored")
+        store.materialize(id, restored)
+        assertEquals(tree(live), tree(restored))
+    }
+
+    @Test
     fun pruningPreservesPinnedOldSnapshotAndObjectsSharedWithNewest() {
         write(live, "shared.txt", "shared")
         val store = SnapshotStore(history)
