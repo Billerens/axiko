@@ -558,6 +558,7 @@
         node.hidden = false;
         // "alive": false in mascot.json leaves a still picture: no blinking, breathing or hopping.
         node.classList.toggle('alive', config.alive !== false);
+        if (config.alive !== false) mascotLife();
         node.classList.remove('pop');
         void node.offsetWidth;
         node.classList.add('pop');
@@ -565,6 +566,29 @@
         return config;
       });
     });
+  }
+
+  var BLINK_EVERY_MS = 10000;  // a blink takes a third of a second
+  var BREATH_EVERY = 15;       // one breath (or one bob over the edge) in place of every fifteenth blink
+  var lifeTimer = null;
+  var lifeTick = 0;
+
+  /**
+   * The life of the lively mascots on the page: a blink now and then, a breath more rarely, and
+   * stillness between them. One timer for the page; a page nobody sees does nothing.
+   */
+  function mascotLife() {
+    if (lifeTimer) return;
+    lifeTimer = setInterval(function () {
+      if (document.visibilityState === 'hidden') return;
+      var nodes = document.querySelectorAll('.mascot.alive');
+      if (!nodes.length) { clearInterval(lifeTimer); lifeTimer = null; return; }
+      var move = ++lifeTick % BREATH_EVERY === 0 ? 'breath' : 'blink';
+      nodes.forEach(function (node) { node.classList.add(move); });
+      setTimeout(function () {
+        nodes.forEach(function (node) { node.classList.remove(move); });
+      }, move === 'breath' ? 4000 : 500);
+    }, BLINK_EVERY_MS);
   }
 
   /** A tap on a lively mascot: a happy pose and a wiggle for a moment, then back to what it was. */
@@ -805,6 +829,8 @@
     var inHub = false;
     try { inHub = framed && web && window.parent === window.top && Boolean(window.top.__assiTransportRoot); } catch (error) { /* another origin */ }
     if (!window.assi || (framed && !inHub)) return Promise.resolve(false);
+    // Nor on the agent's own screen: a tour is for the owner, and it would cover what the agent checks.
+    if (window.assiProbe) return Promise.resolve(false);
     // One tour at a time: a screen inside the hub waits until the hub has finished its own.
     var turn = !inHub ? Promise.resolve() : new Promise(function (resolve) {
       (function wait() {

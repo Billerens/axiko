@@ -30,9 +30,35 @@ object Tasks {
         @Volatile var ended = 0L
         @Volatile var result = ""
 
+        /**
+         * Where the task's time went, by kind ("model", "tool:<name>", "snapshot", "finish"):
+         * {n, wall, cpu, app} in milliseconds — wall time, the processor of the agent's own thread,
+         * and the processor of the whole app meanwhile (tools that run code do it on other threads).
+         */
+        val costs = JSONObject()
+
+        /** Measures [work] and adds it to [kind]. */
+        fun <T> cost(kind: String, work: () -> T): T {
+            val wall = System.currentTimeMillis()
+            val cpu = android.os.SystemClock.currentThreadTimeMillis()
+            val app = android.os.Process.getElapsedCpuTime()
+            try {
+                return work()
+            } finally {
+                add(kind, System.currentTimeMillis() - wall, android.os.SystemClock.currentThreadTimeMillis() - cpu, android.os.Process.getElapsedCpuTime() - app)
+            }
+        }
+
+        fun add(kind: String, wall: Long, cpu: Long, app: Long) = synchronized(costs) {
+            val row = costs.optJSONObject(kind) ?: JSONObject().also { costs.put(kind, it) }
+            row.put("n", row.optLong("n") + 1).put("wall", row.optLong("wall") + wall)
+                .put("cpu", row.optLong("cpu") + cpu).put("app", row.optLong("app") + app)
+        }
+
         fun json(): JSONObject = JSONObject()
             .put("key", key).put("agent", agent).put("thread", thread).put("title", title).put("parent", parent ?: JSONObject.NULL)
             .put("started", started).put("ended", ended).put("step", step).put("note", note).put("state", state).put("result", result)
+            .put("costs", synchronized(costs) { JSONObject(costs.toString()) })
     }
 
     const val RUNNING = "run"
@@ -57,6 +83,7 @@ object Tasks {
         state = saved.optString("state", DONE)
         ended = saved.optLong("ended")
         result = saved.optString("result")
+        saved.optJSONObject("costs")?.let { stored -> stored.keys().forEach { costs.put(it, stored.get(it)) } }
     }
 
     /** Reads what was saved. Whatever was still running then did not finish: the app was killed under it. */

@@ -34,11 +34,13 @@ object UiScale {
     /**
      * What a page runs before anything else when the scale is not 100: every viewport tag the
      * page brings is rewritten to a width in numbers (a page's own tag would otherwise win), and
-     * a page without one gets it. A width in numbers is the one form this WebView lays out right
-     * in both directions: "initial-scale" above 1 keeps the layout as wide as the view and cuts
-     * it, and without a width the layout falls back to 980 px. `outerWidth` is the view's width
-     * whatever the viewport says; the tag follows it when the view changes (folding, the chat
-     * panel beside the screen).
+     * a page without one gets it. `outerWidth` is the view's width whatever the viewport says;
+     * the tag follows it when the view changes (folding, the chat panel beside the screen).
+     *
+     * The tag names the scale too: `initial-scale` = view / layout width. With a width alone the
+     * WebView sometimes keeps the scale it took from the page's own tag (1) — the page is then
+     * laid out wider than the view and scrolls sideways. With both, the layout is the width asked
+     * for whichever way the scale goes. Without a width the layout falls back to 980 px.
      */
     fun script(percent: Int): String? {
         if (percent == 100) return null
@@ -47,7 +49,9 @@ object UiScale {
             (function () {
               if (window.top !== window) return;
               function want() {
-                return 'width=' + Math.max(40, Math.round((window.outerWidth || screen.width) / $scale)) + ', viewport-fit=cover';
+                var view = window.outerWidth || screen.width;
+                var width = Math.max(40, Math.round(view / $scale));
+                return 'width=' + width + ', initial-scale=' + (view / width).toFixed(4) + ', viewport-fit=cover';
               }
               function fix() {
                 var content = want();

@@ -136,6 +136,8 @@ async function stream(response, step) {
 
 http.createServer((request, response) => {
   let body = '';
+  // Text, not bytes: a letter of two bytes may be split between two chunks.
+  request.setEncoding('utf8');
   request.on('data', chunk => { body += chunk; });
   request.on('end', async () => {
     console.log(new Date().toISOString().slice(11, 19), request.method, request.url, body.length + ' bytes');
@@ -209,6 +211,14 @@ http.createServer((request, response) => {
         const worked = (payload.messages || []).some(message => message.role === 'tool');
         await stream(response, steered.length ? { text: 'Учёл: ' + steered[steered.length - 1].split('\n')[0] }
           : worked ? { text: 'Готово без вмешательства' } : { calls: [['js_eval', { code: 'sleep(2500); 1' }]] });
+        return;
+      }
+      // For the check of the step limit: a model that never stops by itself. Asked without
+      // tools — that is how the app asks at the limit — it says where it stands.
+      if (said.some(text => text.includes('проверка предела шагов'))) {
+        const done = (payload.messages || []).filter(message => message.role === 'tool').length;
+        await stream(response, tools.length ? { calls: [['js_eval', { code: String(done + 1) }]] }
+          : { text: 'Остановился на пределе: сделано шагов — ' + done + '. Осталось продолжить счёт.' });
         return;
       }
       const step = STEPS[Math.min(stepOf(payload.messages || []), STEPS.length - 1)];

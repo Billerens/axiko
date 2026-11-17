@@ -181,7 +181,8 @@ class MainActivity : Activity() {
         // onPause hides a WebView but still runs JS timers (observed at 1 Hz in the background).
         // Timer suspension is process-wide; keep them running while another Activity is visible.
         // Background agents/jobs run in Rhino and are unaffected.
-        if (startedActivities.isEmpty()) page.web.pauseTimers()
+        // The agent's own screen (Probe) lives in the same process: while it is at work the timers stay.
+        if (startedActivities.isEmpty() && !app.assi.core.Probe.active) page.web.pauseTimers()
     }
 
     override fun onDestroy() {
@@ -248,8 +249,17 @@ class MainActivity : Activity() {
         val percent = app.assi.core.UiScale.percent(rawWide)
         scale = percent / 100f
         val changed = listOf(page, chat, nav, face).map { it.scale(percent) }.any { it }
-        if (changed && reload) reloadPages() else arrange()
+        // The system's display size or font size: the view keeps its pixels, but a page in it
+        // is laid out for another width in CSS pixels, and only a page loaded anew learns it.
+        val metrics = resources.configuration.let { it.densityDpi to it.fontScale }
+        val resized = laidOut != null && laidOut != metrics
+        laidOut = metrics
+        arrange()
+        if ((changed || resized) && reload) reloadPages()
     }
+
+    /** The system's display density and font scale the pages were laid out for. */
+    private var laidOut: Pair<Int, Float>? = null
 
     fun scaleInfo(): org.json.JSONObject = app.assi.core.UiScale.info(rawWide)
 
@@ -647,103 +657,16 @@ class MainActivity : Activity() {
     }
 
     /** The current screen as a JPEG in base64 (call off the main thread). */
-    fun screenshot(maxWidth: Int = 720): String? {
-        val done = CountDownLatch(1)
-        var encoded: String? = null
-        runOnUiThread {
-            try {
-                val web = page.web
-                if (web.width > 0 && web.height > 0) {
-                    var whole = drawn(web)
-                    // Nothing but one colour may be the truth — or the card's way not working here: the plain way tells.
-                    if (whole == null || flat(whole)) {
-                        val plain = painted(web)
-                        if (whole == null || !flat(plain)) whole = plain
-                    }
-                    val scale = minOf(1f, maxWidth.toFloat() / web.width)
-                    val bitmap = if (scale < 1f) Bitmap.createScaledBitmap(whole, (web.width * scale).toInt(), (web.height * scale).toInt(), true) else whole
-                    val bytes = ByteArrayOutputStream()
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, 80, bytes)
-                    encoded = Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP)
-                }
-            } finally {
-                done.countDown()
-            }
-        }
-        done.await(8, TimeUnit.SECONDS)
-        return encoded
-    }
-
-    /**
-     * The screen as the graphics card draws it. Drawn the plain way, in software, a page comes
-     * out without what the card draws by itself — a WebGL scene (three.js), a video — or with it
-     * at the wrong size, and the agent then judges a 3D screen by a picture that is not it. So
-     * the page's drawing is recorded and played by a renderer of its own into a picture; it does
-     * not matter whether the chat covers the screen. Null when this cannot be done.
-     */
-    private fun drawn(web: WebView): Bitmap? {
-        if (Build.VERSION.SDK_INT < 29) return null
-        return runCatching {
-            val node = RenderNode("shot")
-            node.setPosition(0, 0, web.width, web.height)
-            val canvas = node.beginRecording()
-            canvas.drawColor(tone("bg", R.color.bg))
-            web.draw(canvas)
-            node.endRecording()
-            val reader = ImageReader.newInstance(web.width, web.height, PixelFormat.RGBA_8888, 1)
-            val renderer = HardwareRenderer()
-            try {
-                renderer.setSurface(reader.surface)
-                renderer.setContentRoot(node)
-                renderer.createRenderRequest().setWaitForPresent(true).syncAndDraw()
-                reader.acquireLatestImage()?.use { image ->
-                    val plane = image.planes[0]
-                    // A row in the card's memory may be longer than the picture is wide.
-                    val rows = Bitmap.createBitmap(plane.rowStride / plane.pixelStride, web.height, Bitmap.Config.ARGB_8888)
-                    rows.copyPixelsFromBuffer(plane.buffer)
-                    if (rows.width == web.width) rows else Bitmap.createBitmap(rows, 0, 0, web.width, web.height)
-                }
-            } finally {
-                renderer.destroy()
-                reader.close()
-            }
-        }.getOrNull()
-    }
-
-    /** The screen drawn the plain way: what there was before, kept for where the card's way fails. */
-    private fun painted(web: WebView): Bitmap {
-        val bitmap = Bitmap.createBitmap(web.width, web.height, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        canvas.drawColor(tone("bg", R.color.bg))
-        web.draw(canvas)
-        return bitmap
-    }
-
-    /** Whether the picture is one colour all over, judged by a grid of its points. */
-    private fun flat(bitmap: Bitmap): Boolean {
-        val first = bitmap.getPixel(bitmap.width / 2, bitmap.height / 2)
-        for (row in 1..15) for (column in 1..15) {
-            if (bitmap.getPixel(bitmap.width * column / 16, bitmap.height * row / 16) != first) return false
-        }
-        return true
-    }
+    fun screenshot(maxWidth: Int = 720): String? = page.shot(tone("bg", R.color.bg), maxWidth)
 
     /** Runs code in the current screen and returns its value as JSON text (off the main thread). */
-    fun evalInPage(code: String, timeoutMs: Long = 10_000): String? {
-        val done = CountDownLatch(1)
-        var value: String? = null
-        runOnUiThread {
-            page.web.evaluateJavascript(code) {
-                value = it
-                done.countDown()
-            }
-        }
-        done.await(timeoutMs, TimeUnit.MILLISECONDS)
-        return value
-    }
+    fun evalInPage(code: String, timeoutMs: Long = 10_000): String? = page.eval(code, timeoutMs)
 
     companion object {
         private val startedActivities = HashSet<MainActivity>()
+
+        /** Whether the app is in sight: an activity is started (a dialog over it does not count). */
+        val shown: Boolean get() = startedActivities.isNotEmpty()
         const val HOME = "ui/home/index.html"
         const val CHAT = "ui/chat/index.html"
         const val NAV = "ui/nav/index.html"

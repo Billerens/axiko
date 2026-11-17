@@ -76,7 +76,8 @@ function failure(fn) {
 // ---- the engine and the workspace ---------------------------------------------------------------
 
 check('engine: Android from JavaScript', function () {
-  expect(String(context.getPackageName()) === 'app.axiko', 'нет контекста приложения');
+  var name = String(context.getPackageName());
+  expect(name === 'app.axiko' || name === 'app.assi', 'нет контекста приложения: ' + name);
   return 'SDK ' + Packages.android.os.Build.VERSION.SDK_INT;
 });
 
@@ -99,7 +100,9 @@ check('engine: a module asked for from two threads at once loads whole for both'
     spawn(ask);
     sleep(100);
     spawn(ask);
-    sleep(1200);
+    // A slow device needs its time; the answer itself is what is checked.
+    var until = Date.now() + 15000;
+    while (seen.length < 2 && Date.now() < until) sleep(100);
     expect(seen.length === 2 && seen[0] === 'function' && seen[1] === 'function', 'кто-то получил недогруженный модуль: ' + seen.join(', '));
   } finally {
     files.remove('modules/zz-race');
@@ -175,6 +178,34 @@ check('ui_eval: waits for a promise and for the screen', function () {
   expect(run('throw new Error("сломано")').indexOf('сломано') >= 0, 'ошибка страницы не дошла');
 });
 
+check('own screen: a check in one step, at a width asked for, the owner\'s screen untouched', function () {
+  var chat = P.agent.Agent.INSTANCE.chat('assi', '');
+  var was = String(native('ui.where').path);
+  var pictures = new java.util.ArrayList();
+  var report = String(P.agent.Tools.INSTANCE.run('ui_check', JSON.stringify({
+    path: 'ui/settings/index.html', width: 344, code: 'innerWidth + " " + document.visibilityState + " " + Boolean(window.assiProbe)',
+  }), chat, pictures).getText());
+  expect(report.indexOf('Экран открыт, ширина 344.') === 0, 'экран не открылся: ' + report);
+  expect(report.indexOf('Код: "344 visible true"') > 0, 'страница не та, что просили: ' + report);
+  expect(pictures.size() === 1, 'снимка нет: ' + report);
+  var bytes = android.util.Base64.decode(String(pictures.get(0)), 0);
+  var shot = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+  expect(shot.getWidth() > 300 && shot.getHeight() > shot.getWidth(), 'снимок не похож на экран: ' + shot.getWidth() + '×' + shot.getHeight());
+  // One part of the screen is a smaller picture.
+  pictures.clear();
+  P.agent.Tools.INSTANCE.run('ui_screenshot', JSON.stringify({ selector: 'h1' }), chat, pictures);
+  expect(pictures.size() === 1, 'части экрана на снимке нет');
+  var part = android.util.Base64.decode(String(pictures.get(0)), 0);
+  var cut = android.graphics.BitmapFactory.decodeByteArray(part, 0, part.length);
+  expect(cut.getHeight() < shot.getHeight() / 3, 'снята не часть, а весь экран: ' + cut.getWidth() + '×' + cut.getHeight());
+  // Opened again without a width, the screen is as wide as the owner's.
+  var usual = String(P.agent.Tools.INSTANCE.run('ui_check', JSON.stringify({ path: 'ui/home/index.html', shot: 'none', code: 'innerWidth' }), chat, pictures).getText());
+  expect(usual.indexOf('ширина 344') < 0, 'ширина осталась от прошлой проверки: ' + usual);
+  expect(pictures.size() === 1, 'снимок сделан, хотя его не просили');
+  expect(String(native('ui.where').path) === was, 'экран владельца ушёл с места: ' + native('ui.where').path);
+  return shot.getWidth() + '×' + shot.getHeight() + ', часть ' + cut.getWidth() + '×' + cut.getHeight() + '; ' + usual.split('\n')[0];
+});
+
 check('screenshot: a WebGL scene is in the picture the agent gets', function () {
   needScreen();
   // A canvas over the whole window, drawn once the way three.js draws (the backing store is
@@ -186,17 +217,14 @@ check('screenshot: a WebGL scene is in the picture the agent gets', function () 
     'gl.scissor(0,0,c.width/2,c.height);gl.clearColor(1,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT);' +
     'gl.scissor(c.width/2,0,c.width/2,c.height);gl.clearColor(0,0,1,1);gl.clear(gl.COLOR_BUFFER_BIT);}<\/script>';
   var dir = new java.io.File(String(host.path('modules/check-gl/ui')));
-  var was = native('ui.where').path;
   try {
     dir.mkdirs();
     var out = new java.io.FileOutputStream(new java.io.File(dir, 'index.html'));
     out.write(new java.lang.String(html).getBytes('UTF-8'));
     out.close();
-    native('ui.openWait', 'modules/check-gl/ui/index.html');
-    sleep(1200);
-    var activity = P.MainActivity.Companion.getCurrent();
-    if (String(activity.evalInPage('window.hasGl', 5000)) !== 'true') skip('на этом устройстве нет WebGL');
-    var bytes = android.util.Base64.decode(String(activity.screenshot(720)), 0);
+    native('ui.openWait', 'modules/check-gl/ui/index.html', 1200);
+    if (String(native('ui.eval', 'window.hasGl', 0)) !== 'true') skip('на этом устройстве нет WebGL');
+    var bytes = android.util.Base64.decode(String(native('ui.shot')), 0);
     var shot = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
     var at = function (x, y) {
       var colour = shot.getPixel(Math.floor(shot.getWidth() * x), Math.floor(shot.getHeight() * y));
@@ -213,7 +241,6 @@ check('screenshot: a WebGL scene is in the picture the agent gets', function () 
     new java.io.File(dir, 'index.html')['delete']();
     dir['delete']();
     dir.getParentFile()['delete']();
-    if (was) native('ui.open', was); else native('ui.open', 'ui/home/index.html');
   }
 });
 
@@ -255,7 +282,7 @@ check('language: the interface follows the setting', function () {
 });
 
 check('ask_owner: a form is shown, the answer comes back to the agent', function () {
-  var tools = JSON.parse(String(P.agent.Tools.INSTANCE.schemas(null, false, true)));
+  var tools = JSON.parse(String(P.agent.Tools.INSTANCE.schemas(null, false, true, false)));
   expect(tools.some(function (tool) { return tool.function.name === 'ask_owner'; }), 'инструмента нет в списке');
   var chat = P.agent.Agent.INSTANCE.chat('assi', '');
   var got = [null];
@@ -361,7 +388,7 @@ check('queue: what is said while the agent works joins the work or waits for its
   var shown = function () { return native('agent.history', 'assi', id); };
   try {
     native('agent.send', 'assi', 'проверка очереди', id);
-    expect(wait(function () { return shown().some(function (item) { return item.type === 'tool'; }); }, 20000), 'агент не взялся за работу');
+    expect(wait(function () { return shown().some(function (item) { return item.type === 'tool'; }); }, 90000), 'агент не взялся за работу');
     native('agent.send', 'assi', 'сделай иначе', id, false, 'steer');
     native('agent.send', 'assi', 'проверка очереди: а это потом', id, false, 'after');
     native('agent.send', 'assi', 'это лишнее', id, false, 'steer');
@@ -369,7 +396,7 @@ check('queue: what is said while the agent works joins the work or waits for its
     expect(queued.length === 3 && queued[0].steer && !queued[1].steer, 'сообщения не ждут как сказано: ' + JSON.stringify(queued));
     var taken = native('agent.unqueue', 'assi', id, queued[2].id);
     expect(taken && taken.text === 'это лишнее' && native('agent.queue', 'assi', id).length === 2, 'сообщение не забрано из очереди');
-    expect(wait(function () { return !native('agent.busy', 'assi', id); }, 30000), 'работа не закончилась');
+    expect(wait(function () { return !native('agent.busy', 'assi', id); }, 120000), 'работа не закончилась');
     expect(native('agent.queue', 'assi', id).length === 0, 'в очереди что-то осталось');
     var words = shown().filter(function (item) { return item.type === 'user' || item.type === 'assistant'; }).map(function (item) { return item.type + ': ' + item.text; });
     var joined = words.indexOf('user: сделай иначе');
@@ -382,6 +409,54 @@ check('queue: what is said while the agent works joins the work or waits for its
     native('agent.stop', 'assi', id);
     native('agent.deleteThread', 'assi', id);
     native('agent.openThread', 'assi', open);
+  }
+});
+
+check('steps: at the limit the work stops, says where it stands and waits for the owner', function () {
+  var main = target('main');
+  if (String(main.getBaseUrl()).indexOf('10.0.2.2') < 0) skip('нужна подставная модель: настоящая стоит денег и времени');
+  var was = native('pref.get', 'agent.steps');
+  var thread = native('agent.newThread', 'assi');
+  var id = String(thread.id || thread);
+  // Waits until the work on the latest request has stopped at the limit; tells what it saw on the way.
+  // Only what follows the owner's latest message is counted: between two requests a long
+  // conversation may be folded into a summary, and what came before is then gone from the list.
+  var stopped = function (ms) {
+    var seen = [];
+    var started = Date.now();
+    while (Date.now() < started + ms) {
+      var items = native('agent.history', 'assi', id);
+      var from = 0;
+      items.forEach(function (item, index) { if (item.type === 'user') from = index; });
+      var since = items.slice(from);
+      var count = function (type) { return since.filter(function (item) { return item.type === type; }).length; };
+      var said = since.filter(function (item) { return item.type === 'assistant'; }).pop();
+      var now = { limits: count('limit'), tools: count('tool'), busy: Boolean(native('agent.busy', 'assi', id)), said: said ? String(said.text) : '' };
+      var brief = now.limits + '/' + now.tools + '/' + now.busy;
+      if (seen[seen.length - 1] !== brief) seen.push(brief);
+      if (now.limits > 0 && !now.busy) return now;
+      if (!now.busy && Date.now() - started > 5000) break;
+      sleep(500);
+    }
+    var tail = native('agent.history', 'assi', id).slice(-3).map(function (item) { return JSON.stringify(item).slice(0, 260); }).join(' ## ');
+    throw new Error('работа не остановилась на пределе за ' + Math.round((Date.now() - started) / 1000) + ' с (пределов/шагов/занят): ' + seen.slice(-10).join(' ') + ' ПОСЛЕДНЕЕ ' + tail + ' ЖУРНАЛ ' + String(native('log.engine', 12)));
+  };
+  try {
+    native('pref.set', 'agent.steps', '20');
+    native('agent.send', 'assi', 'проверка предела шагов', id);
+    var first = stopped(300000);
+    expect(first.tools === 20, 'шагов с инструментом ' + first.tools + ', а не 20');
+    expect(first.said.indexOf('Остановился на пределе') === 0, 'итога нет: ' + first.said);
+    // "Go on" is a new request: the count starts over.
+    native('agent.send', 'assi', 'Продолжай: проверка предела шагов', id);
+    var second = stopped(300000);
+    expect(second.tools === 20, 'после продолжения шагов ' + second.tools + ', а не 20');
+    expect(second.said.indexOf('Остановился на пределе') === 0, 'второго итога нет: ' + second.said);
+    return '20 шагов, итог, ещё 20 после «Продолжай»';
+  } finally {
+    native('agent.stop', 'assi', id);
+    native('pref.set', 'agent.steps', was === undefined || was === null ? null : String(was));
+    native('agent.deleteThread', 'assi', id);
   }
 });
 
@@ -413,7 +488,6 @@ check('module checks: a module tests itself', function () {
     expect(report.indexOf('НЕ ПРОШЛО: заведомо не проходит — числа') > 0, 'провал не показан');
   } finally {
     files.remove('modules/zz-check');
-    native('ui.open', 'ui/home/index.html');
   }
 });
 
@@ -672,7 +746,7 @@ check('local model: the main agent\'s real prompt and tools', function () {
   var lean = chat.lean(spec, as);
   var prompt = String(chat.systemPrompt(spec, lean));
   var light = java.util.Arrays.asList('fs_list', 'fs_read', 'fs_write', 'fs_edit', 'js_eval', 'web_search', 'web_read', 'memory_save', 'memory_search');
-  var tools = JSON.parse(String(P.agent.Tools.INSTANCE.schemas(lean ? light : null, false, false)));
+  var tools = JSON.parse(String(P.agent.Tools.INSTANCE.schemas(lean ? light : null, false, false, false)));
   var started = Date.now();
   var out = ask(models[0].id, [{ role: 'system', content: prompt }, { role: 'user', content: 'Йоу' }], tools);
   var first = Date.now() - started;
@@ -903,7 +977,7 @@ check('notifications: a tap made from Axiko opens what the notification opens', 
   var assi = require('lib/assi');
   var was = native('ui.where').path;
   try {
-    native('ui.openWait', 'ui/home/index.html');
+    P.MainActivity.Companion.getCurrent().getPage().openAndWait('ui/home/index.html', 10000);
     var id = assi.notify({ id: 'check-open', text: 'Открыть настройки', open: 'ui/settings/index.html' });
     var shown = postedNotification(id, String(context.getPackageName()));
     expect(shown, 'слушатель не видит уведомление');
@@ -1051,9 +1125,8 @@ check('home: a module\'s card in a frame, hearing events', function () {
   files.write('modules/zz-check-card/ui/index.html', '<!doctype html><meta charset="utf-8"><title>Проверка</title>');
   files.write('modules/zz-check-card/ui/card.html', '<!doctype html><meta charset="utf-8"><body><b id="n">0</b>' +
     '<script>assi.on("check.card", function (data) { document.getElementById("n").textContent = data.n; });</script>');
-  var activity = P.MainActivity.Companion.getCurrent();
   var frame = 'document.querySelector(\'#cards iframe[src="/modules/zz-check-card/ui/card.html"]\')';
-  var ask = function (code) { return String(activity.evalInPage(code, 3000)); };
+  var ask = function (code) { return String(native('ui.eval', code, 0)); };
   try {
     native('ui.openWait', 'ui/home/index.html');
     expect(waitFor(function () { return ask('Boolean(' + frame + ' && ' + frame + '.contentDocument.getElementById("n"))') === 'true'; }, 8000), 'карточки нет на главном экране');

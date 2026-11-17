@@ -7,7 +7,7 @@
 | Где | WebView, файлы `ui/…`, `modules/…/ui/…` | Rhino, файлы `main.js`, `lib/`, `tools/`, `js_eval` |
 | JavaScript | современный: `async/await`, классы, модули | см. «Ограничения движка» |
 | Доступ | DOM и `window.assi` | весь Android: `Packages.android…`, `context`, `host` |
-| Проверка | `ui_open`, `ui_eval`, `ui_console`, `ui_screenshot` | `js_eval` |
+| Проверка | `ui_check` (и по частям: `ui_open`, `ui_eval`, `ui_console`, `ui_screenshot`) | `js_eval` |
 
 Адрес экрана: `https://assi.local/<путь в рабочей папке>`; данные модулей — `https://assi.local/data/<путь>` (картинки, аудио).
 
@@ -198,6 +198,9 @@ s.get([1, 2, 3]); s.draw([4, 5]); s.ahead(рекорд, { ahead: 6 }); s.status(
 - Что умеет эта оболочка: `shell.features` → `['notice.full', 'dnd', 'job.once', …]` — проверяйте, прежде чем полагаться на новое.
 - Доступ с компьютера: `lan.status` → `{on, running, name, code, port, addresses}`, `lan.set(on)`, `lan.setup({name?, code?, port?})` — имя телефона в сети (`имя.local`), ключ входа и порт.
 - Экран: `ui.open(path)`, `ui.back`, `ui.reload`, `ui.chat(open, agentId?)`.
+- Свой экран агента (владелец его не видит, приложение может быть свёрнуто): `ui.openWait(path, waitMs?, width?)` → `{loaded, errors}`, `ui.eval(code, waitMs?, owner?)`, `ui.shot(selector?, owner?)` → JPEG в base64; `owner: true` — экран владельца. Этим же экраном пользуются проверки модулей (`t.screen`).
+- Плавающая кнопка поверх приложений: `bubble.set(on)`, `bubble.looks` → `{now, looks: [{id, title, on, image}]}`, `bubble.look.set(id)`, `bubble.refresh` — перерисовать после правки `ui/bubble/` из кода.
+- Предел шагов на одну просьбу: `pref.get('agent.steps')`, `pref.set('agent.steps', '120')` — от 20 до 400, без значения 80. Дойдя до предела, ассистент говорит, что успел, и ждёт «Продолжить».
 - Модули: `modules.list`, `modules.remove(id)`, `icon.set('module'|'agent', id, {icon}|{image}|{})`.
 - Командная строка: `shell.run(command, privileged?, timeoutSeconds?)`, `shizuku.status`.
 - Расписание и ярлыки: `job.list`, `shortcut.pin(title, path)` — ярлык экрана на рабочий стол телефона.

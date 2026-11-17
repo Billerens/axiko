@@ -70,9 +70,15 @@ object Pages {
     @Volatile
     var onBroadcast: ((String) -> Unit)? = null
 
+    private val STREAMED = listOf("{\"type\":\"delta\"", "{\"type\":\"thought\"")
+
     fun broadcast(event: String, json: String) {
         val message = "{\"event\":${JSONObject.quote(event)},\"data\":$json}"
         onBroadcast?.invoke(message)
+        // An answer and the thinking arrive letter by letter — thousands of events in a long
+        // work. Screens nobody sees would only queue them up and choke on them when seen again,
+        // so out of sight these are not sent: a chat reads the conversation anew when it is shown.
+        if (event == "agent" && !MainActivity.shown && STREAMED.any { json.startsWith(it) }) return
         main.post { bridges.forEach { it.push(message) } }
     }
 
@@ -123,6 +129,9 @@ class Bridge(val web: WebView, val name: String) : WebViewCompat.WebMessageListe
     /** Called when the page reports itself alive. */
     var onHello: (() -> Unit)? = null
 
+    /** Called when the page's process is gone, in place of building the app's screens anew. */
+    var onGone: (() -> Unit)? = null
+
     /** The address of the page it shows now. */
     @Volatile
     var location = ""
@@ -138,6 +147,9 @@ class Bridge(val web: WebView, val name: String) : WebViewCompat.WebMessageListe
     private var loading: CountDownLatch? = null
 
     private var scalePercent = 100
+
+    /** The scale its pages are shown at, per cent. */
+    val scaled: Int get() = scalePercent
     private var scaleScript: androidx.webkit.ScriptHandler? = null
 
     /**
@@ -214,6 +226,10 @@ class Bridge(val web: WebView, val name: String) : WebViewCompat.WebMessageListe
                 // The system may kill the renderer when memory is short. A WebView without its
                 // renderer never draws again: the shell builds its screens anew.
                 console.add("[error] Процесс страницы завершился")
+                onGone?.let {
+                    it()
+                    return true
+                }
                 MainActivity.current?.rebuild()
                 return true
             }
@@ -248,14 +264,48 @@ class Bridge(val web: WebView, val name: String) : WebViewCompat.WebMessageListe
     private companion object {
         /** Framed pages that hear events: enough for the cards of a home screen. */
         const val FRAMES = 24
+
+        /** What a page asks of the owner's screen; on the agent's own screen it is that screen's business. */
+        val OWN = setOf("ui.open", "ui.back", "ui.chat", "ui.stage")
+
+        val main = Handler(Looper.getMainLooper())
     }
 
     /** Opens the page and waits until it has loaded (call off the main thread). */
     fun openAndWait(path: String, timeoutMs: Long = 10_000): Boolean {
         val latch = CountDownLatch(1)
         loading = latch
-        web.post { web.loadUrl(Pages.url(path)) }
+        main.post { web.loadUrl(Pages.url(path)) }
         return latch.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+    }
+
+    /** Runs code in the page and returns its value as JSON text (call off the main thread). */
+    fun eval(code: String, timeoutMs: Long = 10_000): String? {
+        val done = CountDownLatch(1)
+        var value: String? = null
+        main.post {
+            web.evaluateJavascript(code) {
+                value = it
+                done.countDown()
+            }
+        }
+        done.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+        return value
+    }
+
+    /** The page as a JPEG in base64, or the part of it within [clip] (call off the main thread). */
+    fun shot(background: Int, maxWidth: Int = 720, clip: android.graphics.Rect? = null): String? {
+        val done = CountDownLatch(1)
+        var encoded: String? = null
+        main.post {
+            try {
+                encoded = Shots.take(web, background, maxWidth, clip)
+            } finally {
+                done.countDown()
+            }
+        }
+        done.await(8, java.util.concurrent.TimeUnit.SECONDS)
+        return encoded
     }
 
     fun push(message: String) {
@@ -286,7 +336,16 @@ class Bridge(val web: WebView, val name: String) : WebViewCompat.WebMessageListe
                 reply(replyProxy, id, null, null)
             }
             // Off the main thread: some operations wait for a model or for the screen.
-            "native" -> Engine.pool.execute {
+            // The agent's own screen moves itself and leaves the owner's alone: a game it checks
+            // must not take the owner's whole display, a link must not lead the owner away.
+            "native" -> if (name == "probe" && request.optString("method") in OWN) {
+                val args = runCatching { JSONArray(request.optString("args", "[]")) }.getOrDefault(JSONArray())
+                when (request.optString("method")) {
+                    "ui.open" -> web.loadUrl(Pages.url((draft?.let { "~$it/" } ?: "") + args.optString(0).trimStart('/')))
+                    "ui.back" -> if (web.canGoBack()) web.goBack()
+                }
+                reply(replyProxy, id, "true", null)
+            } else Engine.pool.execute {
                 answer(replyProxy, id) {
                     Drafts.within(draft) { Native.encode(Native.call(request.getString("method"), JSONArray(request.optString("args", "[]")))) }
                 }

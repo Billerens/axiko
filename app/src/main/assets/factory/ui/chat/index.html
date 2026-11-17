@@ -475,6 +475,17 @@
     color: var(--ink-3);
   }
 
+  .limit {
+    align-self: center;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 8px 12px;
+    font-size: 13px;
+    color: var(--ink-2);
+  }
+
   .attach {
     display: flex;
     align-items: center;
@@ -829,7 +840,8 @@
   const h = ui.h;
   const TOOL_NAMES = {
     fs_list: 'Смотрит файлы', fs_read: 'Читает', fs_write: 'Пишет', fs_edit: 'Правит', fs_delete: 'Удаляет',
-    js_eval: 'Выполняет код', ui_open: 'Открывает экран', ui_eval: 'Проверяет экран', ui_console: 'Читает консоль',
+    js_eval: 'Выполняет код', ui_open: 'Открывает экран у себя', ui_eval: 'Проверяет экран', ui_console: 'Читает консоль',
+    ui_check: 'Проверяет экран', ui_show: 'Показывает экран',
     ui_screenshot: 'Смотрит на экран', snapshot_list: 'Смотрит снимки', snapshot_restore: 'Откатывает',
     agent_run: 'Поручает агенту', ask_owner: 'Спрашивает', draft_begin: 'Открывает черновик',
     module_check: 'Проверяет модуль', base_find: 'Смотрит в личные данные', base_add: 'Записывает в личные данные',
@@ -878,6 +890,7 @@
   const TOOL_POSE = {
     web_search: 'searching', web_read: 'searching', fs_list: 'searching', fs_read: 'searching', base_find: 'searching',
     snapshot_list: 'searching', ui_screenshot: 'searching', ui_console: 'searching', routine_list: 'searching',
+    ui_check: 'searching', ui_open: 'searching',
     agent_run: 'building', subtasks: 'building', draft_begin: 'building',
     ask_owner: 'asking', plan_propose: 'plan', plan_step: 'plan',
   };
@@ -909,18 +922,32 @@
   }
 
   /** The model's thinking, shown as it comes: folded once the answer starts. */
+  let pondered = '';      // thinking that has arrived but is not on the screen yet
+  let pondering = false;
+
   function thinking(piece) {
     if (!thought) {
       const body = h('div', { 'data-raw': '' });
       thought = add(h('details', { class: 'thought', open: true }, h('summary', {}, 'Размышляет'), body));
       thought.body = body;
     }
+    // Thinking comes in hundreds of small pieces: they reach the screen once a frame, not each
+    // with a new layout of the whole chat.
+    pondered += piece;
+    if (!pondering) { pondering = true; requestAnimationFrame(ponder); }
+  }
+
+  function ponder() {
+    pondering = false;
+    if (!pondered || !thought) { pondered = ''; return; }
     const stick = nearBottom();
-    thought.body.textContent += piece;
+    thought.body.append(pondered);
+    pondered = '';
     if (stick) toBottom();
   }
 
   function thoughtDone() {
+    ponder();
     if (!thought) return;
     thought.open = false;
     thought.querySelector('summary').textContent = 'Размышления';
@@ -1041,8 +1068,8 @@
       h('span', { class: 'truncate', 'data-raw': '' }, row.dataset.args || ''));
     // A step with something to look at — changed lines, code, a picture — says so.
     if (row.detail || (row.images || []).length) row.append(h('span', { class: 'more' }, ui.icon(row.images ? 'image' : 'down')));
-    // On a phone the chat covers the screen the agent has just opened: offer a way to it.
-    if (event.name === 'ui_open' && event.status === 'ok' && event.live && narrow()) {
+    // On a phone the chat covers the screen the agent has just shown: offer a way to it.
+    if (event.name === 'ui_show' && event.status === 'ok' && event.live && narrow()) {
       add(h('button', { class: 'chip on', onclick: () => assi.native('ui.chat', false) }, 'Показать экран'));
     }
   }
@@ -1276,6 +1303,12 @@
     ]);
   }
 
+  /** The work stopped at the limit of steps for one request: the owner may tell it to go on. */
+  function limitRow(item, fresh) {
+    const go = fresh && h('button', { class: 'btn small', onclick: () => { go.remove(); submit('Продолжай'); } }, 'Продолжить');
+    add(h('div', { class: 'limit' }, h('div', {}, 'Шагов подряд: ' + item.steps + '. Работа приостановлена.'), go));
+  }
+
   function failRow(message) {
     const needsSetup = /Настройки/.test(message);
     add(h('div', { class: 'fail' }, ui.mascot('oops'), h('div', {}, message),
@@ -1295,8 +1328,14 @@
     if (stick) toBottom();
   }
 
+  // What the work sends many times a minute. A chat nobody sees does not draw it: it reads the
+  // conversation anew when it is seen again (the shell keeps it whole).
+  const STREAM = { delta: 1, thought: 1, message: 1, tool: 1, status: 1, usage: 1, part: 1 };
+  let unseen = false;
+
   function onAgent(event) {
     if (event.agent !== agentId || event.thread !== threadId) return;
+    if (STREAM[event.type] && document.visibilityState === 'hidden') { unseen = true; return; }
     noteAgentEvent(event);
     switch (event.type) {
       case 'user':
@@ -1336,6 +1375,7 @@
       case 'message': draw(); thoughtDone(); bubble = null; written = ''; break;
       case 'attach': attachRow(event.text); break;
       case 'changes': changesRow(event, true); break;
+      case 'limit': limitRow(event, true); break;
       case 'tool':
         toolRow(Object.assign({ live: true }, event));
         if (event.status === 'run') { setStatus('Выполняю: ' + event.name); mood(TOOL_POSE[event.name] || 'working'); }
@@ -1442,7 +1482,10 @@
     if (historyOnline && historyRefreshWanted) scheduleHistoryRefresh();
   });
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState !== 'hidden' && historyRefreshWanted) scheduleHistoryRefresh();
+    if (document.visibilityState === 'hidden') return;
+    // The work went on while the chat was out of sight: the conversation is read anew, once.
+    if (unseen || busy) { unseen = false; load().catch(error => failRow(error.message)); return; }
+    if (historyRefreshWanted) scheduleHistoryRefresh();
   });
   // ---- end reconnect reconciliation -----------------------------------------------------------
 
@@ -1460,6 +1503,8 @@
     if (!history.length) blank(sameChat).catch(error => { if (sameChat()) failRow(error.message); });
     for (const item of history) {
       if (item.type === 'user') userRow(item.text);
+      // An answer still being written: what comes next is added to it.
+      else if (item.type === 'assistant' && item.live) { bubble = answerRow(item.text); written = item.text; }
       else if (item.type === 'assistant') answerRow(item.text);
       else if (item.type === 'tool') toolRow(item);
       else if (item.type === 'attach') attachRow(item.text);
@@ -1469,6 +1514,7 @@
       else if (item.type === 'draft') draftRow(item.draft);
       else if (item.type === 'plan') planRow(item);
       else if (item.type === 'changes') changesRow(item);
+      else if (item.type === 'limit') limitRow(item, !running && history.indexOf(item) >= history.length - 2);
       else if (item.type === 'note') add(h('div', { class: 'aside' }, item.text));
     }
     foldTools();

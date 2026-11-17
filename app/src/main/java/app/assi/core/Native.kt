@@ -51,7 +51,7 @@ object Native {
         "notice.full", "notice.removed", "notice.open", "notify.actions", "dnd", "off", "job.once",
         "vibrate.pattern", "app.visible", "speech.stream", "transcribe.segments", "speech.render",
         "theme.decor", "widget.image", "home.cards", "usage", "store.v1", "button.face", "launcher.icon",
-        "launcher.icons", "ui.scale", "store.adopt",
+        "launcher.icons", "ui.scale", "store.adopt", "ui.probe", "bubble.looks",
     )
 
     fun call(method: String, args: JSONArray): Any? = when (method) {
@@ -253,6 +253,17 @@ object Native {
         "sense.open" -> openSystemSettings(args.getString(0))
         "bubble.set" -> {
             Bubble.set(args.getBoolean(0))
+            true
+        }
+        // The look of the button over other apps (ui/bubble/, see BubbleLook): {now, looks: [{id, title, on, image}]}.
+        "bubble.looks" -> app.assi.sense.BubbleLook.list()
+        "bubble.look.set" -> {
+            app.assi.sense.BubbleLook.choose(args.getString(0))
+            Bubble.refresh()
+            app.assi.sense.BubbleLook.list()
+        }
+        "bubble.refresh" -> {
+            Bubble.refresh()
             true
         }
         // The screen of whatever app is in front (needs the accessibility service).
@@ -543,16 +554,28 @@ object Native {
         }
         "ui.ready" -> MainActivity.current?.pageReady() != null
         // For checks written in the engine: open a screen and wait for it; run code in it and wait for its promise.
+        // They act on the agent's own screen (Probe): the owner's stays where it is, and a check
+        // runs with the app out of sight. (path, waitMs, width) and (code, waitMs, owner).
         "ui.openWait" -> {
-            val page = (MainActivity.current ?: error("Приложение не открыто")).page
+            val page = Probe.at(args.optInt(2, 0))
             val mark = page.console.mark()
             // Within a draft it is the draft's screen that is opened, as ui.open does: a module's
             // checks run in a draft must look at the draft.
-            val loaded = page.openAndWait((Drafts.active?.let { "~$it/" } ?: "") + args.getString(0).trimStart('/'))
+            val loaded = Probe.open(page, (Drafts.active?.let { "~$it/" } ?: "") + args.getString(0).trimStart('/'))
             Thread.sleep(args.optLong(1, 600).coerceIn(0, 10_000))
             JSONObject().put("loaded", loaded).put("errors", JSONArray(page.console.since(mark).filter { it.startsWith("[error]") }))
         }
-        "ui.eval" -> app.assi.agent.Tools.pageEval(args.getString(0), args.optLong(1, 400))
+        "ui.eval" -> if (args.optBoolean(2)) {
+            app.assi.agent.Tools.pageEval(args.getString(0), args.optLong(1, 400), (MainActivity.current ?: error("Приложение не открыто")).page)
+        } else {
+            app.assi.agent.Tools.pageEval(args.getString(0), args.optLong(1, 400))
+        }
+        // (selector?, owner?) → a JPEG in base64: the agent's own screen, or the owner's.
+        "ui.shot" -> Probe.shot(
+            if (args.optBoolean(1)) (MainActivity.current ?: error("Приложение не открыто")).page else Probe.bridge(),
+            text(args, 0),
+        )
+        "ui.probe.release" -> Probe.release()
         // (on) — the whole display for the current screen: a game, a scene, a presentation.
         "ui.stage" -> MainActivity.current?.setStage(args.optBoolean(0, true)) != null
 

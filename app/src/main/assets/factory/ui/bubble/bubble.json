@@ -1,0 +1,31 @@
+{
+ "look": "spark",
+ "looks": {
+  "spark": {
+   "title": "Искра",
+   "background": "accent",
+   "ink": "accent-ink",
+   "size": 46,
+   "pad": 12,
+   "shape": "round",
+   "opacity": 0.92
+  },
+  "mascot": {
+   "title": "Маскот",
+   "image": "../mascot/head.svg",
+   "background": "none",
+   "size": 60,
+   "pad": 0,
+   "opacity": 1
+  },
+  "badge": {
+   "title": "Маскот в кружке",
+   "image": "../mascot/head.svg",
+   "background": "surface",
+   "size": 52,
+   "pad": 7,
+   "shape": "round",
+   "opacity": 0.96
+  }
+ }
+}

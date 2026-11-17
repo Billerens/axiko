@@ -202,6 +202,12 @@
       <p class="muted small">Что делать с тем, что вы написали, пока ассистент занят. В чате такое сообщение видно над полем ввода, и там это можно поменять для каждого.</p>
       <div class="list" id="busy-mode"></div>
     </section>
+
+    <section class="section">
+      <h2>Шагов на одну просьбу</h2>
+      <p class="muted small">Сделав столько шагов подряд, ассистент останавливается, говорит, что успел, и ждёт вашего «Продолжить».</p>
+      <div class="scale" id="step-limit"></div>
+    </section>
   </div>
 
   <div class="tab" data-tab="voice">
@@ -259,6 +265,13 @@
       <p class="muted small">Кнопка в правом нижнем углу каждого экрана: нажатие открывает чат, долгое нажатие — меню восстановления.</p>
       <div class="looks" id="button-looks"></div>
       <p class="muted small" id="button-note" hidden></p>
+    </section>
+
+    <section class="section" id="bubble-section" hidden>
+      <h2>Плавающая кнопка</h2>
+      <p class="muted small">Кнопка поверх других приложений: нажатие снимает экран и открывает чат с ним.</p>
+      <div class="looks" id="bubble-looks"></div>
+      <p class="muted small" id="bubble-note" hidden>Включается на вкладке «Телефон».</p>
     </section>
 
     <section class="section">
@@ -814,6 +827,20 @@
       option('after', 'После ответа', 'Сообщение подождёт, пока ассистент закончит, и уйдёт отдельным запросом'));
   }
 
+  // ---- how many steps one request may take -------------------------------------------------------
+
+  const STEPS = { min: 20, max: 400, by: 20, usual: 80 };
+
+  async function renderSteps() {
+    const saved = Number(await assi.native('pref.get', 'agent.steps', String(STEPS.usual)));
+    const now = Math.min(STEPS.max, Math.max(STEPS.min, saved || STEPS.usual));
+    const step = by => async () => { await assi.native('pref.set', 'agent.steps', String(now + by)); renderSteps(); };
+    document.getElementById('step-limit').replaceChildren(
+      h('button', { class: 'btn', disabled: now <= STEPS.min, onclick: step(-STEPS.by), 'aria-label': 'Меньше шагов' }, '−'),
+      h('div', { class: 'now' }, String(now)),
+      h('button', { class: 'btn', disabled: now >= STEPS.max, onclick: step(STEPS.by), 'aria-label': 'Больше шагов' }, '+'));
+  }
+
   // ---- MCP servers ------------------------------------------------------------------------------
 
   let mcpServers = [];
@@ -1194,6 +1221,20 @@
     ui.icons(document.getElementById('button-looks'));
   }
 
+  /** The button over other apps: its looks live in ui/bubble/, the shell draws each as it will float. An older shell has none. */
+  async function renderBubbleLooks() {
+    const info = await assi.native('bubble.looks').catch(() => null);
+    if (!info) return;
+    document.getElementById('bubble-section').hidden = false;
+    document.getElementById('bubble-looks').replaceChildren(...info.looks.map(look =>
+      h('button', { class: look.on ? 'on' : '', onclick: async () => {
+        try { await assi.native('bubble.look.set', look.id); } catch (error) { ui.toast(error.message); }
+        renderBubbleLooks();
+      } }, look.image && h('span', { class: 'pic' }, h('img', { src: look.image, alt: '' })), look.title)));
+    const sense = await assi.native('sense.status').catch(() => null);
+    document.getElementById('bubble-note').hidden = !sense || Boolean(sense.bubble && sense.overlay);
+  }
+
   /** The scale of the whole interface. An older shell has none: the section stays hidden. */
   async function renderScale() {
     const info = await assi.native('ui.scale').catch(() => null);
@@ -1241,6 +1282,7 @@
     if (!face.firstChild) face.append(ui.mascot('head', { size: 36 }));
     document.getElementById('mascot-open').onclick = () => assi.open('ui/mascot/index.html');
     renderButtonLooks();
+    renderBubbleLooks();
     renderIconLooks();
     renderScale();
 
@@ -1730,6 +1772,7 @@
   renderMcp();
   renderLan();
   renderBusy();
+  renderSteps();
   renderLinux();
   renderLocal();
   renderLook();

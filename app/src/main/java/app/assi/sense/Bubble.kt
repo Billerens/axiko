@@ -8,7 +8,6 @@ import android.content.res.Configuration
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.view.WindowInsets
-import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
@@ -18,7 +17,6 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.ImageView
 import app.assi.App
-import app.assi.R
 import app.assi.core.Engine
 import kotlin.math.abs
 
@@ -58,7 +56,25 @@ object Bubble {
         if (wanted) show()
     }
 
-    fun hide() = main.post {
+    /**
+     * The look has changed (see [BubbleLook]): a button that is on the screen is drawn anew.
+     * Taking it away and putting it back is one step, so of two changes made one after another
+     * (a picture, then the file that names it) the later one is what shows.
+     */
+    fun refresh() {
+        main.post {
+            if (view == null) return@post
+            hideNow()
+            showNow()
+        }
+    }
+
+    fun hide() {
+        main.post { hideNow() }
+    }
+
+    /** Main thread. */
+    private fun hideNow() {
         view?.let { runCatching { windows().removeView(it) } }
         view = null
         callbacks?.let { App.instance.unregisterComponentCallbacks(it) }
@@ -103,24 +119,23 @@ object Bubble {
         place(size, margin)
     }
 
+    fun show() {
+        main.post { showNow() }
+    }
+
+    /** Main thread. */
     @SuppressLint("ClickableViewAccessibility")
-    fun show() = main.post {
+    private fun showNow() {
         // Recheck when the posted operation runs: the foreground activity or preference may
         // have changed since EngineService.restore() or set(true) requested the bubble.
-        if (view != null || !wanted || !allowed || visibleActivities.isNotEmpty()) return@post
+        if (view != null || !wanted || !allowed || visibleActivities.isNotEmpty()) return
         val context: Context = App.instance
         val density = context.resources.displayMetrics.density
-        val size = (46 * density).toInt()
+        val look = BubbleLook.now()
+        val size = (look.size * density).toInt()
         val button = ImageView(context).apply {
-            setImageResource(R.drawable.ic_spark)
-            setColorFilter(context.getColor(R.color.on_accent))
-            val pad = (12 * density).toInt()
-            setPadding(pad, pad, pad, pad)
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(context.getColor(R.color.accent))
-            }
-            alpha = 0.92f
+            setImageDrawable(BubbleLook.drawable(look, size))
+            alpha = look.opacity
             contentDescription = "Спросить Axiko об этом экране"
         }
         val params = WindowManager.LayoutParams(

@@ -1250,5 +1250,15 @@
   "Мельче": "Smaller",
   "Крупнее": "Larger",
   "широкий экран": "wide screen",
-  "узкий экран": "narrow screen"
+  "узкий экран": "narrow screen",
+  "Шагов на одну просьбу": "Steps per request",
+  "Сделав столько шагов подряд, ассистент останавливается, говорит, что успел, и ждёт вашего «Продолжить».": "After this many steps in a row the assistant stops, says what it has done and waits for your “Continue”.",
+  "Меньше шагов": "Fewer steps",
+  "Больше шагов": "More steps",
+  "Шагов подряд: {}. Работа приостановлена.": "Steps in a row: {}. Work is paused.",
+  "Кнопка поверх других приложений: нажатие снимает экран и открывает чат с ним.": "A button over other apps: a tap captures the screen and opens the chat with it.",
+  "Включается на вкладке «Телефон».": "Turned on in the “Phone” tab.",
+  "Маскот в кружке": "Mascot in a circle",
+  "Открывает экран у себя": "Opens a screen for itself",
+  "Показывает экран": "Shows a screen"
 }

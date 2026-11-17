@@ -82,6 +82,8 @@ dependencies {
     implementation("com.sun.mail:android-mail:1.6.7")
     implementation("com.sun.mail:android-activation:1.6.7")
     implementation("org.jsoup:jsoup:1.17.2")
+    // Draws an SVG where no page runs: the button over other apps (sense/BubbleLook.kt).
+    implementation("com.caverock:androidsvg-aar:1.4")
     // The rights of ADB without a computer, when the owner runs Shizuku.
     implementation("dev.rikka.shizuku:api:13.1.5")
     implementation("dev.rikka.shizuku:provider:13.1.5")

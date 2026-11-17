@@ -488,7 +488,8 @@ textarea.input {
   border-radius: 50%;
   border: 2px solid var(--line);
   border-top-color: var(--accent);
-  animation: spin .8s linear infinite;
+  /* In steps: a smooth endless turn would have the whole screen drawn anew on every frame. */
+  animation: spin .8s steps(8) infinite;
 }
 
 @keyframes spin {
@@ -905,20 +906,29 @@ textarea.input {
 
 .mascot .axiko-gill.lit {
   fill: var(--mascot-light, #F5B731);
-  animation: mascot-glow 1.2s ease-in-out infinite alternate;
+  animation: mascot-glow 1.2s steps(3) infinite alternate;
 }
 
 /* A mascot that is alive ("alive" in mascot.json, on by default) blinks, breathes, hops into a
-new pose and wiggles when tapped. Without the class it is a still picture. */
+new pose and wiggles when tapped. Without the class it is a still picture. It lives in short
+moves with stillness between them (kit.js gives the classes "blink" and "breath" now and then):
+an animation that never ends keeps the phone drawing the screen on every frame, and the mascot
+is on every screen. */
 .mascot.alive .axiko-eye {
   transform-box: fill-box;
   transform-origin: center;
-  animation: mascot-blink 5.6s infinite;
+}
+
+.mascot.alive.blink .axiko-eye {
+  animation: mascot-blink .36s 1;
 }
 
 .mascot.alive > svg, .mascot.alive > img {
   transform-origin: 50% 100%;
-  animation: mascot-breathe 3.8s ease-in-out infinite;
+}
+
+.mascot.alive.breath > svg, .mascot.alive.breath > img {
+  animation: mascot-breathe 3.8s ease-in-out 1;
 }
 
 .mascot.alive.pop {
@@ -944,7 +954,7 @@ new pose and wiggles when tapped. Without the class it is a still picture. */
   height: 5px;
   border-radius: 50%;
   background: var(--mascot-light, #F5B731);
-  animation: mascot-glow 1.2s ease-in-out infinite alternate;
+  animation: mascot-glow 1.2s steps(3) infinite alternate;
 }
 
 /* Brightness, not opacity: a frond that fades would show the dark outline layer under it. */
@@ -958,10 +968,10 @@ new pose and wiggles when tapped. Without the class it is a still picture. */
 }
 
 @keyframes mascot-blink {
-  0%, 93%, 100% {
+  0%, 100% {
     transform: scaleY(1);
   }
-  96.5% {
+  50% {
     transform: scaleY(.1);
   }
 }
@@ -1074,12 +1084,12 @@ a peek is cut right under the eyes, never across them or across the mouth. */
 }
 
 /* Inside the climber the layers move as the climb says, not by themselves. */
-.climber .mascot.pop, .climber .mascot.wiggle, .climber-paw .mascot > svg {
+.climber .mascot.pop, .climber .mascot.wiggle, .climber-paw .mascot > svg, .climber-paw .mascot.alive.breath > svg {
   animation: none;
 }
 
-.climber.alive[data-state="peek"] .climber-body .mascot > svg {
-  animation: climber-bob 3.4s ease-in-out infinite;
+.climber.alive[data-state="peek"] .climber-body .mascot.breath > svg {
+  animation: climber-bob 3.4s ease-in-out 1;
 }
 
 /* Up from the peek and back: it never sinks lower than its eyes. */
@@ -1192,8 +1202,8 @@ a peek is cut right under the eyes, never across them or across the mouth. */
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mascot .axiko-gill.lit, .mascot.alive .axiko-eye, .mascot-dots i, .mascot.alive > svg, .mascot.alive > img,
-  .mascot.alive.pop, .mascot.alive.wiggle, .climber.alive .climber-body .mascot > svg {
+  .mascot .axiko-gill.lit, .mascot.alive.blink .axiko-eye, .mascot-dots i, .mascot.alive.breath > svg, .mascot.alive.breath > img,
+  .mascot.alive.pop, .mascot.alive.wiggle, .climber.alive .climber-body .mascot.breath > svg {
     animation: none;
   }
 

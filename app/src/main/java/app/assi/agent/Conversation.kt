@@ -105,6 +105,9 @@ class Conversation(
 
     private val file get() = Threads.file(id, thread)
 
+    /** The answer being written right now, not yet a message: a chat opened in the middle of it shows it too. */
+    private val writing = StringBuffer()
+
     private val worker by lazy {
         Executors.newSingleThreadExecutor { task ->
             Thread(null, task, "assi-agent-$id", 16L * 1024 * 1024).apply { isDaemon = true }
@@ -472,6 +475,8 @@ class Conversation(
             }
             marksAt(messages.size, true)
         }
+        // An answer in the middle of being written: the chat goes on with it from here.
+        writing.toString().takeIf { it.isNotBlank() }?.let { out.put(JSONObject().put("type", "assistant").put("text", it).put("live", true)) }
         // Drafts of this chat that wait for the owner's decision.
         if (lasting) {
             val waiting = app.assi.core.Drafts.list(id, thread)
@@ -487,11 +492,15 @@ class Conversation(
     /** One request of the owner (or one task of a parent agent); returns the final answer. */
     private fun turn(text: String, attached: List<Attach> = emptyList(), where: String? = null): String {
         val spec = Agent.spec(id)
+        val snapshotWall = System.currentTimeMillis()
+        val snapshotCpu = android.os.SystemClock.currentThreadTimeMillis()
+        val snapshotApp = android.os.Process.getElapsedCpuTime()
         val before = if (lasting) Workspace.signature() else null
         val snapshot = if (lasting) Workspace.snapshot("${spec.title}: $text") else null
         var answer = ""
         var failure: String? = null
         val entry = Tasks.begin(id, thread, label ?: text, parent?.task)
+        if (lasting) entry.add("snapshot", System.currentTimeMillis() - snapshotWall, android.os.SystemClock.currentThreadTimeMillis() - snapshotCpu, android.os.Process.getElapsedCpuTime() - snapshotApp)
         task = entry
         // The screen note rides inside the message, so the prompt before it stays cacheable.
         val said = text + (aside?.let { "\n\n[$it]" } ?: "")
@@ -507,8 +516,9 @@ class Conversation(
             var lean = lean(spec, target)
             var steps = 0
             while (!cancelled) {
-                if (++steps > if (StoreAgent.isReview(this)) MAX_REVIEW_STEPS else MAX_STEPS) {
-                    emit(JSONObject().put("type", "error").put("message", "Остановлено: слишком много шагов подряд."))
+                val limit = if (StoreAgent.isReview(this)) MAX_REVIEW_STEPS else stepLimit
+                if (++steps > limit) {
+                    answer = limitReached(spec, target, lean, limit).ifBlank { answer }
                     break
                 }
                 if (steps > 1) {
@@ -530,9 +540,17 @@ class Conversation(
                     pondered.append(piece)
                     emit(JSONObject().put("type", "thought").put("text", piece))
                 }
-                val reply = Llm.stream(target, request(spec, target, lean), tools, { cancelled }, { call = it }, thought) { piece ->
-                    speaker?.feed(piece)
-                    emit(JSONObject().put("type", "delta").put("text", piece))
+                writing.setLength(0)
+                val reply = try {
+                    entry.cost("model") {
+                        Llm.stream(target, request(spec, target, lean), tools, { cancelled }, { call = it }, thought) { piece ->
+                            speaker?.feed(piece)
+                            writing.append(piece)
+                            emit(JSONObject().put("type", "delta").put("text", piece))
+                        }
+                    }
+                } finally {
+                    writing.setLength(0)
                 }
                 speaker?.finish()
                 Usage.record(id, target.model, reply.usage)
@@ -587,7 +605,7 @@ class Conversation(
                         // A model may ask for a tool it was not given; what it was not given it does not get.
                         !offered -> Tools.Result("Ошибка: инструмент ${call.name} вам недоступен", ok = false)
                         // In a draft the tools see the workspace through the draft's layer.
-                        else -> app.assi.core.Drafts.within(draft) { Tools.run(call.name, call.arguments, this, images) }
+                        else -> entry.cost("tool:" + call.name) { app.assi.core.Drafts.within(draft) { Tools.run(call.name, call.arguments, this, images) } }
                     }
                     val summary = result.text.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty().take(140)
                     // What the step shows when opened: what it did to a file or the code it ran — or else what
@@ -637,6 +655,9 @@ class Conversation(
             emit(JSONObject().put("type", "error").put("message", message))
             if (!lasting) throw error
         } finally {
+            val finishWall = System.currentTimeMillis()
+            val finishCpu = android.os.SystemClock.currentThreadTimeMillis()
+            val finishApp = android.os.Process.getElapsedCpuTime()
             if (snapshot != null) {
                 if (Workspace.signature() == before) {
                     Workspace.dropSnapshot(snapshot)
@@ -662,6 +683,9 @@ class Conversation(
             }
             running = null
             task = null
+            entry.add("finish", System.currentTimeMillis() - finishWall, android.os.SystemClock.currentThreadTimeMillis() - finishCpu, android.os.Process.getElapsedCpuTime() - finishApp)
+            // The whole turn: what it cost beyond the model and the tools is the agent's own housekeeping.
+            entry.add("turn", System.currentTimeMillis() - snapshotWall, android.os.SystemClock.currentThreadTimeMillis() - snapshotCpu, android.os.Process.getElapsedCpuTime() - snapshotApp)
             Tasks.end(entry, if (failure != null) Tasks.FAILED else if (cancelled) Tasks.STOPPED else Tasks.DONE, failure ?: answer)
             // A message the owner sent meanwhile is taken up now.
             val next = synchronized(queue) {
@@ -676,6 +700,38 @@ class Conversation(
             }
         }
         return answer
+    }
+
+    /**
+     * The work has taken as many steps in a row as one request may: instead of breaking off in
+     * the middle, the model says in a few lines where the work stands (without tools, so this is
+     * the last step for certain), and the chat offers the owner to go on.
+     */
+    private fun limitReached(spec: Agent.Spec, target: Models.Target, lean: Boolean, limit: Int): String {
+        append(
+            JSONObject().put("role", "user").put(
+                "content",
+                JSONArray().put(JSONObject().put("type", "text").put("text", "$LIMIT_OPEN$limit$LIMIT_REST")),
+            ),
+        )
+        var said = ""
+        runCatching {
+            emit(JSONObject().put("type", "status").put("stage", "request").put("step", limit).put("local", target.onPhone))
+            writing.setLength(0)
+            val reply = Llm.stream(target, request(spec, target, lean), JSONArray(), { cancelled }, { call = it }) { piece ->
+                writing.append(piece)
+                emit(JSONObject().put("type", "delta").put("text", piece))
+            }
+            Usage.record(id, target.model, reply.usage)
+            said = reply.text
+        }
+        writing.setLength(0)
+        if (said.isNotBlank()) append(JSONObject().put("role", "assistant").put("content", said))
+        emit(JSONObject().put("type", "message"))
+        val mark = JSONObject().put("type", "limit").put("steps", limit)
+        synchronized(messages) { marks.add(mark.put("at", messages.size)) }
+        emit(JSONObject(mark.toString()))
+        return said
     }
 
     /** What came along with the owner's message: each attachment follows it as a message of its own. */
@@ -711,8 +767,7 @@ class Conversation(
      */
     private fun selfChecks(files: JSONArray): JSONArray {
         val modules = (0 until files.length()).map { files.getJSONObject(it).optString("path") }
-            .filter { it.startsWith("modules/") }.map { it.removePrefix("modules/").substringBefore('/') }.distinct()
-            .filter { File(Workspace.root, "modules/$it/checks.js").isFile }
+            .filter { it.startsWith("modules/") }.mapNotNull { nearestChecks(it) }.distinct()
         val out = JSONArray()
         if (modules.isEmpty()) return out
         // Checks open screens: afterwards the owner is back on the screen they were looking at.
@@ -724,6 +779,20 @@ class Conversation(
         }
         if (was.startsWith(Pages.ORIGIN) && MainActivity.current?.page?.location != was) MainActivity.current?.open(was.removePrefix(Pages.ORIGIN + "/"))
         return out
+    }
+
+    /**
+     * The checks that answer for a changed file: the nearest folder above it, within its module,
+     * that has its own checks.js — `games/daily/<day>` for a file of one game, not the whole
+     * `games`, whose checks play every installed game and take the phone many minutes.
+     */
+    private fun nearestChecks(path: String): String? {
+        var folder = path.removePrefix("modules/").substringBeforeLast('/', "")
+        while (folder.isNotEmpty()) {
+            if (File(Workspace.root, "modules/$folder/checks.js").isFile) return folder
+            folder = folder.substringBeforeLast('/', "")
+        }
+        return null
     }
 
     /** Only a lasting conversation is on screen; a delegated task reports through its tool card. */
@@ -975,7 +1044,7 @@ class Conversation(
                 append("Прежде чем менять файлы приложения, прочитайте `agent/handbook.md`, а за функциями — `agent/api.md`.\n")
             }
             if (runCatching { target() }.getOrNull()?.vision == false) {
-                append("Ваша модель не видит изображения: снимков экрана нет, проверяйте экраны через ui_open, ui_eval и ui_console.\n")
+                append("Ваша модель не видит изображения: снимков экрана нет, проверяйте экраны через ui_check (ошибки консоли и код в странице).\n")
             }
             // A store review carries its procedure and rules here, from the shell's code: they outlive a summary of the chat.
             StoreAgent.brief(this@Conversation)?.let { append("\n").append(it).append('\n') }
@@ -999,6 +1068,12 @@ class Conversation(
                 "Сожмите его в сводку для самого агента: что владелец просил, что сделано (какие модули, файлы, решения), " +
                 "что осталось незавершённым, какие предпочтения владелец высказал. Только факты, без вступлений, до 400 слов."
         private const val MAX_STEPS = 80
+
+        /** Steps in a row one request may take: the owner's setting `agent.steps`. */
+        private val stepLimit: Int get() = (App.prefs.getString("agent.steps", null)?.toIntOrNull() ?: MAX_STEPS).coerceIn(20, 400)
+        private const val LIMIT_OPEN = "[Вы сделали подряд "
+        private const val LIMIT_REST = " шагов — это предел на одну просьбу, и инструменты сейчас недоступны. " +
+            "Коротко скажите владельцу: что уже сделано, что осталось и с чего продолжить. Продолжать ли, решит он.]"
         // Reading a large package is bounded, but needs more turns than ordinary tasks.
         // Usage.guard still enforces the owner's spending limit on every model request.
         private const val MAX_REVIEW_STEPS = 240

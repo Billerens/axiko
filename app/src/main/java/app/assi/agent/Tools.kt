@@ -4,6 +4,7 @@ import app.assi.MainActivity
 import app.assi.core.Engine
 import app.assi.core.Linux
 import app.assi.core.Pages
+import app.assi.core.Probe
 import app.assi.core.Shell
 import app.assi.core.Workspace
 import app.assi.sense.Notices
@@ -161,22 +162,44 @@ object Tools {
             Param("timeout_s", "integer", "Предел времени, по умолчанию $EVAL_TIMEOUT_S с", false),
         ),
         tool(
-            "ui_open", "Открыть экран приложения и вернуть ошибки его консоли.",
-            Param("path", "string", "Например modules/notes/ui/index.html"),
+            "ui_check",
+            "Проверить экран одним шагом: открыть, дождаться, прочитать ошибки консоли, выполнить код в странице и снять картинку. " +
+                "Проверка идёт на вашем собственном экране: владелец его не видит, его экран остаётся на месте, свёрнутое приложение не мешает. " +
+                "Экран проверяйте этим инструментом, а не цепочкой ui_open, ui_eval, ui_screenshot.",
+            Param("path", "string", "Какой экран открыть, например modules/notes/ui/index.html. Без него проверяется тот, что уже открыт у вас", false),
+            Param("width", "integer", "Ширина экрана в точках CSS: 344 — узкий телефон, 760 — раскрытый складной. Без неё — как у владельца", false),
             Param("wait_ms", "integer", "Сколько ждать после загрузки, по умолчанию 800", false),
+            Param("code", "string", "JavaScript в странице: нажать, дождаться, прочитать. Результат вернётся как JSON; Promise дожидаются до 10 с", false),
+            Param("shot", "string", "Что снять: screen — весь экран (так по умолчанию), CSS-селектор — одну его часть, none — без картинки", false),
         ),
         tool(
-            "ui_eval", "Выполнить JavaScript в текущем экране (в странице, не в движке): проверить DOM, нажать кнопку. " +
+            "ui_open", "Открыть экран на вашем собственном экране (владелец его не видит) и вернуть ошибки его консоли.",
+            Param("path", "string", "Например modules/notes/ui/index.html"),
+            Param("wait_ms", "integer", "Сколько ждать после загрузки, по умолчанию 800", false),
+            Param("width", "integer", "Ширина экрана в точках CSS; без неё — как у владельца", false),
+        ),
+        tool(
+            "ui_eval", "Выполнить JavaScript в экране, который открыт у вас (в странице, не в движке): проверить DOM, нажать кнопку. " +
                 "Если код возвращает Promise, его результат дожидаются (до 10 с). После выполнения экрану даётся время перерисоваться, " +
                 "так что нажатие и чтение результата можно делать двумя вызовами подряд.",
             Param("code", "string", "Выражение или код; результат вернётся как JSON"),
             Param("wait_ms", "integer", "Сколько ждать перерисовки после выполнения, по умолчанию 400", false),
+            Param("owner", "boolean", "true — в экране, который сейчас перед владельцем", false),
         ),
         tool(
-            "ui_console", "Последние строки консоли текущего экрана.",
+            "ui_console", "Последние строки консоли вашего экрана.",
             Param("lines", "integer", "Сколько строк, по умолчанию 40", false),
+            Param("owner", "boolean", "true — консоль экрана, который сейчас перед владельцем", false),
         ),
-        tool("ui_screenshot", "Снимок текущего экрана приложения: вы увидите его картинкой."),
+        tool(
+            "ui_screenshot", "Снимок вашего экрана: вы увидите его картинкой.",
+            Param("selector", "string", "CSS-селектор: снять только эту часть экрана", false),
+            Param("owner", "boolean", "true — снять экран, который сейчас перед владельцем", false),
+        ),
+        tool(
+            "ui_show", "Открыть экран у владельца: показать ему готовую работу. Ваши проверки его экран не трогают — без этого вызова он останется там, где был.",
+            Param("path", "string", "Например modules/notes/ui/index.html"),
+        ),
         tool("snapshot_list", "Снимки рабочей папки (делаются перед каждым запросом, который что-то изменил)."),
         tool("snapshot_restore", "Вернуть рабочую папку к снимку.", Param("id", "string", "Идентификатор снимка")),
         tool(
@@ -299,6 +322,7 @@ object Tools {
         val args = runCatching { JSONObject(argsJson) }.getOrNull() ?: return ""
         val value = when (name) {
             "js_eval", "ui_eval" -> args.optString("code").lineSequence().firstOrNull { it.isNotBlank() }.orEmpty()
+            "ui_check" -> args.optString("path").ifEmpty { args.optString("code").lineSequence().firstOrNull { it.isNotBlank() }.orEmpty() }
             DELEGATE -> args.optString("agent") + ": " + args.optString("task")
             PLAN -> args.optString("title")
             STEP -> "${args.optInt("step")}: " + app.assi.core.I18n.t(
@@ -329,13 +353,14 @@ object Tools {
         else if (name == STEP) conversation.planStep(args)
         else if (name == PARTS) conversation.parts(args)
         else if (name == DRAFT) conversation.draftBegin(args)
-        else if (name in builtinNames) builtin(name, args, images)
+        else if (name in builtinNames) builtin(name, args, images, runCatching { conversation.target().vision }.getOrDefault(true))
         else if (name.startsWith("mcp_")) Mcp.run(name, args)
         else Engine.call("__toolRun", name, args.toString(), timeoutMs = 300_000) as String? ?: "готово"
         val detail = when {
             file != null && file.isFile && file.length() < 400_000 -> Workspace.unified(before, file.readText())
             // Code that ran is shown with what it gave: the owner sees the step as the model did.
             name == "js_eval" || name == "ui_eval" -> args.optString("code") + "\n\n→ " + text
+            name == "ui_check" && args.optString("code").isNotBlank() -> args.optString("code") + "\n\n→ " + text
             name == "shell" || name == "linux" -> "$ " + args.optString("command") + "\n\n" + text
             else -> null
         }
@@ -345,15 +370,14 @@ object Tools {
     }
 
     /**
-     * Runs code in the current screen. A promise the code returns is waited for, and afterwards
-     * the screen gets a moment to redraw: handlers of buttons are usually asynchronous, and a
-     * check made at once would see the screen as it was.
+     * Runs code in a screen: the agent's own unless another is given. A promise the code returns
+     * is waited for, and afterwards the screen gets a moment to redraw: handlers of buttons are
+     * usually asynchronous, and a check made at once would see the screen as it was.
      */
-    fun pageEval(code: String, settle: Long): String {
-        val activity = activity()
+    fun pageEval(code: String, settle: Long, activity: app.assi.core.Bridge = Probe.bridge()): String {
         val slot = "__assiEval" + System.nanoTime()
         val keep = "function(o){try{window['$slot']=JSON.stringify(o);}catch(e){window['$slot']=JSON.stringify({value:String(o.value)});}}"
-        activity.evalInPage(
+        activity.eval(
             "(function(){var keep=$keep;window['$slot']=null;" +
                 "try{Promise.resolve((0,eval)(${JSONObject.quote(code)})).then(function(v){keep({value:v===undefined?null:v});}," +
                 "function(e){keep({error:String(e&&e.message||e)});});}catch(e){keep({error:String(e&&e.message||e)});}})()",
@@ -362,10 +386,10 @@ object Tools {
         val deadline = System.currentTimeMillis() + 10_000
         while (answer == null && System.currentTimeMillis() < deadline) {
             // What comes back is the JSON of a string that is itself JSON, or of null while the code runs.
-            val held = runCatching { org.json.JSONTokener(activity.evalInPage("window['$slot']").orEmpty()).nextValue() }.getOrNull()
+            val held = runCatching { org.json.JSONTokener(activity.eval("window['$slot']").orEmpty()).nextValue() }.getOrNull()
             if (held is String) answer = runCatching { JSONObject(held) }.getOrNull() else Thread.sleep(100)
         }
-        activity.evalInPage("delete window['$slot']")
+        activity.eval("delete window['$slot']")
         if (answer == null) return "Код не завершился за 10 с: возможно, его Promise так и не выполнился."
         Thread.sleep(settle.coerceIn(0, 5000))
         if (answer.has("error")) return "Ошибка: " + answer.getString("error")
@@ -386,9 +410,61 @@ object Tools {
         if (path.startsWith("themes/")) app.assi.core.Themes.changed()
         // The mascot and the chat button's look are files too: screens draw them anew.
         if (path.startsWith("ui/mascot/") || path.startsWith("ui/button/")) Pages.broadcast("mascot", "null")
+        // The button over other apps is drawn by the shell from its own files (and may borrow the mascot's picture).
+        if (path.startsWith("ui/bubble/") || path.startsWith("ui/mascot/") || path.startsWith("themes/")) app.assi.sense.Bubble.refresh()
     }
 
-    private fun builtin(name: String, args: JSONObject, images: MutableList<String>): String = when (name) {
+    /** The screen a tool acts on: the agent's own, or the owner's when asked for it. */
+    private fun screen(args: JSONObject): app.assi.core.Bridge = if (args.optBoolean("owner")) activity().page else Probe.bridge()
+
+    private fun problems(lines: List<String>): List<String> = lines.filter { it.startsWith("[error]") || it.startsWith("[warning]") }
+
+    /** Opens a screen on the agent's own screen and says what went wrong in its console. */
+    private fun opened(path: String, width: Int, waitMs: Long): String {
+        // In a draft the screen shown is the draft's.
+        val full = (app.assi.core.Drafts.active?.let { "~$it/" } ?: "") + path.trimStart('/')
+        val bridge = Probe.at(width)
+        val mark = bridge.console.mark()
+        val loaded = Probe.open(bridge, full)
+        // Without a screen of its own the agent looks at the owner's, and a browser on the local network follows there.
+        if (bridge.name != "probe") Pages.broadcast("ui.opened", JSONObject.quote(path))
+        Thread.sleep(waitMs.coerceIn(0, 15_000))
+        val found = problems(bridge.console.since(mark))
+        return buildString {
+            append(if (loaded) "Экран открыт" else "Экран не успел загрузиться за 10 с")
+            if (bridge.name == "probe") append(", ширина ").append(Probe.width)
+            append('.')
+            append(if (found.isEmpty()) " Ошибок в консоли нет." else "\nКонсоль:\n" + found.joinToString("\n"))
+        }
+    }
+
+    /** One step in place of three: open, look at the console, run code, take a picture. */
+    private fun check(args: JSONObject, images: MutableList<String>, vision: Boolean): String {
+        val out = StringBuilder()
+        val width = args.optInt("width", 0)
+        val path = args.optString("path")
+        if (path.isNotBlank()) out.append(opened(path, width, args.optLong("wait_ms", 800)))
+        val bridge = Probe.bridge(width)
+        val code = args.optString("code")
+        if (code.isNotBlank()) {
+            val mark = bridge.console.mark()
+            out.append("\nКод: ").append(pageEval(code, 400, bridge))
+            val found = problems(bridge.console.since(mark))
+            if (found.isNotEmpty()) out.append("\nКонсоль после кода:\n").append(found.joinToString("\n"))
+        }
+        val shot = args.optString("shot", "screen").trim().ifEmpty { "screen" }
+        if (shot != "none" && vision) {
+            runCatching { Probe.shot(bridge, shot.takeIf { it != "screen" }) ?: error("не удалось снять экран") }
+                .onSuccess {
+                    images.add(it)
+                    out.append("\nСнимок приложен следующим сообщением.")
+                }
+                .onFailure { out.append("\nСнимка нет: ").append(it.message) }
+        }
+        return out.toString().trim().ifEmpty { "Нечего проверять: укажите path, code или shot." }
+    }
+
+    private fun builtin(name: String, args: JSONObject, images: MutableList<String>, vision: Boolean = true): String = when (name) {
         "fs_list" -> list(Workspace.resolve(args.optString("path", "")), args.optInt("depth", 2)) + (
             app.assi.core.Drafts.active?.let { draft ->
                 val changed = app.assi.core.Drafts.changes(draft)
@@ -421,27 +497,23 @@ object Tools {
             val value = outcome.getOrElse { "Ошибка: " + Engine.describe(it) }
             if (printed.isEmpty()) value else "$value\n--- console ---\n$printed"
         }
-        "ui_open" -> {
-            val activity = activity()
-            val mark = activity.page.console.mark()
-            // In a draft the screen shown is the draft's.
-            val loaded = activity.page.openAndWait((app.assi.core.Drafts.active?.let { "~$it/" } ?: "") + args.getString("path").trimStart('/'))
-            // A browser on the local network follows to the same screen.
-            Pages.broadcast("ui.opened", JSONObject.quote(args.getString("path")))
-            Thread.sleep(args.optLong("wait_ms", 800).coerceIn(0, 15_000))
-            val printed = activity.page.console.since(mark)
-            val problems = printed.filter { it.startsWith("[error]") || it.startsWith("[warning]") }
-            buildString {
-                append(if (loaded) "Экран открыт." else "Экран не успел загрузиться за 10 с.")
-                append(if (problems.isEmpty()) " Ошибок в консоли нет." else "\nКонсоль:\n" + problems.joinToString("\n"))
-            }
-        }
-        "ui_eval" -> pageEval(args.getString("code"), args.optLong("wait_ms", 400))
-        "ui_console" -> activity().page.console.tail(args.optInt("lines", 40)).joinToString("\n").ifEmpty { "Консоль пуста" }
+        "ui_check" -> check(args, images, vision)
+        "ui_open" -> opened(args.getString("path"), args.optInt("width", 0), args.optLong("wait_ms", 800))
+        "ui_eval" -> pageEval(args.getString("code"), args.optLong("wait_ms", 400), screen(args))
+        "ui_console" -> screen(args).console.tail(args.optInt("lines", 40)).joinToString("\n").ifEmpty { "Консоль пуста" }
         "ui_screenshot" -> {
-            val shot = activity().screenshot() ?: throw IllegalStateException("Не удалось снять экран")
+            val shot = Probe.shot(screen(args), args.optString("selector").takeIf { it.isNotBlank() })
+                ?: throw IllegalStateException("Не удалось снять экран")
             images.add(shot)
             "Снимок приложен следующим сообщением."
+        }
+        "ui_show" -> {
+            val path = args.getString("path")
+            // In a draft the owner is shown the draft's screen.
+            activity().open((app.assi.core.Drafts.active?.let { "~$it/" } ?: "") + path.trimStart('/'))
+            // A browser on the local network follows to the same screen.
+            Pages.broadcast("ui.opened", JSONObject.quote(path))
+            "Экран открыт у владельца."
         }
         "shell" -> {
             val result = Shell.run(args.getString("command"), args.optLong("timeout_s", 60) * 1000, args.optBoolean("privileged", false))
