@@ -29,7 +29,14 @@ object StoreAgent {
 
     private fun changed() { Pages.broadcast("modules", "null"); Pages.broadcast("store.changed", "null") }
 
-    fun native(method: String, args: JSONArray): Any? = when (method) {
+    /** Whoever looks at the sources or the catalog first, the screen or an agent, gets the factory source connected. */
+    private fun factory(method: String) {
+        if (method == "store.sources" || method == "store.catalog") Store.factory { Pages.broadcast("store.changed", "null") }
+    }
+
+    fun native(method: String, args: JSONArray): Any? = factory(method).let { dispatch(method, args) }
+
+    private fun dispatch(method: String, args: JSONArray): Any? = when (method) {
         "store.reviewStart" -> start(args.getString(0), args.optBoolean(1))
         "store.review" -> status(args.getString(0))
         "store.plan" -> annotated(Store.call(method, args) as JSONObject)
@@ -151,11 +158,12 @@ object StoreAgent {
         val inReview = isReview(conversation)
         val id = args.optString("planId")
         if (inReview) access.bind(conversation.id, conversation.thread, plan(id))
+        if (!inReview) factory("store." + name.removePrefix("store_"))
         val value: Any? = when (name) {
             "store_sources" -> call("sources")
             "store_add_source" -> call("source.add", args.getString("url"))
             "store_catalog" -> call("catalog")
-            "store_prepare" -> call("prepare", args.getString("sourceId"), args.getString("packageId"))
+            "store_prepare" -> call("prepare", args.getString("sourceId"), args.getString("packageId"), args.optBoolean("adopt"))
             "store_review_start" -> start(id, args.getBoolean("acceptTrustedCode")).also {
                 // The review runs in a chat of its own; the owner stays in the one where they asked.
                 if (conversation.id == Agent.MAIN && conversation.thread.isNotBlank()) Threads.select(Agent.MAIN, conversation.thread)

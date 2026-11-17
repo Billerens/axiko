@@ -139,6 +139,62 @@ class StoreInstallerTest {
         reject { prepare(store, pkg("0.9.0")) }
     }
 
+    private fun adopt(store: StoreInstaller, pkg: Package) = store.prepare("source-one", pkg.entry, pkg.manifest, pkg.zip, adopt = true)
+
+    @Test fun adoptingAFolderEqualToTheReleaseRegistersItWithoutChangingAFile() {
+        val p = pkg(); val store = installer()
+        write("module.json", "{\"id\":\"example.counter\",\"title\":\"Counter\",\"entry\":\"ui/index.html\"}"); write("main.js", "exports.value = 1;\n")
+        write("ui/index.html", "<!doctype html>\n<title>Counter</title>\n<p>Test package</p>\n"); write("notes.txt", "the owner's own file")
+        val plan = adopt(store, p)
+        assertTrue(plan.getBoolean("adoption")); assertEquals("ready", plan.getString("status")); assertEquals(3, plan.getInt("matchingFiles"))
+        assertEquals(0, plan.getJSONArray("conflicts").length())
+        // Only the owner's extra file is a change of the plan: it stays and counts as a local edit.
+        assertEquals(1, plan.getJSONArray("changes").length()); assertEquals("keep-local", plan.getJSONArray("changes").getJSONObject(0).getString("kind"))
+        apply(store, plan)
+        val record = store.installed().getJSONObject(0)
+        assertEquals("1.0.0", record.getString("version")); assertTrue(record.getBoolean("adopted")); assertTrue(record.getBoolean("localModified"))
+        assertEquals(listOf("notes.txt"), (0 until record.getJSONArray("modifiedFiles").length()).map { record.getJSONArray("modifiedFiles").getString(it) })
+        assertEquals("the owner's own file", text("notes.txt"))
+        // From here on it is an installed package like any other: the next release updates it.
+        apply(store, prepare(store, pkg("1.1.0", "exports.value = 2;\n")))
+        assertEquals("exports.value = 2;\n", text("main.js")); assertEquals("the owner's own file", text("notes.txt"))
+    }
+
+    @Test fun adoptingAFolderThatDiffersLeavesEveryDifferingFileToTheOwner() {
+        val store = installer()
+        write("module.json", "{\"id\":\"example.counter\",\"title\":\"Counter\",\"entry\":\"ui/index.html\"}"); write("main.js", "exports.value = 'older or edited';\n")
+        write("ui/index.html", "<!doctype html>\n<title>Mine</title>\n")
+        val plan = adopt(store, pkg())
+        assertEquals("conflicts", plan.getString("status")); assertEquals(1, plan.getInt("matchingFiles"))
+        val conflicts = plan.getJSONArray("conflicts"); assertEquals(setOf("main.js", "ui/index.html"), (0 until conflicts.length()).map { conflicts.getJSONObject(it).getString("path") }.toSet())
+        reject { apply(store, plan) }; assertEquals("exports.value = 'older or edited';\n", text("main.js")); assertEquals(0, store.installed().length())
+        val id = plan.getString("id")
+        fun conflict(path: String) = (0 until conflicts.length()).map { conflicts.getJSONObject(it) }.first { it.getString("path") == path }
+        reject { store.resolve(id, "main.js", "0".repeat(64), takeIncoming = true) }
+        store.resolve(id, "main.js", conflict("main.js").getString("localSha"), takeIncoming = true)
+        val ready = store.resolve(id, "ui/index.html", conflict("ui/index.html").getString("localSha"), keepLocal = true)
+        assertEquals("ready", ready.getString("status")); apply(store, ready)
+        assertEquals("exports.value = 1;\n", text("main.js")); assertEquals("<!doctype html>\n<title>Mine</title>\n", text("ui/index.html"))
+        val record = store.installed().getJSONObject(0)
+        assertEquals(listOf("ui/index.html"), (0 until record.getJSONArray("modifiedFiles").length()).map { record.getJSONArray("modifiedFiles").getString(it) })
+    }
+
+    @Test fun adoptionInterruptedAtAnyCheckpointLeavesTheOwnersFolderAsItWas() {
+        for (point in listOf("prepared", "previous-moved", "swapped", "registry-written")) {
+            val scenario = File(temp.root, "adopt-$point").apply { mkdirs() }; val root = File(scenario, "assi"); val state = File(scenario, "state")
+            val own = File(root, "modules/example.counter/main.js").apply { parentFile.mkdirs(); writeText("the owner's code") }
+            File(root, "modules/example.counter/module.json").writeText("{\"id\":\"example.counter\",\"title\":\"Counter\",\"entry\":\"ui/index.html\"}")
+            val crashing = StoreInstaller(root, state, checkpoint = { if (it == point) throw AssertionError("process death") })
+            val p = pkg(); var plan = crashing.prepare("source-one", p.entry, p.manifest, p.zip, adopt = true)
+            for (i in 0 until plan.getJSONArray("conflicts").length()) { val item = plan.getJSONArray("conflicts").getJSONObject(i); plan = crashing.resolve(plan.getString("id"), item.getString("path"), item.getString("localSha"), takeIncoming = true) }
+            val ready = plan
+            assertThrows(AssertionError::class.java) { crashing.apply(ready.getString("id"), ready.getString("digest")) }
+            val recovered = StoreInstaller(root, state)
+            assertEquals(0, recovered.installed().length()); assertEquals("the owner's code", own.readText())
+            assertFalse(File(root, "modules/example.counter/ui/index.html").exists()); assertFalse(File(state, "install-transaction.json").exists())
+        }
+    }
+
     @Test fun snapshotRacePreservesNewerLocalContent() {
         var change = false
         val store = installer(snapshot = { if (change) write("main.js", "changed during snapshot"); "snapshot" })

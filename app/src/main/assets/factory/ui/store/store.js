@@ -74,7 +74,10 @@
   }
   function updateCount(name, value) { document.querySelector('[data-count="' + name + '"]').textContent = value ? String(value) : ''; }
   function availableCatalog() { return state.catalog.filter(item => item.sourceEnabled !== false); }
-  function updates() { return availableCatalog().filter(item => item.status === 'update' || item.updateAvailable); }
+  // A module that stands on the device without the store's record: the catalog cannot tell its version,
+  // so it is offered for taking over next to the real updates instead of being called absent.
+  function unmanaged(item) { return item.status === 'unmanaged'; }
+  function updates() { return availableCatalog().filter(item => item.status === 'update' || item.updateAvailable || unmanaged(item)); }
   function installedFor(item) { return state.installed.find(entry => entry.sourceId === item.sourceId && packageId(entry) === packageId(item)); }
   function sourceName(id) { const source = state.sources.find(item => item.id === id); return source ? source.title || source.repositoryId || id : tr('Источник удалён'); }
   function entryPath(item) { const value = item.entryPath || ''; return /^(?:modules|ui)\/[a-zA-Z0-9_./-]+\.html?$/i.test(value) && !value.split('/').includes('..') ? value : ''; }
@@ -113,6 +116,7 @@
     const badges = h('div', { class: 'store-meta' });
     if (item.status === 'update' || item.updateAvailable) badges.append(h('span', { class: 'store-chip update' }, tr('Есть обновление')));
     else if (installed) badges.append(h('span', { class: 'store-chip success' }, tr('Установлено')));
+    else if (unmanaged(item)) badges.append(h('span', { class: 'store-chip changed', 'data-unmanaged': '' }, tr('Стоит без магазина')));
     if (item.localModified || installed && installed.localModified) badges.append(h('span', { class: 'store-chip changed' }, tr('Есть свои правки')));
     if (item.ban || item.status === 'banned') badges.append(h('span', { class: 'store-chip problem', 'data-banned': '' }, tr('Забанен')));
     else if (Array.isArray(item.previousBans) && item.previousBans.length) badges.append(h('span', { class: 'store-chip changed', 'data-previous-ban': '' }, tr('Прежняя версия забанена')));
@@ -124,7 +128,7 @@
     card.append(badges, h('div', { class: 'store-source-line' }, raw(item.sourceTitle || sourceName(item.sourceId))));
     const actions = h('div', { class: 'store-card-actions' }, button(tr('Подробнее'), () => showPackage(item, installed), { 'data-details': packageId(item) }));
     if (installedView && entryPath(item)) actions.append(button(tr('Открыть'), () => openInstalled(item), { class: 'btn primary', 'data-open-package': packageId(item) }));
-    else if (!installed || item.status === 'update' || item.updateAvailable) actions.append(button(tr(installed ? 'Обновить' : 'Установить'), event => prepare(item, event.currentTarget), { class: 'btn primary', disabled: item.compatible === false || item.status === 'incompatible' || item.status === 'banned', 'data-install': packageId(item) }));
+    else if (!installed || item.status === 'update' || item.updateAvailable) actions.append(button(tr(installed ? 'Обновить' : unmanaged(item) ? 'Принять модуль' : 'Установить'), event => prepare(item, event.currentTarget), { class: 'btn primary', disabled: item.compatible === false || item.status === 'incompatible' || item.status === 'banned', 'data-install': packageId(item) }));
     else if (entryPath(installed)) actions.append(button(tr('Открыть'), () => openInstalled(installed), { class: 'btn primary' }));
     card.append(actions); return card;
   }
@@ -251,13 +255,14 @@
     (Array.isArray(display.previousBans) ? display.previousBans : []).forEach(ban => current.body.append(banNotice(ban, true)));
     if (installed && installed.review) current.body.append(installReview(installed.review));
     if (installed && installed.localModified) current.body.append(h('p', { class: 'store-notice' }, tr('В пакете есть ваши доработки. Перед обновлением покажем изменения и возможные конфликты.')));
+    if (!installed && unmanaged(display)) current.body.append(h('p', { class: 'store-notice', 'data-unmanaged-note': '' }, tr('Этот модуль уже стоит на устройстве, но установлен не через магазин. Каталог не знает его версии и не обновляет его. Примите его под управление магазина: файлы, совпавшие с выпуском, останутся как есть, по остальным решите вы.')));
     if (display.screenshots && display.screenshots.length) {
       const links = display.screenshots.map(safeHttps).filter(Boolean).map((url,index) => h('a', { href: url, target: '_blank', rel: 'noopener noreferrer', referrerpolicy: 'no-referrer' }, tr('Снимок {}', index + 1)));
       current.body.append(h('div', { class: 'store-screenshot-links' }, links));
     }
     current.body.append(note(tr('Перед установкой загрузим конкретную версию, проверим структуру и хеши. Код пакета на этом шаге не запускается.')));
     const controls = h('div', { class: 'store-dialog-actions' });
-    if (compatible && (!installed || display.status === 'update' || display.updateAvailable)) controls.append(button(tr(installed ? 'Подготовить обновление' : 'Подготовить установку'), event => prepare(display, event.currentTarget), { class: 'btn primary', id: 'store-prepare' }));
+    if (compatible && (!installed || display.status === 'update' || display.updateAvailable)) controls.append(button(tr(installed ? 'Подготовить обновление' : unmanaged(display) ? 'Принять под управление магазина' : 'Подготовить установку'), event => prepare(display, event.currentTarget), { class: 'btn primary', id: 'store-prepare' }));
     if (installed && entryPath(installed)) controls.append(button(tr('Открыть пакет'), () => { closeDialog(); openInstalled(installed); }));
     if (installed && installed.rollbackAvailable) controls.append(button(tr('Вернуть предыдущую версию'), event => operation('prepare-rollback', event.currentTarget, async () => {
       const plan = await api('rollback', installationKey(installed)); state.pending = plan; showPlan(plan); renderPending();
@@ -269,7 +274,8 @@
       const current = state.dialog || dialog(tr('Подготовка пакета'));
       dialogStatus(tr('Загружаем и проверяем пакет. Это может занять немного времени.'));
       const token = current.token;
-      const plan = await api('prepare', item.sourceId, packageId(item)); state.pending = plan; renderPending();
+      // Taking over a module that already stands there is asked for in so many words; a plain install never touches it.
+      const plan = await (unmanaged(item) ? api('prepare', item.sourceId, packageId(item), true) : api('prepare', item.sourceId, packageId(item))); state.pending = plan; renderPending();
       // An archive that was already reviewed brings its warnings along: a new plan is not a clean slate.
       const report = await api('review', plan.id).catch(() => null);
       if (state.dialog && state.dialog.token === token) showPlan(plan, report || undefined); else status(tr('Пакет подготовлен. Можно продолжить установку.'));
@@ -299,7 +305,8 @@
   }
   function showPlan(plan, report) {
     const previous = state.dialog, origin = previous && previous.origin;
-    const current = dialog(plan.status === 'applied' ? tr('Готово') : tr(plan.rollback || plan.operation === 'rollback' ? 'Возврат версии' : 'Проверка перед установкой'));
+    const adoption = !!plan.adoption;
+    const current = dialog(plan.status === 'applied' ? tr('Готово') : tr(plan.rollback || plan.operation === 'rollback' ? 'Возврат версии' : adoption ? 'Принятие под управление магазина' : 'Проверка перед установкой'));
     if (origin) current.origin = origin; current.planId = plan.id;
     state.pending = plan; renderPending();
     const manifest = plan.manifest || {}, conflicts = Array.isArray(plan.conflicts) ? plan.conflicts.filter(c => !c.resolved) : [];
@@ -309,7 +316,7 @@
     const about = facts([['Пакет', plan.title || manifest.id || plan.packageId], ['Версия', plan.version || manifest.version], ['Автор', manifest.publisher], ['Лицензия', manifest.license]]);
     current.body.append(about);
     if (plan.status === 'applied') {
-      current.body.append(h('p', { class: 'store-notice' }, tr('Пакет установлен. Сохранения, настройки и сохранённые локальные правки остались на месте.')));
+      current.body.append(h('p', { class: 'store-notice' }, tr(adoption ? 'Модуль принят под управление магазина: теперь каталог знает его версию и покажет обновления. Сохранения, настройки и оставленные вами файлы на месте.' : 'Пакет установлен. Сохранения, настройки и сохранённые локальные правки остались на месте.')));
       const completedReport = report || plan.review;
       if (completedReport && completedReport.completed && completedReport.historicalOnly) current.body.append(reviewCard(completedReport, plan.reviewTask || completedReport));
       const installed = state.installed.find(item => installationKey(item) === plan.installationKey);
@@ -330,20 +337,37 @@
       return;
     }
     (Array.isArray(plan.previousBans) ? plan.previousBans : []).forEach(ban => current.body.append(banNotice(ban, true)));
-    current.body.append(note(tr('Обновляется код пакета. Личные данные и сохранения не заменяются.')));
+    current.body.append(note(adoption ? tr('Модуль уже стоит на устройстве. Файлов, совпавших с выпуском {}: {}. Личные данные и сохранения не заменяются.', plan.version || manifest.version || '', Number(plan.matchingFiles) || 0) : tr('Обновляется код пакета. Личные данные и сохранения не заменяются.')));
     if (blocked) current.body.append(h('div', { class: 'store-notice danger', 'data-plan-blocked': '' }, h('strong', {}, tr('Сначала нужно устранить препятствия')), h('ul', { class: 'store-plain-list' }, blockers.length ? blockers.map(reason => h('li', {}, raw(typeof reason === 'string' ? reason : reason.message || reason.reason || JSON.stringify(reason)))) : h('li', {}, tr('Подготовьте пакет заново после обновления источника.')))));
     if (Array.isArray(plan.dependencies) && plan.dependencies.length) current.body.append(h('details', { open: blocked }, h('summary', {}, tr('Зависимости: {}', plan.dependencies.length)), h('ul', { class: 'store-plain-list' }, plan.dependencies.map(item => h('li', {}, raw(item.id + ' ' + (item.version || '')), ' · ', tr(item.satisfied ? 'Установлено' : item.optional ? 'Необязательная связь' : 'Не установлено'))))));
     if (plan.rollback || plan.operation === 'rollback') current.body.append(h('p', { class: 'store-notice' }, tr('Возвращается предыдущий код. Данные сохраняются; старый код может не поддерживать более новый формат сохранения.')));
     if (conflicts.length) {
-      current.body.append(h('p', { class: 'store-notice' }, tr('Есть конфликт с вашими доработками. Сохраните свою версию файла или поручите агенту разобраться. Ничего не заменено.')));
+      // One file: the owner's copy stays, or the release's own file takes its place. Both go through the
+      // shell, which checks the hash the choice was made about; a snapshot is taken before anything is replaced.
+      const settle = (conflict, incoming) => incoming
+        ? api('resolve', plan.id, conflict.path, conflict.localSha || conflict.localHash || 'missing', null, false, true)
+        : api('resolve', plan.id, conflict.path, conflict.localSha || conflict.localHash || 'missing', null, true);
+      const one = (conflict, incoming) => event => operation('resolve-' + plan.id, event.currentTarget, async () => { const next = await settle(conflict, incoming); state.pending = next; showPlan(next); });
+      const every = incoming => event => operation('resolve-' + plan.id, event.currentTarget, async () => {
+        let next = plan;
+        try { for (const conflict of conflicts) next = await settle(conflict, incoming); }
+        finally { state.pending = next; showPlan(next); }
+      });
+      current.body.append(h('p', { class: 'store-notice' }, tr(adoption
+        ? 'Эти файлы у вас отличаются от выпуска магазина, и неизвестно, чья версия новее. Выберите для каждого, что оставить. Ничего не заменено; перед заменой будет сделан снимок.'
+        : 'Есть конфликт с вашими доработками. Сохраните свою версию файла, возьмите версию магазина или поручите агенту разобраться. Ничего не заменено.')));
+      if (conflicts.length > 1) current.body.append(h('div', { class: 'store-dialog-actions', 'data-resolve-all': '' },
+        button(tr('Взять все из магазина'), every(true), { 'data-take-all': '' }), button(tr('Оставить все мои'), every(false), { 'data-keep-all': '' })));
       current.body.append(h('div', { class: 'store-plan-list' }, conflicts.map(conflict => h('div', { class: 'store-plan-file store-plan-conflict', 'data-conflict': conflict.path },
-        h('div', { class: 'grow' }, h('code', {}, raw(conflict.path)), note(tr('Изменён и у вас, и в новой версии'))),
-        button(tr('Сохранить мою версию'), event => operation('resolve-' + plan.id, event.currentTarget, async () => {
-          const next = await api('resolve', plan.id, conflict.path, conflict.localSha || conflict.localHash || 'missing', null, true); state.pending = next; showPlan(next);
-        }), { 'data-keep-local': conflict.path })))));
+        h('div', { class: 'grow' }, h('code', {}, raw(conflict.path)), note(tr(adoption ? 'Отличается от выпуска магазина' : 'Изменён и у вас, и в новой версии'))),
+        h('div', { class: 'store-plan-choice' },
+          button(tr(adoption ? 'Оставить мою' : 'Сохранить мою версию'), one(conflict, false), { 'data-keep-local': conflict.path }),
+          button(tr('Взять из магазина'), one(conflict, true), { 'data-take-incoming': conflict.path }))))));
     }
     const preserved = changes.filter(change => change.localModified || /preserv|keep|local/i.test(change.kind || ''));
-    if (preserved.length) current.body.append(note(tr('Локальных правок будет сохранено: {}', preserved.length)));
+    if (preserved.length && !adoption) current.body.append(note(tr('Локальных правок будет сохранено: {}', preserved.length)));
+    const extras = adoption ? changes.filter(change => change.kind === 'keep-local') : [];
+    if (extras.length) current.body.append(note(tr('Ваших файлов, которых нет в выпуске, останется: {}', extras.length)));
     const fileList = h('details', {}, h('summary', {}, tr('Изменения файлов: {}', changes.length)), h('ul', { class: 'store-plain-list' }, changes.map(change => h('li', {}, h('code', {}, raw(change.path)), ' · ', raw(change.kind || change.action || '')))));
     current.body.append(fileList);
     const requests = (manifest.capabilities || []).concat((manifest.networkDomains || []).map(domain => 'https://' + domain));
@@ -360,7 +384,7 @@
     }
     const ackKey = plan.id + ':' + plan.digest;
     const ack = h('input', { type: 'checkbox', id: 'store-trust-ack', checked: state.acknowledged.has(ackKey) });
-    const direct = button(tr(plan.rollback || plan.operation === 'rollback' ? 'Вернуть версию' : 'Установить'), event => operation('apply-' + plan.id, event.currentTarget, async () => {
+    const direct = button(tr(plan.rollback || plan.operation === 'rollback' ? 'Вернуть версию' : adoption ? 'Принять модуль' : 'Установить'), event => operation('apply-' + plan.id, event.currentTarget, async () => {
       if (!state.acknowledged.has(ackKey) || conflicts.length || blocked || agentRunning) return;
       current.locked = true; current.close.disabled = true; dialogStatus(tr('Устанавливаем проверенный пакет…'));
       try {

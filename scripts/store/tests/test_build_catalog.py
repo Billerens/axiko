@@ -13,6 +13,7 @@ sys.path.insert(0, str(SCRIPT.parent))
 SPEC = importlib.util.spec_from_file_location('build_catalog', SCRIPT)
 builder = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(builder)
+versions = builder.versioning
 
 
 class CatalogBuildTests(unittest.TestCase):
@@ -39,11 +40,13 @@ class CatalogBuildTests(unittest.TestCase):
         path.write_bytes(raw if isinstance(raw, bytes) else raw.encode('utf-8'))
         return path
 
-    def package(self, folder='clock', identity=None, kind='module', target=None, requires=None):
+    def package(self, folder='clock', identity=None, kind='module', target=None, requires=None, version='0.1.0'):
         identity = identity or folder
         target = target or ('modules/games/' if kind == 'game' else 'modules/') + identity
-        self.write(folder + '/store.json', json.dumps({'id': identity, 'kind': kind, 'title': 'Clock',
-                                                       'target': target, 'requires': requires or []}))
+        described = {'id': identity, 'kind': kind, 'title': 'Clock', 'target': target, 'requires': requires or []}
+        if version is not None:
+            described['version'] = version
+        self.write(folder + '/store.json', json.dumps(described))
         self.write(folder + '/README.md', '# Clock\nReadable source.\n')
         descriptor = {'description': 'A local clock.'}
         if kind == 'game':
@@ -89,15 +92,79 @@ class CatalogBuildTests(unittest.TestCase):
         self.assertEqual('add-runtime-id', report['packages'][0]['transforms'][0]['kind'])
 
     def test_runtime_id_alias_maps_dependencies_and_preserves_save_version(self):
-        self.package('life-rpg', 'rpg')
-        self.package('puzzle', kind='game', requires=['life-rpg'])
+        self.package('life-rpg', 'rpg', version='0.3.2')
+        self.package('puzzle', kind='game', requires=['life-rpg'], version='1.4.0')
         self.build()
-        manifest = json.loads((self.out / 'puzzle-0.1.0.package.json').read_bytes())
-        self.assertEqual([{'id': 'rpg', 'version': '>=0.1.0'}], manifest['optionalDependencies'])
+        manifest = json.loads((self.out / 'puzzle-1.4.0.package.json').read_bytes())
+        # Each package has its own version; an optional neighbour is named as it is in the store now.
+        self.assertEqual([{'id': 'rpg', 'version': '>=0.3.2'}], manifest['optionalDependencies'])
         self.assertEqual([], manifest['dependencies'])
-        self.assertEqual('0.1.0', manifest['version'])
-        with zipfile.ZipFile(self.out / 'puzzle-0.1.0.zip') as archive:
+        self.assertEqual('1.4.0', manifest['version'])
+        with zipfile.ZipFile(self.out / 'puzzle-1.4.0.zip') as archive:
             self.assertEqual(7, json.loads(archive.read('code/game.json'))['saveVersion'])
+
+    def test_version_is_the_packages_own_semver_from_store_json(self):
+        for version in (None, '0.1', 'v1.0.0', '1.0.0.0', '01.0.0'):
+            with self.subTest(version=version):
+                self.package(version=version)
+                self.assertIn('SemVer', self.build(False)['blocked'][0]['error'])
+        self.package(version='2.0.0-rc.1')
+        self.assertEqual('2.0.0-rc.1', self.build()['packages'][0]['version'])
+        self.assertEqual([-1, 0, 1, -1, -1, 1, 0], [
+            versions.compare('0.1.9', '0.1.10'), versions.compare('1.0.0', '1.0.0'), versions.compare('1.0.0', '1.0.0-rc.1'),
+            versions.compare('1.0.0-alpha', '1.0.0-alpha.1'), versions.compare('1.0.0-alpha.2', '1.0.0-alpha.10'),
+            versions.compare('1.0.0-beta', '1.0.0-alpha.1'), versions.compare('1.0.0+build.1', '1.0.0+build.2')])
+
+    def publish(self):
+        """What an author does after uploading a build: the index goes to the store and the build is recorded."""
+        (self.store / 'index.json').write_bytes((self.out / 'index.json').read_bytes())
+        return versions.record(self.store, self.out)
+
+    def test_published_version_never_changes_its_contents_and_an_unchanged_package_keeps_its_release(self):
+        self.args.base_download_url = None
+        self.args.download_url_template = 'https://example.test/releases/{id}-v{version}'
+        self.package()
+        self.package('timer')
+        first = self.build()
+        self.assertEqual(['new', 'new'], [item['release'] for item in first['packages']])
+        self.assertEqual('https://example.test/releases/clock-v0.1.0', first['toPublish'][0]['downloadBase'])
+        self.assertEqual([{'id': 'clock', 'version': '0.1.0'}, {'id': 'timer', 'version': '0.1.0'}], self.publish()['recorded'])
+        published = json.loads((self.store / 'index.json').read_bytes())['packages']
+        self.assertTrue(versions.check(self.store, self.license.read_bytes(), [])['ok'])
+
+        # Nothing changed: nothing is rebuilt, and the index keeps the published archive of each package.
+        for stale in list(self.out.glob('*.zip')) + list(self.out.glob('*.package.json')):
+            stale.unlink()
+        again = self.build()
+        self.assertEqual([], again['toPublish'])
+        self.assertEqual(published, json.loads((self.out / 'index.json').read_bytes())['packages'])
+        self.assertEqual([], list(self.out.glob('*.zip')))
+
+        # A changed file under the published version stops the build and names the file.
+        self.write('clock/main.js', "exports.start = function () { return 'fixed'; };\n")
+        blocked = self.build(False)['blocked'][0]
+        self.assertEqual('clock', blocked['id'])
+        self.assertIn('code/main.js', blocked['error'])
+        self.assertIn('raise "version"', blocked['error'])
+        checked = versions.check(self.store, self.license.read_bytes(), [])
+        self.assertFalse(checked['ok'])
+        self.assertEqual(['clock'], [error['id'] for error in checked['errors']])
+
+        # Going down is refused as well; going up releases this package alone.
+        self.package(version='0.0.9')
+        self.write('clock/main.js', "exports.start = function () { return 'fixed'; };\n")
+        self.assertIn('lower than the published 0.1.0', self.build(False)['blocked'][0]['error'])
+        self.package(version='0.1.1')
+        self.write('clock/main.js', "exports.start = function () { return 'fixed'; };\n")
+        self.assertEqual([{'id': 'clock', 'folder': 'clock', 'version': '0.1.1', 'published': '0.1.0', 'changedFiles': 1}],
+                         versions.check(self.store, self.license.read_bytes(), [])['toRelease'])
+        report = self.build()
+        self.assertEqual({'clock': 'update', 'timer': 'unchanged'}, {item['id']: item['release'] for item in report['packages']})
+        entries = {entry['id']: entry for entry in json.loads((self.out / 'index.json').read_bytes())['packages']}
+        self.assertEqual('https://example.test/releases/clock-v0.1.1/clock-0.1.1.zip', entries['clock']['archive']['url'])
+        self.assertEqual(published[1], entries['timer'])
+        self.assertEqual([{'id': 'clock', 'version': '0.1.1'}], self.publish()['recorded'])
+        self.assertEqual([], self.build()['toPublish'])
 
     def test_legacy_target_excluded_explicitly_without_renaming(self):
         self.package()
@@ -153,6 +220,10 @@ class CatalogBuildTests(unittest.TestCase):
 
     def test_https_only_output_outside_store_and_unknown_exclusion(self):
         self.package()
+        self.args.download_url_template = 'https://example.test/{id}'
+        with self.assertRaises(builder.BuildError):
+            builder.build(self.args)
+        self.args.download_url_template = None
         self.args.base_download_url = 'http://example.test/releases'
         with self.assertRaises(builder.BuildError):
             builder.build(self.args)

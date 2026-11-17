@@ -64,6 +64,10 @@ class StoreService(
                         error = own.getString("localError")
                         status = "localError"
                     }
+                } else if (installer.standing(entry.getString("kind"), entry.getString("id"))) {
+                    // Put there by hand or by an older installer: the store knows nothing of its version
+                    // and offers to take it over instead of calling it absent.
+                    status = "unmanaged"
                 }
                 if (error != null && status == "available") status = "incompatible"
                 val sha = entry.getJSONObject("archive").getString("sha256")
@@ -104,7 +108,8 @@ class StoreService(
         return result
     }
 
-    fun prepare(sourceId: String, packageId: String): JSONObject {
+    /** [adopt]: the owner asked to take a module that already stands there without the store's record under its care. */
+    fun prepare(sourceId: String, packageId: String, adopt: Boolean = false): JSONObject {
         val source = sources.source(sourceId, true)
         val entry = sources.packageEntry(sourceId, packageId)
         bans.find(entry.getJSONObject("archive").getString("sha256"))?.let { throw StoreBanned(it) }
@@ -147,7 +152,7 @@ class StoreService(
                 val latest = sources.packageEntry(sourceId, packageId)
                 require(StoreFormat.canonical(latest) == StoreFormat.canonical(entry)) { "Каталог изменился во время загрузки. Подготовьте новую версию." }
                 val result = try {
-                    installer.prepare(sourceId, entry, manifestResponse.bytes, file)
+                    installer.prepare(sourceId, entry, manifestResponse.bytes, file, adopt)
                 } catch (violation: StoreViolation) {
                     // The archive is exactly the one the index names, and it breaks a rule no review is needed for.
                     val rule = StoreRules.rule(violation.rule)
@@ -197,9 +202,9 @@ class StoreService(
         installer.read(id, path, offset, limit, side).put("planDigest", current.getString("digest"))
     }
 
-    fun resolve(id: String, path: String, expectedHash: String, content: String?, keepLocal: Boolean): JSONObject = synchronized(operationLock) {
+    fun resolve(id: String, path: String, expectedHash: String, content: String?, keepLocal: Boolean, takeIncoming: Boolean = false): JSONObject = synchronized(operationLock) {
         subject(id)
-        val result = installer.resolve(id, path, expectedHash, content, keepLocal)
+        val result = installer.resolve(id, path, expectedHash, content, keepLocal, takeIncoming)
         decorate(result, subject(id))
     }
 
@@ -542,6 +547,23 @@ object Store {
 
     fun recover() = service.recover()
 
+    /** The catalog every install starts with. The owner can switch it off or remove it like any other source. */
+    const val FACTORY_SOURCE = "https://raw.githubusercontent.com/Billerens/assi-store/main/index.json"
+    @Volatile private var factoryTried = 0L
+
+    /**
+     * Connects the factory source once, off the caller's thread: the store opens at once and the catalog
+     * arrives when the index has been fetched and checked ([connected] is then called). Without a network
+     * nothing is recorded; the next look at the store tries again, at most once a minute.
+     */
+    fun factory(connected: () -> Unit) {
+        val service = service
+        val now = System.currentTimeMillis()
+        if (service.sources.factorySettled() || now - factoryTried < 60_000) return
+        factoryTried = now
+        Thread({ runCatching { service.sources.ensureFactory(FACTORY_SOURCE) }.getOrNull()?.let { connected() } }, "store-factory-source").start()
+    }
+
     fun call(method: String, args: JSONArray): Any? {
         val service = service
         return when (method) {
@@ -552,11 +574,11 @@ object Store {
             "store.source.enable" -> service.sources.enable(args.getString(0), args.getBoolean(1))
             "store.catalog" -> service.catalog()
             "store.installed" -> service.installed()
-            "store.prepare" -> service.prepare(args.getString(0), args.getString(1))
+            "store.prepare" -> service.prepare(args.getString(0), args.getString(1), args.optBoolean(2, false))
             "store.plans" -> service.plans()
             "store.plan" -> service.plan(args.getString(0))
             "store.read" -> service.read(args.getString(0), args.getString(1), args.optInt(2, 0), args.optInt(3, 16000), args.optString(4, "candidate"))
-            "store.resolve" -> service.resolve(args.getString(0), args.getString(1), args.getString(2), if (args.isNull(3)) null else args.getString(3), args.optBoolean(4, false))
+            "store.resolve" -> service.resolve(args.getString(0), args.getString(1), args.getString(2), if (args.isNull(3)) null else args.getString(3), args.optBoolean(4, false), args.optBoolean(5, false))
             "store.apply" -> service.apply(args.getString(0), args.getString(1), args.optBoolean(2, false))
             "store.rollback" -> service.prepareRollback(args.getString(0))
             "store.review" -> service.review(args.getString(0))

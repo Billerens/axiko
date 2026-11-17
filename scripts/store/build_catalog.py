@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Build local readable Axiko packages. Never upload, install or execute package code."""
+"""Build local readable Axiko packages. Never upload, install or execute package code.
+
+A package's version is the SemVer in its store.json. A package whose files equal its published
+release (released/<id>.package.json) keeps that release; changed files under the same version
+stop the build.
+"""
 from __future__ import annotations
 
 import argparse
@@ -15,6 +20,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import validate_metadata as metadata
+import versions as versioning
 
 MAX_ARCHIVE_BYTES = 5_242_880
 SKIP_NAMES = {'tests', 'node_modules', 'build', 'dist', '__pycache__', '.git', 'data'}
@@ -179,7 +185,13 @@ def validate_written(path: Path, kind: str):
         raise BuildError('; '.join(error['path'] + ': ' + error['message'] for error in result['errors']))
 
 
-def package(folder: Path, output: Path, args, license_raw: bytes, ids: dict[str, str]):
+def inventory(payload: dict[str, bytes]) -> dict[str, str]:
+    """What a release is compared by: every file of the archive except its manifest."""
+    return {path: sha256(raw) for path, raw in payload.items() if path != 'package.json'}
+
+
+def prepare(folder: Path, license_raw: bytes):
+    """All that the sources alone decide about a package: who it is, its version and the exact files of its archive."""
     store = load_json(folder / 'store.json')
     identity = store.get('id', '')
     kind = store.get('kind')
@@ -189,8 +201,6 @@ def package(folder: Path, output: Path, args, license_raw: bytes, ids: dict[str,
     if store.get('target') != expected_target:
         raise BuildError(f'Legacy target alias is unsupported in v1: expected {expected_target}; existing runtime and save IDs are not renamed')
     payload, excluded, audit = collect_payload(folder, license_raw)
-    if any(item['severity'] == 'blocker' for item in audit):
-        return None, {'id': identity, 'folder': folder.name, 'error': 'Potential credential material; inspect the reported files before publication', 'audit': audit}
     descriptor_path = 'code/' + ('game.json' if kind == 'game' else 'module.json')
     if descriptor_path not in payload:
         raise BuildError(f'{descriptor_path} is required')
@@ -206,11 +216,52 @@ def package(folder: Path, output: Path, args, license_raw: bytes, ids: dict[str,
                            'sourceSha256': sha256(original), 'packagedSha256': sha256(payload[descriptor_path])})
     if descriptor.get('id') != identity:
         raise BuildError(f'{descriptor_path}: runtime id differs from store id; refusing to rename saves')
+    return {'store': store, 'id': identity, 'kind': kind, 'target': expected_target, 'version': store.get('version'),
+            'payload': payload, 'excluded': excluded, 'audit': audit, 'descriptor': descriptor, 'transforms': transforms}
+
+
+def download_base(args, identity: str, version: str) -> str:
+    """Where a release's files are published: one place for all, or a place per package and version."""
+    if args.download_url_template:
+        try:
+            return args.download_url_template.format(id=identity, version=version).rstrip('/')
+        except (KeyError, IndexError, ValueError) as error:
+            raise BuildError('--download-url-template may only use {id} and {version}') from error
+    return (args.base_download_url or '').rstrip('/')
+
+
+def package(folder: Path, output: Path, args, license_raw: bytes, ids: dict[str, str], dependency_versions: dict[str, str], published: dict):
+    prepared = prepare(folder, license_raw)
+    store, identity, kind, payload = prepared['store'], prepared['id'], prepared['kind'], prepared['payload']
+    excluded, audit, descriptor, transforms = prepared['excluded'], prepared['audit'], prepared['descriptor'], prepared['transforms']
+    expected_target = prepared['target']
+    if any(item['severity'] == 'blocker' for item in audit):
+        return None, {'id': identity, 'folder': folder.name, 'error': 'Potential credential material; inspect the reported files before publication', 'audit': audit}
+    version = prepared['version']
+    try:
+        state, changed = versioning.verdict(version, inventory(payload), versioning.released_manifest(args.store.resolve(), identity))
+    except versioning.VersionError as error:
+        raise BuildError(str(error)) from error
+    summary = descriptor.get('description') or descriptor.get('about') or store.get('title') or identity
+    entry = {
+        'id': identity, 'kind': kind, 'title': store.get('title', identity), 'summary': str(summary)[:600],
+        'version': version, 'publisher': args.publisher, 'license': args.license_id,
+        'compatibility': {'minAssiApi': 1},
+    }
+    if kind == 'game':
+        entry['compatibility']['gamesEngine'] = 1
+    listed = published.get(identity)
+    if state == 'unchanged' and listed and listed.get('version') == version:
+        # The same files under the same version: the published archive stays the release. It is not
+        # rebuilt, so its bytes and hash cannot drift with the compressor of the machine that builds.
+        entry['manifestUrl'], entry['archive'] = listed['manifestUrl'], listed['archive']
+        return entry, {'id': identity, 'folder': folder.name, 'version': version, 'release': 'unchanged',
+                       'archiveSha256': listed['archive']['sha256'], 'excludedSourcePaths': excluded, 'audit': audit}
     declared_entry = descriptor.get('entry')
-    entry = declared_entry or ('ui/index.html' if 'code/ui/index.html' in payload else 'main.js')
-    if entry.startswith(expected_target + '/'):
-        entry = entry[len(expected_target) + 1:]
-    if 'code/' + entry not in payload:
+    runtime_entry = declared_entry or ('ui/index.html' if 'code/ui/index.html' in payload else 'main.js')
+    if runtime_entry.startswith(expected_target + '/'):
+        runtime_entry = runtime_entry[len(expected_target) + 1:]
+    if 'code/' + runtime_entry not in payload:
         raise BuildError('Runtime entry is missing from package source')
     requires = store.get('requires', [])
     if not isinstance(requires, list) or any(not isinstance(value, str) for value in requires):
@@ -225,17 +276,18 @@ def package(folder: Path, output: Path, args, license_raw: bytes, ids: dict[str,
             if NETWORK_PATTERN.search(source):
                 network_files.append(path)
     manifest = {
-        'schemaVersion': 1, 'id': identity, 'kind': kind, 'version': args.version,
+        'schemaVersion': 1, 'id': identity, 'kind': kind, 'version': version,
         'publisher': args.publisher, 'license': args.license_id, 'sourceFormat': 'readable',
-        'entry': 'code/' + entry, 'runtime': {'assiApi': 1}, 'dependencies': [],
-        'optionalDependencies': [{'id': dep, 'version': '>=' + args.version} for dep in optional],
+        'entry': 'code/' + runtime_entry, 'runtime': {'assiApi': 1}, 'dependencies': [],
+        # An optional integration was written against the neighbour as it is in this store now.
+        'optionalDependencies': [{'id': dep, 'version': '>=' + dependency_versions.get(dep, version)} for dep in optional],
         'capabilities': ['storage.own', 'legacy.full-trust'],
         'networkDomains': sorted(domains),
         'files': [{'path': path, 'size': len(raw), 'sha256': sha256(raw)} for path, raw in sorted(payload.items())],
     }
     if kind == 'game':
         manifest['runtime']['gamesEngine'] = 1
-    stem = identity + '-' + args.version
+    stem = identity + '-' + version
     manifest_name = stem + '.package.json'
     manifest_raw = json_bytes(manifest)
     (output / manifest_name).write_bytes(manifest_raw)
@@ -246,19 +298,13 @@ def package(folder: Path, output: Path, args, license_raw: bytes, ids: dict[str,
         raise BuildError('Compressed archive exceeds 5 MiB')
     archive_name = stem + '.zip'
     (output / archive_name).write_bytes(archive_raw)
-    summary = descriptor.get('description') or descriptor.get('about') or store.get('title') or identity
-    entry = {
-        'id': identity, 'kind': kind, 'title': store.get('title', identity), 'summary': str(summary)[:600],
-        'version': args.version, 'publisher': args.publisher, 'license': args.license_id,
-        'manifestUrl': args.base_download_url.rstrip('/') + '/' + manifest_name,
-        'archive': {'url': args.base_download_url.rstrip('/') + '/' + archive_name,
-                    'sha256': sha256(archive_raw), 'size': len(archive_raw),
-                    'unpackedSize': sum(map(len, payload.values())), 'fileCount': len(payload)},
-        'compatibility': {'minAssiApi': 1},
-    }
-    if kind == 'game':
-        entry['compatibility']['gamesEngine'] = 1
-    return entry, {'id': identity, 'folder': folder.name, 'archive': archive_name,
+    base = download_base(args, identity, version)
+    entry['manifestUrl'] = base + '/' + manifest_name
+    entry['archive'] = {'url': base + '/' + archive_name,
+                        'sha256': sha256(archive_raw), 'size': len(archive_raw),
+                        'unpackedSize': sum(map(len, payload.values())), 'fileCount': len(payload)}
+    return entry, {'id': identity, 'folder': folder.name, 'version': version, 'release': 'new' if state == 'new' else 'update',
+                   'changedFiles': len(changed), 'archive': archive_name, 'downloadBase': base,
                    'archiveSha256': entry['archive']['sha256'], 'archiveBytes': len(archive_raw),
                    'unpackedBytes': entry['archive']['unpackedSize'], 'fileCount': len(payload),
                    'transforms': transforms, 'excludedSourcePaths': excluded, 'audit': audit,
@@ -271,7 +317,9 @@ def build(args):
         raise BuildError('Store directory does not exist')
     if store == output or store in output.parents:
         raise BuildError('Output must be outside the source store to avoid packaging build artifacts')
-    for url in [args.base_download_url, args.repository_homepage]:
+    if bool(args.base_download_url) == bool(args.download_url_template):
+        raise BuildError('Give exactly one of --base-download-url and --download-url-template')
+    for url in [download_base(args, 'package', '0.0.0'), args.repository_homepage]:
         problem = metadata.check_https(url)
         if problem or urlsplit(url).query:
             raise BuildError('Repository and download URLs must be HTTPS without credentials, query or fragment')
@@ -282,21 +330,32 @@ def build(args):
     folders = sorted(path.parent for path in store.glob('*/store.json'))
     if not folders:
         raise BuildError('No */store.json packages found')
-    ids, seen = {}, set()
+    ids, seen, dependency_versions = {}, set(), {}
     for folder in folders:
         if folder.is_symlink():
             raise BuildError(f'{folder.name}: symlink package directory is forbidden')
-        identity = load_json(folder / 'store.json').get('id')
+        described = load_json(folder / 'store.json')
+        identity = described.get('id')
         if identity in seen:
             raise BuildError('Duplicate package ID in source store')
         seen.add(identity)
         ids[folder.name] = identity
+        if isinstance(described.get('version'), str):
+            dependency_versions[identity] = described['version']
+    # What is offered now: a package that did not change keeps its entry's archive and manifest.
+    published = {}
+    listing = args.published or store / 'index.json'
+    if listing.is_file():
+        current, errors = metadata.parse_metadata(listing.read_bytes())
+        if errors or not isinstance(current, dict):
+            raise BuildError('The published index is not valid JSON metadata')
+        published = {entry['id']: entry for entry in current.get('packages', []) if isinstance(entry, dict) and 'id' in entry}
     unknown = set(args.exclude) - set(ids) - set(ids.values())
     if unknown:
         raise BuildError('Unknown excluded package: ' + ', '.join(sorted(unknown)))
     output.mkdir(parents=True, exist_ok=True)
     report = {'schemaVersion': 1, 'ok': False, 'scope': 'local-package-build',
-              'version': args.version, 'repositoryId': args.repository_id,
+              'repositoryId': args.repository_id,
               'publisher': args.publisher, 'license': args.license_id,
               'limitations': [
                   'No publication, installation, execution or migration is performed.',
@@ -318,7 +377,7 @@ def build(args):
                 report['excluded'].append({'id': identity, 'folder': folder.name, 'reason': reason})
                 continue
             try:
-                entry, package_report = package(folder, stage, args, license_raw, ids)
+                entry, package_report = package(folder, stage, args, license_raw, ids, dependency_versions, published)
                 if entry is None:
                     report['blocked'].append(package_report)
                 else:
@@ -335,6 +394,9 @@ def build(args):
         except BuildError as error:
             report['blocked'].append({'id': None, 'error': str(error)})
         report['ok'] = not report['blocked']
+        report['toPublish'] = [{'id': item['id'], 'version': item['version'], 'downloadBase': item['downloadBase'],
+                                'files': [item['archive'], item['id'] + '-' + item['version'] + '.package.json']}
+                               for item in report['packages'] if item['release'] != 'unchanged']
         if report['ok']:
             # A failed build never replaces the last complete index or artifacts.
             # Publication is an explicit subsequent step, outside this tool.
@@ -350,13 +412,15 @@ def parser():
     result = argparse.ArgumentParser(description=__doc__)
     result.add_argument('--store', type=Path, required=True, help='Source root containing */store.json')
     result.add_argument('--out', type=Path, required=True, help='Build directory outside source root')
-    result.add_argument('--base-download-url', required=True, help='HTTPS release asset base URL; no network request is made')
+    result.add_argument('--base-download-url', help='HTTPS release asset base URL shared by every package; no network request is made')
+    result.add_argument('--download-url-template', help='HTTPS release asset base URL per package, with {id} and {version}, '
+                                                        'for example https://github.com/owner/store/releases/download/{id}-v{version}')
+    result.add_argument('--published', type=Path, help='The index that is published now; defaults to index.json in the store')
     result.add_argument('--publisher', required=True, help='Stable lowercase publisher ID')
     result.add_argument('--licensefile', type=Path, required=True, help='License or explicit no-license notice; copied as LICENSE')
     result.add_argument('--license-id', default='UNLICENSED', help='License metadata, defaults to UNLICENSED; does not grant rights')
-    result.add_argument('--version', default='0.1.0', help='Package SemVer, independent from game saveVersion')
     result.add_argument('--repository-id', default='billerens.assi-store')
-    result.add_argument('--repository-title', default='Axiko Store')
+    result.add_argument('--repository-title', default='Assi Store')
     result.add_argument('--repository-homepage', default='https://github.com/Billerens/assi-store')
     result.add_argument('--exclude', action='append', default=[], help='Explicit package ID or source folder to omit, repeatable')
     return result

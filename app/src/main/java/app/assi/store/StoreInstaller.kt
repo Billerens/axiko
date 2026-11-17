@@ -37,10 +37,20 @@ class StoreInstaller(
         plansDir.mkdirs(); releases.mkdirs(); recover()
     }
 
+    /**
+     * [adopt] takes a folder that stands at the package's place without a record of the store (put there by hand
+     * or by an older installer) under the store's care. Nothing is known about what it was made from, so the plan
+     * has no base: files equal to the release pass silently, every other one is the owner's to decide.
+     */
     @Synchronized
-    fun prepare(sourceId: String, entry: JSONObject, manifestBytes: ByteArray, archiveFile: File): JSONObject = prepareInternal(sourceId, entry, manifestBytes, archiveFile, false)
+    fun prepare(sourceId: String, entry: JSONObject, manifestBytes: ByteArray, archiveFile: File, adopt: Boolean = false): JSONObject = prepareInternal(sourceId, entry, manifestBytes, archiveFile, false, adopt)
 
-    private fun prepareInternal(sourceId: String, entry: JSONObject, manifestBytes: ByteArray, archiveFile: File, rollback: Boolean): JSONObject {
+    /** Whether a folder stands where this package would be installed; who put it there is the registry's to say. */
+    fun standing(kind: String, id: String): Boolean = runCatching {
+        id !in reserved && Files.isDirectory(targetFile(if (kind == "game") "modules/games/$id" else "modules/$id").toPath(), NOFOLLOW_LINKS)
+    }.getOrDefault(false)
+
+    private fun prepareInternal(sourceId: String, entry: JSONObject, manifestBytes: ByteArray, archiveFile: File, rollback: Boolean, adopt: Boolean = false): JSONObject {
         require(sourceId.isNotEmpty() && sourceId.length <= 256 && sourceId.none { it.code < 32 }) { "Некорректный источник." }
         StoreFormat.packageEntry(entry)
         // Asked before anything is unpacked: a banned archive is not staged again, by hand or by an agent.
@@ -54,7 +64,8 @@ class StoreInstaller(
         val key = StoreFormat.sha256((sourceId + "\n" + id).toByteArray())
         val registry = registry(); val old = registry.optJSONObject(key)
         for (name in registry.keys()) require(name == key || registry.getJSONObject(name).getString("target") != target) { "Пакет другого источника уже занимает этот путь." }
-        require(old != null || !Files.exists(live.toPath(), NOFOLLOW_LINKS)) { "Здесь уже есть локальный модуль без исходной версии магазина. Его файлы не будут заменены." }
+        val foreign = old == null && Files.exists(live.toPath(), NOFOLLOW_LINKS)
+        require(!foreign || adopt) { "Здесь уже стоит модуль, установленный не через магазин. Его файлы не заменены. Чтобы обновлять его из каталога, примите его под управление магазина." }
         if (old != null) {
             require(old.getString("publisher") == manifest.getString("publisher")) { "Издатель установленного пакета изменился." }
             val compared = StoreFormat.compareVersions(manifest.getString("version"), old.getString("version"))
@@ -72,18 +83,22 @@ class StoreInstaller(
         val planDir = File(plansDir, planId).apply { mkdirs() }
         val candidate = File(planDir, "candidate").apply { mkdirs() }
         val changes = JSONArray(); val conflicts = JSONArray()
+        var matching = 0
         try {
             val paths = (baseFiles.keys + localFiles.keys + incomingFiles.keys).sorted()
             for (path in paths) {
                 val b = baseFiles[path]; val l = localFiles[path]; val n = incomingFiles[path]
-                val locallyChanged = l != b
+                // Without a base a file equal to the release is the release's file, not the owner's edit.
+                val same = foreign && l == n
+                if (same) matching++
+                val locallyChanged = l != b && !same
                 val collision = l != b && n != b && l != n
                 val chosen = when { collision -> l; l == b -> n; n == b || l == n -> l; else -> l }
                 if (chosen != null) {
                     val from = if (chosen == l && Files.exists(File(live, path).toPath(), NOFOLLOW_LINKS)) File(live, path) else File(incoming, path)
                     copyFile(from, File(candidate, path))
                 }
-                if (b != n || l != n) changes.put(JSONObject().put("path", path).put("kind", if (collision) "conflict" else if (chosen == l && locallyChanged) "keep-local" else if (chosen == null) "delete" else if (l == null) "add" else "update").put("localModified", locallyChanged))
+                if (!same && (b != n || l != n)) changes.put(JSONObject().put("path", path).put("kind", if (collision) "conflict" else if (chosen == l && locallyChanged) "keep-local" else if (chosen == null) "delete" else if (l == null) "add" else "update").put("localModified", locallyChanged))
                 if (collision) conflicts.put(JSONObject().put("path", path).put("baseSha", b ?: "missing").put("localSha", l ?: "missing").put("incomingSha", n ?: "missing")
                     .put("baseHash", b ?: "missing").put("localHash", l ?: "missing").put("incomingHash", n ?: "missing").put("resolved", false))
             }
@@ -97,6 +112,7 @@ class StoreInstaller(
                 .put("runtimeProfile", "trustedLegacy").put("capabilitiesEnforced", false).put("createdAt", System.currentTimeMillis())
                 .put("liveSignature", signature(localFiles)).put("incomingSignature", signature(incomingFiles)).put("baseRecordDigest", old?.let { StoreFormat.sha256(StoreFormat.canonical(it).toByteArray()) } ?: "missing")
                 .put("changes", changes).put("conflicts", conflicts).put("rollback", rollback)
+                .put("adoption", foreign).put("matchingFiles", matching)
                 .put("findings", readJson(File(release, "analysis.json")).getJSONArray("findings"))
             if (old != null) plan.put("previousRecord", old)
             refreshPlan(plan, candidate)
@@ -140,7 +156,7 @@ class StoreInstaller(
     }
 
     @Synchronized
-    fun resolve(planId: String, path: String, expectedHash: String, content: String? = null, keepLocal: Boolean = false): JSONObject {
+    fun resolve(planId: String, path: String, expectedHash: String, content: String? = null, keepLocal: Boolean = false, takeIncoming: Boolean = false): JSONObject {
         val plan = loadPlan(planId); require(plan.getString("status") != "applied") { "План уже установлен." }; verifyCandidate(plan); verifyLive(plan)
         StoreFormat.path(path)
         val conflicts = plan.getJSONArray("conflicts")
@@ -150,12 +166,16 @@ class StoreInstaller(
         if (keepLocal) {
             val live = File(targetFile(plan.getString("target")), path)
             if (live.isFile) copyFile(live, target) else if (target.exists()) require(target.delete())
+        } else if (takeIncoming) {
+            // The release's own file, already checked against its manifest; the owner's copy stays in the snapshot.
+            val incoming = File(File(File(releases, plan.getString("artifactSha256")), "payload"), path)
+            if (incoming.isFile) copyFile(incoming, target) else if (target.exists()) require(target.delete())
         } else {
-            require(content != null) { "Нужен объединённый текст или сохранение локальной версии." }
+            require(content != null) { "Нужен объединённый текст, версия магазина или сохранение локальной версии." }
             val bytes = content.toByteArray(); require(bytes.size <= StoreFormat.MAX_FILE) { "Объединённый файл слишком велик." }; scanSource(path, bytes, JSONArray())
             requireNotNull(target.parentFile).mkdirs(); target.writeBytes(bytes)
         }
-        conflict.put("resolved", true).put("resolution", if (keepLocal) "keep-local" else "merged")
+        conflict.put("resolved", true).put("resolution", if (keepLocal) "keep-local" else if (takeIncoming) "incoming" else "merged")
         refreshPlan(plan, candidate(planId)); return publicPlan(plan)
     }
 
@@ -178,6 +198,7 @@ class StoreInstaller(
             .put("artifactSha256", plan.getString("artifactSha256")).put("manifest", plan.getJSONObject("manifest")).put("catalogEntry", plan.getJSONObject("catalogEntry"))
             .put("runtimeProfile", "trustedLegacy").put("capabilitiesEnforced", false).put("installedAt", System.currentTimeMillis())
             .put("baseFiles", JSONObject(fileHashes(File(File(releases, plan.getString("artifactSha256")), "payload")))).put("transactionId", tx)
+        if (plan.optBoolean("adoption")) record.put("adopted", true)
         if (old != null) record.put("previousRelease", JSONObject().put("artifactSha256", old.getString("artifactSha256")).put("catalogEntry", old.getJSONObject("catalogEntry")).put("version", old.getString("version")))
         try {
             val snapshotId = snapshot("Перед ${if (plan.optBoolean("rollback")) "откатом" else "установкой"} ${plan.getString("title")} ${plan.getString("version")}")

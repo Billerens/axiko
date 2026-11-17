@@ -51,7 +51,7 @@ object Native {
         "notice.full", "notice.removed", "notice.open", "notify.actions", "dnd", "off", "job.once",
         "vibrate.pattern", "app.visible", "speech.stream", "transcribe.segments", "speech.render",
         "theme.decor", "widget.image", "home.cards", "usage", "store.v1", "button.face", "launcher.icon",
-        "launcher.icons", "ui.scale",
+        "launcher.icons", "ui.scale", "store.adopt",
     )
 
     fun call(method: String, args: JSONArray): Any? = when (method) {

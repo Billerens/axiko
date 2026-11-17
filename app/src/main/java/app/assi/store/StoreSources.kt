@@ -182,6 +182,25 @@ class StoreSources(private val stateDir: File, private val transport: StoreTrans
         }
     }
 
+    private val factoryMarker = File(stateDir, "factory-source.json")
+
+    /** Whether the factory source was already offered: connected once, or connected and then removed by the owner. */
+    fun factorySettled(): Boolean = factoryMarker.isFile
+
+    /**
+     * Connects the source every install starts with, once. It is fetched and checked like a source added by
+     * hand, so without a network nothing is recorded and the attempt is made again later. After the first
+     * success it is the owner's: removed, it stays removed. Returns the source when it has just been connected.
+     */
+    fun ensureFactory(url: String): JSONObject? {
+        if (factorySettled()) return null
+        val added = add(url)
+        synchronized(lock) {
+            StoreDisk.write(factoryMarker, JSONObject().put("indexUrl", added.getString("indexUrl")).put("sourceId", added.getString("id")).put("at", System.currentTimeMillis()))
+        }
+        return added
+    }
+
     fun refresh(id: String): JSONObject {
         val before = source(id)
         try {

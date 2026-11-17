@@ -82,6 +82,31 @@ class StoreServiceTest {
         assertFalse(service.installed().getJSONObject(0).getBoolean("sourceAvailable"))
     }
 
+    @Test fun moduleStandingWithoutTheStoreIsOfferedForTakingOverAndThenUpdatesLikeAnyOther() {
+        val v1 = StoreServiceFixtures.bundle(); transport.publish(v1)
+        // Copied in by hand before the store existed: the same code as the release but for one older file.
+        val own = File(workspace, "modules/demo.counter").apply { mkdirs() }
+        File(own, "module.json").writeText(JSONObject().put("id", "demo.counter").put("title", "Counter").put("entry", "ui/index.html").put("autostart", false).toString())
+        File(own, "ui").mkdirs(); File(own, "ui/index.html").writeText("<!doctype html>\n<html><body><p>Fixture counter</p></body></html>\n")
+        val main = File(own, "main.js").apply { writeText("exports.value = function () {\n  return 0;\n};\n") }
+        val data = File(folder.root, "data/demo.counter/save.json").apply { parentFile.mkdirs(); writeText("owner-progress") }
+        val service = service(); val source = add(service)
+        assertEquals("unmanaged", service.catalog().getJSONObject(0).getString("status")); assertEquals(0, service.installed().length())
+        // A plain install never touches it; taking it over is asked for in so many words.
+        assertThrows(IllegalArgumentException::class.java) { service.prepare(source, "demo.counter") }
+        val plan = service.prepare(source, "demo.counter", adopt = true)
+        assertTrue(plan.getBoolean("adoption")); assertEquals("conflicts", plan.getString("status")); assertEquals(2, plan.getInt("matchingFiles"))
+        val conflict = plan.getJSONArray("conflicts").getJSONObject(0); assertEquals("main.js", conflict.getString("path"))
+        val ready = service.resolve(plan.getString("id"), "main.js", conflict.getString("localSha"), null, false, true)
+        apply(service, ready)
+        assertTrue(main.readText().contains("return 1")); assertEquals("owner-progress", data.readText()); assertEquals(1, snapshots)
+        assertEquals("installed", service.catalog().getJSONObject(0).getString("status"))
+        assertFalse(service.installed().getJSONObject(0).getBoolean("localModified"))
+        transport.publish(StoreServiceFixtures.bundle(version = "1.0.1", main = "exports.value = function () {\n  return 2;\n};\n")); service.sources.refresh(source)
+        assertEquals("update", service.catalog().getJSONObject(0).getString("status"))
+        apply(service, service.prepare(source, "demo.counter")); assertTrue(main.readText().contains("return 2"))
+    }
+
     @Test fun unchangedUpstreamFileKeepsAgentEditWithoutAConflict() {
         transport.publish(StoreServiceFixtures.bundle())
         val service = service(); val source = add(service); apply(service, service.prepare(source, "demo.counter"))

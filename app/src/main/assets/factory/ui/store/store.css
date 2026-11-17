@@ -80,6 +80,7 @@
 .store-plan-file { padding: 10px 12px; border: 1px solid var(--line); border-radius: 11px; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .store-plan-file code { display: block; font-size: 12px; font-family: var(--mono); overflow-wrap: anywhere; }
 .store-plan-file .btn { width: auto; flex: none; font-size: 13px; }
+.store-plan-choice { display: flex; flex-wrap: wrap; gap: 7px; flex: none; }
 .store-plan-conflict { border-color: #8a7458; }
 .store-plan-conflict .store-note { color: #d6bb83; }
 .store-trust { display: flex; align-items: flex-start; gap: 9px; font-size: 14px; cursor: pointer; min-height: 44px; }
@@ -211,6 +212,8 @@
   .store-details { gap: 7px; }
   .store-plan-file { align-items: flex-start; flex-direction: column; }
   .store-plan-file .btn { width: 100%; }
+  .store-plan-choice { width: 100%; }
+  .store-plan-choice .btn { width: auto; flex: 1 1 130px; min-height: 44px; }
   .store-pending { align-items: flex-start; flex-direction: column; }
 }
 @media (prefers-reduced-motion: reduce) { .store-dialog-backdrop { animation: none; } }

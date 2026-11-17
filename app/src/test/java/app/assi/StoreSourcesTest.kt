@@ -35,6 +35,27 @@ class StoreSourcesTest {
         assertEquals(1, sources.list().length())
     }
 
+    @Test fun factorySourceIsConnectedOnceAndStaysRemovedWhenTheOwnerRemovesIt() {
+        val sources = sources()
+        // No network yet: nothing is recorded, so the next look at the store tries again.
+        assertThrows(IOException::class.java) { sources.ensureFactory(StoreServiceFixtures.INDEX) }
+        assertFalse(sources.factorySettled()); assertEquals(0, sources.list().length())
+        transport.put(StoreServiceFixtures.INDEX, StoreServiceFixtures.index(StoreServiceFixtures.entry()))
+        val added = sources.ensureFactory(StoreServiceFixtures.INDEX)!!
+        assertTrue(sources.factorySettled()); assertEquals(1, sources.list().length())
+        assertNull(sources.ensureFactory(StoreServiceFixtures.INDEX))
+        sources.remove(added.getString("id"))
+        assertNull(sources().ensureFactory(StoreServiceFixtures.INDEX)); assertEquals(0, sources().list().length())
+    }
+
+    @Test fun factorySourceAlreadyAddedByHandIsKeptAsItIs() {
+        transport.put(StoreServiceFixtures.INDEX, StoreServiceFixtures.index(StoreServiceFixtures.entry()))
+        val sources = sources(); val byHand = sources.add(StoreServiceFixtures.INDEX)
+        sources.enable(byHand.getString("id"), false)
+        assertEquals(byHand.getString("id"), sources.ensureFactory(StoreServiceFixtures.INDEX)!!.getString("id"))
+        assertEquals(1, sources.list().length()); assertFalse(sources.list().getJSONObject(0).getBoolean("enabled"))
+    }
+
     @Test fun githubRepoUsesItsActualDefaultBranchAndRootIndex() {
         transport.put("https://api.github.com/repos/example/catalog", "{\"default_branch\":\"stable\"}".toByteArray())
         transport.put("https://raw.githubusercontent.com/example/catalog/stable/index.json", StoreServiceFixtures.index())
