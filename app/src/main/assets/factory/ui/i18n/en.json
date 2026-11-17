@@ -1328,5 +1328,21 @@
   "Сделано иначе, чем у автора: {}": "Done differently from the author: {}",
   "То, что другие сделали поверх этого пакета. Доработка накладывается как у автора, если у вас та же версия пакета и те же файлы. Иначе её переносит на ваш пакет агент.": "What others made on top of this package. A mod is laid over as its author made it when you have the same version of the package and the same files. Otherwise an agent carries it over to your package.",
   "Эту доработку нельзя наложить как у автора": "This mod cannot be laid over as its author made it",
-  "Ключ задан. Оставьте пустым, чтобы не менять": "A key is set. Leave empty to keep it"
+  "Ключ задан. Оставьте пустым, чтобы не менять": "A key is set. Leave empty to keep it",
+  "Перенести заново": "Carry over again",
+  "Поделиться доработкой": "Share my changes",
+  "Например: ночная тема": "For example: night theme",
+  "Одно-два предложения: что меняет доработка": "A sentence or two: what the mod changes",
+  "Ваши изменения в пакете «{}» станут черновиком доработки: изменённые файлы, их вид в выпуске и заготовка задания для агента, который будет переносить её другим. Ничего не публикуется: черновик остаётся на устройстве.": "Your changes to the package \"{}\" become the draft of a mod: the changed files, what they are in the release, and a sheet for the brief an agent will follow when it carries the mod over for others. Nothing is published: the draft stays on the device.",
+  "Ваших изменённых файлов: {}": "Files you changed: {}",
+  "ID доработки": "ID of the mod",
+  "Что она меняет": "What it changes",
+  "Собрать черновик": "Make the draft",
+  "Черновик доработки готов": "The draft of the mod is ready",
+  "Черновик лежит в папке {}. Положите её в репозиторий своего магазина: сборщик каталога соберёт из неё доработку.": "The draft is in the folder {}. Put it into the repository of your own store: the catalog builder makes a mod of it.",
+  "Добавлено файлов: {}": "Files added: {}",
+  "Удалено файлов: {}": "Files removed: {}",
+  "Осталось задание — файл mod/brief.md: что меняется, зачем и что важно сохранить дословно. Его может написать агент по вашим изменениям; чего не поймёт, спросит у вас.": "What is left is the brief, the file mod/brief.md: what changes, why, and what must be kept word for word. An agent can write it from your changes and ask you what it cannot tell.",
+  "Попросить агента написать задание": "Ask an agent to write the brief",
+  "Агент пишет задание, но чат открыть не удалось: {}": "An agent is writing the brief, but the chat could not be opened: {}"
 }

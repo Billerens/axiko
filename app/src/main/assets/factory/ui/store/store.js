@@ -202,6 +202,36 @@
   function removeMod(packageKey, modKey, control) {
     return operation('remove-mod-' + modKey, control, async () => { const plan = await api('mod.remove', packageKey, modKey); state.pending = plan; showPlan(plan); renderPending(); });
   }
+  // The mod that stands, handed to an agent again: after the package was updated under it, or when the first carry-over did not please.
+  function againMod(packageKey, modKey, control) {
+    return operation('again-mod-' + modKey, control, async () => { const plan = await api('mod.again', packageKey, modKey); state.pending = plan; showPlan(plan); renderPending(); });
+  }
+  // «Поделиться доработкой»: the owner's own changes to a package become the draft of a mod for the owner's own source.
+  function shareMod(installed) {
+    const current = dialog(tr('Поделиться доработкой')), own = Array.isArray(installed.modifiedFiles) ? installed.modifiedFiles : [];
+    const id = h('input', { type: 'text', id: 'store-share-id', value: String(installed.id || '') + '.mine', autocapitalize: 'off', spellcheck: false, autocomplete: 'off' });
+    const title = h('input', { type: 'text', id: 'store-share-title', placeholder: tr('Например: ночная тема'), autocomplete: 'off' });
+    const summary = h('textarea', { id: 'store-share-summary', rows: 3, placeholder: tr('Одно-два предложения: что меняет доработка') });
+    const field = (label, control) => h('label', { class: 'store-field' }, h('span', {}, tr(label)), control);
+    current.body.append(note(tr('Ваши изменения в пакете «{}» станут черновиком доработки: изменённые файлы, их вид в выпуске и заготовка задания для агента, который будет переносить её другим. Ничего не публикуется: черновик остаётся на устройстве.', installed.title || installed.id || '')),
+      h('details', {}, h('summary', {}, tr('Ваших изменённых файлов: {}', own.length)), h('ul', { class: 'store-plain-list' }, own.map(path => h('li', {}, h('code', {}, raw(path)))))),
+      field('ID доработки', id), field('Название', title), field('Что она меняет', summary));
+    current.footer.append(h('div', { class: 'store-dialog-actions' }, button(tr('Собрать черновик'), event => operation('share-' + installationKey(installed), event.currentTarget, async () => {
+      showDraft(await api('mod.draft', installationKey(installed), { id: id.value.trim(), title: title.value.trim(), summary: summary.value.trim() }));
+    }), { class: 'btn primary', id: 'store-share-make' })));
+  }
+  function showDraft(made) {
+    const current = dialog(tr('Черновик доработки готов'));
+    const list = (title, items) => Array.isArray(items) && items.length ? h('details', {}, h('summary', {}, tr(title, items.length)), h('ul', { class: 'store-plain-list' }, items.map(path => h('li', {}, h('code', {}, raw(path)))))) : null;
+    current.root.setAttribute('data-draft', made.id || '');
+    current.body.append(...[h('p', { class: 'store-notice' }, tr('Черновик лежит в папке {}. Положите её в репозиторий своего магазина: сборщик каталога соберёт из неё доработку.', made.path || '')),
+      list('Изменено файлов: {}', made.changed), list('Добавлено файлов: {}', made.added), list('Удалено файлов: {}', made.removed),
+      note(tr('Осталось задание — файл mod/brief.md: что меняется, зачем и что важно сохранить дословно. Его может написать агент по вашим изменениям; чего не поймёт, спросит у вас.'))].filter(Boolean));
+    current.footer.append(h('div', { class: 'store-dialog-actions' }, button(tr('Готово'), closeDialog), button(tr('Попросить агента написать задание'), event => operation('brief-' + made.id, event.currentTarget, async () => {
+      const started = await api('mod.draftBrief', made.id);
+      try { await openReviewChat(started); } catch (error) { dialogStatus(tr('Агент пишет задание, но чат открыть не удалось: {}', errorText(error)), true); }
+    }), { class: 'btn primary', id: 'store-draft-brief' })));
+  }
   // How a mod stands on its package: as its author made it, or carried over to this version by an agent.
   function howLaid(layer) { return layer.mode === 'ported' ? tr('Перенесена агентом на версию {}', layer.targetVersion || '') : tr('Как у автора'); }
   // What others made of this package: the mods that connected sources offer for it, and those that stand on it.
@@ -221,10 +251,12 @@
           [on ? h('span', { class: 'store-chip success' }, tr('Установлено')) : null, on && layer ? h('span', { class: 'store-chip', 'data-mod-mode': layer.mode || '' }, howLaid(layer)) : null,
             mod.status === 'update' ? h('span', { class: 'store-chip' }, tr('Есть версия {}', mod.version)) : null, mod.status === 'banned' ? h('span', { class: 'store-chip problem' }, tr('Забанен')) : null].filter(Boolean),
           on ? h('div', { class: 'store-plan-choice' }, [mod.status === 'update' ? button(tr('Обновить'), event => prepare(mod, event.currentTarget), { 'data-install-mod': packageId(mod), disabled: mod.compatible === false }) : null,
+              button(tr('Перенести заново'), event => againMod(mod.installationKey, mod.modKey, event.currentTarget), { 'data-again-mod': packageId(mod) }),
               button(tr('Снять'), event => removeMod(mod.installationKey, mod.modKey, event.currentTarget), { 'data-remove-mod': packageId(mod) })].filter(Boolean))
             : button(tr('Установить'), event => prepare(mod, event.currentTarget), { 'data-install-mod': packageId(mod), disabled: mod.compatible === false || mod.status === 'banned' || mod.status === 'targetMissing' })); }),
         gone.map(layer => row(layer.title || layer.id, layer.version, tr('Источник этой доработки больше не предлагает её.'), [h('span', { class: 'store-chip success' }, tr('Установлено')), h('span', { class: 'store-chip', 'data-mod-mode': layer.mode || '' }, howLaid(layer))],
-          button(tr('Снять'), event => removeMod(installed.key, layer.key, event.currentTarget), { 'data-remove-mod': layer.id }))))));
+          h('div', { class: 'store-plan-choice' }, button(tr('Перенести заново'), event => againMod(installed.key, layer.key, event.currentTarget), { 'data-again-mod': layer.id }),
+            button(tr('Снять'), event => removeMod(installed.key, layer.key, event.currentTarget), { 'data-remove-mod': layer.id })))))));
   }
   function packageIcon(item, installedView) {
     const node = icon(hosted(item.kind) ? 'hosted' : 'module');
@@ -448,6 +480,7 @@
     }
     else if (compatible && display.status && display.status !== 'targetMissing' && (!installed || display.status === 'update' || display.updateAvailable)) controls.append(button(tr(installed ? 'Подготовить обновление' : unmanaged(display) ? 'Принять под управление магазина' : 'Подготовить установку'), event => prepare(display, event.currentTarget), { class: 'btn primary', id: 'store-prepare' }));
     if (installed && entryPath(installed)) controls.append(button(tr('Открыть пакет'), () => { closeDialog(); openInstalled(installed); }));
+    if (installed && !isMod(display) && installed.localModified) controls.append(button(tr('Поделиться доработкой'), () => shareMod(installed), { id: 'store-share-mod' }));
     if (installed && installed.rollbackAvailable) controls.append(button(tr('Вернуть предыдущую версию'), event => operation('prepare-rollback', event.currentTarget, async () => {
       const plan = await api('rollback', installationKey(installed)); state.pending = plan; showPlan(plan); renderPending();
     }), { id: 'store-rollback' }));

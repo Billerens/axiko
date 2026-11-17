@@ -369,6 +369,25 @@ class StoreService(
         decorate(result, envelope)
     }
 
+    /**
+     * The mod that stands on a package, prepared again for an agent to carry it over anew: after the
+     * package was updated under it, or when the owner is not content with how it was carried over.
+     * Like a removal it needs no source: the mod's release is kept on the device.
+     */
+    fun againMod(packageKey: String, modKey: String): JSONObject = synchronized(operationLock) {
+        val result = installer.prepareModAgain(packageKey, modKey)
+        val known = runCatching { sources.source(result.getString("sourceId")) }.getOrNull()
+        val envelope = JSONObject().put("sourceId", result.getString("sourceId"))
+            .put("sourceCreatedAt", known?.optLong("createdAt") ?: 0L).put("sourceInstanceId", known?.optString("instanceId") ?: "")
+            .put("repositoryId", known?.optString("repositoryId") ?: "").put("indexUrl", known?.optString("indexUrl") ?: "")
+            .put("manifestSha256", result.getString("manifestSha256")).put("localRollback", true).put("createdAt", System.currentTimeMillis())
+        StoreDisk.write(subjectFile(result.getString("id")), envelope)
+        decorate(result, envelope)
+    }
+
+    /** The owner's own changes to an installed package, written out as the source folder of a mod (see the installer). */
+    fun draftMod(packageKey: String, into: File, meta: JSONObject): JSONObject = synchronized(operationLock) { installer.draftMod(packageKey, into, meta) }
+
     // ---- carrying a mod over: the executor's steps, each on the plan it was started for ----------------
 
     fun carryTask(id: String, tree: Boolean = false, offset: Int = 0): JSONObject = synchronized(operationLock) { subject(id); installer.carryTask(id, tree, offset) }
@@ -724,6 +743,8 @@ object Store {
 
     fun recover() = service.recover()
 
+    fun draftMod(packageKey: String, into: File, meta: JSONObject): JSONObject = service.draftMod(packageKey, into, meta)
+
     /** The catalog every install starts with. The owner can switch it off or remove it like any other source. */
     const val FACTORY_SOURCE = "https://raw.githubusercontent.com/Billerens/assi-store/main/index.json"
     @Volatile private var factoryTried = 0L
@@ -761,6 +782,7 @@ object Store {
             "store.catalog" -> service.catalogPage(args.optJSONObject(0) ?: JSONObject())
             "store.kinds" -> service.kindList()
             "store.mod.remove" -> service.removeMod(args.getString(0), args.getString(1))
+            "store.mod.again" -> service.againMod(args.getString(0), args.getString(1))
             // The executor's steps. Not among the operations a page may call: only the carry conversation reaches them.
             "store.mod.carry.task" -> service.carryTask(args.getString(0), args.optBoolean(1, false), args.optInt(2, 0))
             "store.mod.carry.read" -> service.carryRead(args.getString(0), args.getString(1), args.optString(2), args.optInt(3, 0), args.optInt(4, 12000))

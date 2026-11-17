@@ -48,6 +48,8 @@ object StoreAgent {
     private fun dispatch(method: String, args: JSONArray): Any? = when (method) {
         "store.reviewStart" -> start(args.getString(0), args.optBoolean(1))
         "store.mod.carryStart" -> carryStart(args.getString(0))
+        "store.mod.draft" -> draft(args.getString(0), args.getJSONObject(1))
+        "store.mod.draftBrief" -> draftBrief(args.getString(0))
         "store.mod.carry" -> carryStatus(args.getString(0))
         "store.review" -> status(args.getString(0))
         "store.plan" -> annotated(Store.call(method, args) as JSONObject)
@@ -122,6 +124,48 @@ object StoreAgent {
    Оболочка сверит verbatim с образцом и проверит, что пакет запустится; при отказе исправьте названное и сдайте снова.
 10. Закончите коротким итогом для владельца: что перенесено, что сделано иначе, что не удалось. Мод вы не устанавливаете: посмотреть изменения, проверить и установить — решение владельца ($PLAN_PLACE).
 """.trimIndent()
+
+    private val DRAFT_ID = Regex("[a-z0-9][a-z0-9.-]{1,62}[a-z0-9]")
+    private fun draftFolder(id: String): File {
+        require(DRAFT_ID.matches(id) && !id.contains("..")) { "Некорректный ID доработки." }
+        return File(File(Workspace.data, "mod-drafts"), id)
+    }
+
+    /**
+     * «Поделиться доработкой»: the owner's own changes to an installed package become the draft of a mod
+     * in `data/mod-drafts/<id>`, the folder the catalog builder of the owner's own source takes. A draft
+     * that carries a stored secret is not made.
+     */
+    fun draft(packageKey: String, meta: JSONObject): JSONObject {
+        val id = meta.optString("id").trim(); val folder = draftFolder(id)
+        val made = Store.draftMod(packageKey, folder, meta)
+        val known = runCatching { app.assi.core.Vault.known() }.getOrDefault(emptyList())
+        folder.walkTopDown().filter { it.isFile }.forEach { file ->
+            val text = runCatching { file.readText() }.getOrNull() ?: return@forEach
+            if (app.assi.core.Secrets.scrub(text, known) != text) {
+                folder.deleteRecursively()
+                throw IllegalArgumentException("В файле ${file.relativeTo(folder).invariantSeparatorsPath} есть сохранённый секрет. Уберите его из пакета и повторите.")
+            }
+        }
+        return made.put("path", "data/mod-drafts/$id")
+    }
+
+    /** Asks the agent, in a chat of its own, to write the brief of a draft from what the owner changed. */
+    @Synchronized fun draftBrief(id: String): JSONObject {
+        require(File(draftFolder(id), "store.json").isFile) { "Такого черновика доработки нет." }
+        val thread = Threads.create(Agent.MAIN)
+        val at = "data/mod-drafts/$id"
+        val prompt = "Владелец хочет поделиться своей доработкой пакета как модом. Черновик лежит в $at: reference/ — файлы, какими он их сделал, " +
+            "base/ — какими они были в выпуске пакета, store.json — сведения о моде, mod/brief.md — заготовка задания. " +
+            "Сравните base и reference, поймите, что изменено и зачем, и напишите задание в $at/mod/brief.md: что меняется для владельца, зачем, " +
+            "что должно получиться (по чему видно, что перенос удался), что важно дословно (тексты, числа, картинки), что можно сделать иначе. " +
+            "Задание читает другой агент, который будет переносить мод на другие версии пакета у других людей: пишите ему как исполнителю, без обращений к владельцу. " +
+            "Если намерение неясно, спросите владельца (ask_owner). Проверьте, нет ли в файлах черновика личного: имён, адресов, почты, телефонов, ключей; " +
+            "если есть, назовите владельцу файл и место и сами это не правьте. Кроме mod/brief.md и README.md в черновике ничего не меняйте. " +
+            "В конце коротко скажите владельцу, что получилось, и что папку $at нужно положить в репозиторий своего магазина: сборщик каталога соберёт из неё мод."
+        check(Agent.chat(Agent.MAIN, thread).send(prompt)) { "Не удалось начать разговор с агентом." }
+        return JSONObject().put("agent", Agent.MAIN).put("thread", thread).put("id", id).put("status", "running")
+    }
 
     /** Starts the carry-over of a mod whose plan waits for it; the owner asked for it on the store screen or in a chat. */
     @Synchronized fun carryStart(planId: String): JSONObject {

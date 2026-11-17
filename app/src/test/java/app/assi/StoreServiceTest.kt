@@ -424,6 +424,75 @@ class StoreServiceTest {
         assertEquals("carrying", service.prepare(source, "demo.night").getString("status"))
     }
 
+    @Test fun modTakenOffAfterItsPackageWasUpdatedLeavesThePackagesNewFileAndCanBeCarriedOverAnew() {
+        transport.publish(StoreServiceFixtures.bundle(), mod())
+        val service = service(); val source = add(service)
+        apply(service, service.prepare(source, "demo.counter")); apply(service, service.prepare(source, "demo.night"))
+        val folder = File(workspace, "modules/demo.counter")
+        // The package moves on in the very file the mod changed; the owner keeps the mod's file.
+        transport.publish(StoreServiceFixtures.bundle(version = "1.0.1", main = steppedMain), mod()); service.sources.refresh(source)
+        val update = service.prepare(source, "demo.counter")
+        assertEquals("conflicts", update.getString("status"))
+        apply(service, service.resolve(update.getString("id"), "main.js", update.getJSONArray("conflicts").getJSONObject(0).getString("localSha"), null, true))
+        assertEquals(nightMain, File(folder, "main.js").readText())
+        var record = service.installed().getJSONObject(0); var layer = record.getJSONArray("mods").getJSONObject(0)
+        assertEquals("1.0.1", record.getString("version")); assertEquals(listOf("main.js", "ui/night.css"), strings(layer.getJSONArray("pristine")))
+
+        // Carried over anew, by the owner's wish: the candidate starts from the package as 1.0.1 has it, without the mod.
+        val again = service.againMod(record.getString("key"), layer.getString("key")); val id = again.getString("id")
+        assertEquals("carrying", again.getString("status"))
+        assertTrue(strings(again.getJSONObject("mod").getJSONObject("carry").getJSONArray("reasons")).first().contains("заново"))
+        assertEquals(steppedMain, service.carryRead(id, "candidate", "main.js").getString("content"))
+        assertEquals(nightMain, service.carryRead(id, "current", "main.js").getString("content"))
+        service.carryEdit(id, "main.js", "return 1;", "return 'night';"); service.carryCopy(id, "reference", "ui/night.css", "ui/night.css")
+        val done = service.carryDone(id, JSONObject().put("summary", "The night counter, on 1.0.1.").put("adapted", JSONArray().put(JSONObject().put("path", "main.js").put("note", "Kept the step of 1.0.1."))))
+        apply(service, done)
+        assertTrue(File(folder, "main.js").readText().let { it.contains("'night'") && it.contains("exports.step = 2;") })
+        record = service.installed().getJSONObject(0); layer = record.getJSONArray("mods").getJSONObject(0)
+        assertEquals(1, record.getJSONArray("mods").length()); assertEquals(listOf("ported", "1.0.1"), listOf(layer.getString("mode"), layer.getString("targetVersion")))
+
+        // Taken off, the file is the one 1.0.1 has: the release that went under the mod is not undone.
+        apply(service, service.removeMod(record.getString("key"), layer.getString("key")))
+        assertEquals(steppedMain, File(folder, "main.js").readText()); assertFalse(File(folder, "ui/night.css").exists())
+        assertFalse(service.installed().getJSONObject(0).getBoolean("localModified"))
+    }
+
+    @Test fun theOwnersOwnChangesAreWrittenOutAsTheDraftOfAMod() {
+        transport.publish(StoreServiceFixtures.bundle(extra = mapOf("code/old.js" to "exports.old = true;\n".toByteArray())), mod())
+        val service = service(); val source = add(service)
+        apply(service, service.prepare(source, "demo.counter"))
+        val folder = File(workspace, "modules/demo.counter"); val key = service.installed().getJSONObject(0).getString("key")
+        val draft = File(this.folder.root, "drafts/demo.mine")
+        fun meta(id: String = "demo.mine") = JSONObject().put("id", id).put("title", "My counter").put("summary", "Counts with my own line.")
+        // Nothing of the owner's yet: nothing to share.
+        assertThrows(IllegalArgumentException::class.java) { service.draftMod(key, draft, meta()) }
+        File(folder, "main.js").appendText(ownerLine); File(folder, "ui/extra.css").writeText("p { color: teal; }\n"); assertTrue(File(folder, "old.js").delete())
+        // What a mod stands on the package with is the mod's, not the owner's change.
+        apply(service, service.prepare(source, "demo.night").let { plan ->
+            assertEquals("carrying", plan.getString("status")); service.carryCopy(plan.getString("id"), "reference", "ui/night.css", "ui/night.css")
+            service.carryDone(plan.getString("id"), JSONObject().put("summary", "Only the stylesheet.").put("verbatim", JSONArray().put("ui/night.css")))
+        })
+        assertThrows(IllegalArgumentException::class.java) { service.draftMod(key, draft, meta("demo.counter")) }
+        assertThrows(IllegalArgumentException::class.java) { service.draftMod(key, draft, meta("Bad ID")) }
+        assertThrows(IllegalArgumentException::class.java) { service.draftMod(key, File(workspace, "modules/demo.mine"), meta()) }
+
+        val made = service.draftMod(key, draft, meta())
+        assertEquals(listOf("main.js"), strings(made.getJSONArray("changed"))); assertEquals(listOf("ui/extra.css"), strings(made.getJSONArray("added")))
+        assertEquals(listOf("old.js"), strings(made.getJSONArray("removed")))
+        val manifest = JSONObject(File(draft, "store.json").readText())
+        assertEquals(listOf("demo.mine", "mod", "1.0.0", "demo.counter", "1.0.0"), listOf(manifest.getString("id"), manifest.getString("kind"), manifest.getString("version"),
+            manifest.getString("extends"), manifest.getJSONObject("reference").getString("version")))
+        assertEquals(listOf("old.js"), strings(manifest.getJSONArray("removed")))
+        assertEquals(counterMain + ownerLine, File(draft, "reference/main.js").readText()); assertEquals(counterMain, File(draft, "base/main.js").readText())
+        assertTrue(File(draft, "reference/ui/extra.css").isFile); assertFalse(File(draft, "base/ui/extra.css").exists()); assertTrue(File(draft, "base/old.js").isFile)
+        assertFalse(File(draft, "reference/ui/night.css").exists())
+        assertTrue(File(draft, "mod/brief.md").readText().contains("`main.js` — изменён")); assertTrue(File(draft, "README.md").readText().startsWith("# My counter"))
+        // A file no release may hold is not shared either, and no half-made draft is left behind.
+        File(folder, "ui/remote.html").writeText("<script src=\"https://cdn.example/x.js\"></script>\n")
+        assertThrows(IllegalArgumentException::class.java) { service.draftMod(key, draft, meta()) }
+        assertFalse(draft.exists())
+    }
+
     @Test fun aNewVersionOfAModReplacesTheOneThatStands() {
         val dusk = "exports.value = function () {\n  return 'dusk';\n};\n"
         transport.publish(StoreServiceFixtures.bundle(), mod())

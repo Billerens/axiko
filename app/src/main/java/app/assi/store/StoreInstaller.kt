@@ -141,7 +141,7 @@ class StoreInstaller(
             File(File(releases, plan.getString("artifactSha256")), "archive/$path")
         } else when (side) {
             "candidate" -> File(candidate(planId), installedPath)
-            "incoming" -> File(incomingDir(plan), installedPath)
+            "incoming" -> incomingFile(plan, installedPath)
             "base" -> File(baseDirectory(plan.optJSONObject("previousRecord") ?: error("Предыдущего пакета нет.")), installedPath)
             else -> File(targetFile(plan.getString("target")), installedPath)
         }
@@ -173,7 +173,7 @@ class StoreInstaller(
             if (live.isFile) copyFile(live, target) else if (target.exists()) require(target.delete())
         } else if (takeIncoming) {
             // The release's own file, already checked against its manifest; the owner's copy stays in the snapshot.
-            val incoming = File(incomingDir(plan), path)
+            val incoming = incomingFile(plan, path)
             if (incoming.isFile) copyFile(incoming, target) else if (target.exists()) require(target.delete())
         } else {
             require(content != null) { "Нужен объединённый текст, версия магазина или сохранение локальной версии." }
@@ -302,18 +302,40 @@ class StoreInstaller(
      * stays as it is and is named in [changedSince]. With no layer this is the package as it stands.
      */
     private class Ground(val files: Map<String, String>, val from: Map<String, File>, val changedSince: List<String>)
-    private fun ground(packageKey: String, live: File, local: Map<String, String>, layer: JSONObject?): Ground {
+    private fun ground(packageKey: String, record: JSONObject, live: File, local: Map<String, String>, layer: JSONObject?): Ground {
         val files = HashMap(local); val from = HashMap(local.keys.associateWith { File(live, it) })
         if (layer == null) return Ground(files, from, emptyList())
-        val before = beforeDir(packageKey, layer.getString("key"), layer.getString("laying")); val was = fileHashes(before)
+        val before = Before(packageKey, record, layer)
         val wrote = layer.getJSONObject("files"); val changed = ArrayList<String>()
         for (path in wrote.keys().asSequence().toList() + jsonStrings(layer.getJSONArray("removed"))) {
             val made = if (wrote.has(path)) wrote.getString(path) else null
-            if (local[path] != made) { if (local[path] != was[path]) changed.add(path); continue }
-            val back = was[path]
-            if (back == null) { files.remove(path); from.remove(path) } else { files[path] = back; from[path] = File(before, path) }
+            val back = before.hash(path)
+            if (local[path] != made) { if (local[path] != back) changed.add(path); continue }
+            if (back == null) { files.remove(path); from.remove(path) } else { files[path] = back; from[path] = before.file(path)!! }
         }
         return Ground(files, from, changed.sorted())
+    }
+
+    /**
+     * What a file a mod touched would be without the mod. Where the mod found the package's own file
+     * (the layer calls such a path pristine), that is the package's file as it is now: the release may
+     * have moved on since the mod was laid over, and taking the mod off must not bring an old one back.
+     * Where the owner had edited the file before the mod, it is the copy kept then.
+     */
+    private inner class Before(packageKey: String, private val record: JSONObject, layer: JSONObject) {
+        private val pristine = layer.optJSONArray("pristine")?.let { jsonStrings(it) }?.toSet().orEmpty()
+        private val kept = beforeDir(packageKey, layer.getString("key"), layer.getString("laying"))
+        private val was by lazy { fileHashes(kept) }
+        private val release by lazy { baseDirectory(record) }
+        fun hash(path: String): String? = if (path in pristine) record.getJSONObject("baseFiles").optString(path).ifEmpty { null } else was[path]
+        fun file(path: String): File? = if (hash(path) == null) null else if (path in pristine) File(release, path) else File(kept, path)
+    }
+
+    private fun incomingFile(plan: JSONObject, path: String): File {
+        val mod = plan.optJSONObject("mod")?.takeIf { it.optBoolean("removal") } ?: return File(incomingDir(plan), path)
+        val record = plan.getJSONObject("previousRecord")
+        val layer = layers(record).first { it.getString("key") == mod.getString("key") }
+        return Before(plan.getString("installationKey"), record, layer).file(path) ?: File(incomingDir(plan), path)
     }
 
     /** Files of an installed package that are the owner's own: different from its release and not what a mod made them. */
@@ -336,7 +358,8 @@ class StoreInstaller(
         if (mod.optBoolean("removal")) return record.put("mods", JSONArray(others))
         // With an earlier version of this mod standing, "before the mod" is what was there before that version.
         val key = plan.getString("installationKey")
-        val ground = ground(key, target, fileHashes(target), standing); val now = fileHashes(stage)
+        val ground = ground(key, old, target, fileHashes(target), standing); val now = fileHashes(stage)
+        val base = old.getJSONObject("baseFiles")
         val touched = (ground.files.keys + now.keys).filter { ground.files[it] != now[it] }.sorted()
         val laying = UUID.randomUUID().toString()
         val before = beforeDir(key, modKey, laying)
@@ -346,6 +369,8 @@ class StoreInstaller(
             .put("targetVersion", old.getString("version")).put("artifactSha256", plan.getString("artifactSha256")).put("catalogEntry", plan.getJSONObject("catalogEntry"))
             .put("files", JSONObject(touched.filter { now.containsKey(it) }.associateWith { now.getValue(it) }))
             .put("added", JSONArray(touched.filter { !ground.files.containsKey(it) })).put("removed", JSONArray(touched.filter { !now.containsKey(it) }))
+            // Files the mod found as the release has them (or found absent, as in the release): see Before.
+            .put("pristine", JSONArray(touched.filter { (ground.files[it] ?: "") == base.optString(it) }))
             .put("ownerEdits", mod.optJSONArray("ownerEdits") ?: JSONArray()).put("appliedAt", System.currentTimeMillis())
         mod.optJSONObject("report")?.let { layer.put("report", it) }
         return record.put("mods", JSONArray(others + layer))
@@ -376,7 +401,7 @@ class StoreInstaller(
      * as it would be without the old one.
      */
     @Synchronized
-    fun prepareMod(sourceId: String, entry: JSONObject, manifestBytes: ByteArray, archiveFile: File): JSONObject {
+    fun prepareMod(sourceId: String, entry: JSONObject, manifestBytes: ByteArray, archiveFile: File, again: Boolean = false): JSONObject {
         require(sourceId.isNotEmpty() && sourceId.length <= 256 && sourceId.none { it.code < 32 }) { "Некорректный источник." }
         StoreFormat.packageEntry(entry)
         bans.find(entry.getJSONObject("archive").getString("sha256"))?.let { throw StoreBanned(it) }
@@ -389,7 +414,8 @@ class StoreInstaller(
         val record = registry.getJSONObject(key)
         val modKey = StoreFormat.sha256((sourceId + "\n" + manifest.getString("id")).toByteArray())
         val standing = layers(record).firstOrNull { it.getString("key") == modKey }
-        if (standing != null) {
+        require(!again || standing?.getString("artifactSha256") == entry.getJSONObject("archive").getString("sha256")) { "Перенести заново можно только ту версию мода, которая стоит." }
+        if (standing != null && !again) {
             val compared = StoreFormat.compareVersions(manifest.getString("version"), standing.getString("version"))
             require(compared >= 0) { "У вас стоит более новая версия этого мода." }
             require(compared > 0) { if (standing.getString("artifactSha256") == entry.getJSONObject("archive").getString("sha256")) "Эта версия мода уже стоит." else "Архив той же версии мода изменился. Нужен новый номер выпуска." }
@@ -400,10 +426,12 @@ class StoreInstaller(
         val sample = File(release, "payload")
         val reference = manifest.getJSONObject("reference"); val base = reference.getJSONObject("base")
         val local = fileHashes(live); val incoming = fileHashes(sample)
-        val ground = ground(key, live, local, standing)
+        val ground = ground(key, record, live, local, standing)
         val removed = jsonStrings(reference.getJSONArray("removed"))
         // Why it cannot be laid over as it is: each reason is one the owner can read.
         val reasons = ArrayList<String>()
+        // Asked for by the owner: the mod stands, and an agent is to carry it over anew to the package as it is now.
+        if (again) reasons.add("владелец попросил перенести доработку заново")
         fun some(paths: List<String>) = paths.take(4).joinToString() + if (paths.size > 4) " и ещё ${paths.size - 4}" else ""
         if (record.getString("version") != reference.getString("version")) reasons.add("образец сделан на версии ${reference.getString("version")}, а у вас стоит ${record.getString("version")}")
         val changed = base.keys().asSequence().filter { ground.files[it] != base.getString(it) }.toList()
@@ -451,7 +479,7 @@ class StoreInstaller(
         val layer = layers(record).firstOrNull { it.getString("key") == StoreFormat.hash(modKey) } ?: error("Такого мода у пакета нет.")
         sweep(packageKey, record)
         val live = targetFile(record.getString("target")); val local = fileHashes(live)
-        val before = beforeDir(packageKey, modKey, layer.getString("laying")); val was = fileHashes(before)
+        val before = Before(packageKey, record, layer); val was = fileHashes(beforeDir(packageKey, modKey, layer.getString("laying")))
         val wrote = layer.getJSONObject("files"); val gone = jsonStrings(layer.getJSONArray("removed"))
         val planId = UUID.randomUUID().toString()
         val planDir = File(plansDir, planId).apply { mkdirs() }
@@ -460,10 +488,10 @@ class StoreInstaller(
             copyTree(live, candidate)
             val changes = JSONArray(); val conflicts = JSONArray()
             for (path in (wrote.keys().asSequence().toList() + gone).sorted()) {
-                val made = if (wrote.has(path)) wrote.getString(path) else null; val now = local[path]; val back = was[path]
+                val made = if (wrote.has(path)) wrote.getString(path) else null; val now = local[path]; val back = before.hash(path)
                 if (now == back) continue
                 if (now == made) {
-                    if (back == null) require(File(candidate, path).delete()) else copyFile(File(before, path), File(candidate, path))
+                    if (back == null) require(File(candidate, path).delete()) else copyFile(before.file(path)!!, File(candidate, path))
                     changes.put(JSONObject().put("path", path).put("kind", if (back == null) "delete" else if (now == null) "add" else "update").put("localModified", false))
                 } else {
                     // Changed again after the mod: neither the mod's file nor what was before it. Kept until the owner says.
@@ -478,6 +506,67 @@ class StoreInstaller(
             refreshPlan(plan, candidate)
             return publicPlan(plan)
         } catch (error: Exception) { deleteTree(planDir); throw error }
+    }
+
+    /** The mod that stands, prepared again from its release kept on the device, for an agent to carry it over anew. */
+    @Synchronized
+    fun prepareModAgain(packageKey: String, modKey: String): JSONObject {
+        val record = registry().optJSONObject(StoreFormat.hash(packageKey)) ?: error("Установленный пакет не найден.")
+        val layer = layers(record).firstOrNull { it.getString("key") == StoreFormat.hash(modKey) } ?: error("Такого мода у пакета нет.")
+        val release = File(releases, StoreFormat.hash(layer.getString("artifactSha256")))
+        require(File(release, "package.zip").isFile && File(release, "archive/package.json").isFile) { "Выпуск этого мода на устройстве не сохранился. Подготовьте мод из каталога." }
+        return prepareMod(layer.getString("sourceId"), layer.getJSONObject("catalogEntry"), File(release, "archive/package.json").readBytes(), File(release, "package.zip"), again = true)
+    }
+
+    /**
+     * The owner's own changes to an installed package, written into [into] as the source folder of a mod
+     * (the layout the catalog builder takes): `reference/` holds the changed and added files, `base/` what
+     * the changed and removed ones are in the release, `store.json` names the package and its version,
+     * `mod/brief.md` is a sheet to be filled in. Files that mods of the package made are not the owner's
+     * changes and are left out. Nothing is published by this: the folder is a draft for the owner's own source.
+     */
+    @Synchronized
+    fun draftMod(packageKey: String, into: File, meta: JSONObject): JSONObject {
+        val record = registry().optJSONObject(StoreFormat.hash(packageKey)) ?: error("Установленный пакет не найден.")
+        val id = meta.optString("id").trim()
+        require(Regex("[a-z0-9][a-z0-9.-]{1,62}[a-z0-9]").matches(id) && !id.contains("..") && id != record.getString("id")) { "ID доработки: строчные латинские буквы, цифры, точка и дефис, от 3 до 64 знаков, не как у пакета." }
+        val title = meta.optString("title").trim(); val summary = meta.optString("summary").trim()
+        require(title.length in 2..80) { "Нужно название доработки, от 2 до 80 знаков." }
+        require(summary.length in 4..200) { "Нужно короткое описание доработки, до 200 знаков: что она меняет." }
+        val live = targetFile(record.getString("target")); val local = fileHashes(live)
+        val base = record.getJSONObject("baseFiles"); val release = baseDirectory(record)
+        val own = ownerEdited(record, local).sorted()
+        val taken = layers(record).flatMap { jsonStrings(it.getJSONArray("removed")) }.toSet()
+        val removed = base.keys().asSequence().filter { !local.containsKey(it) && it !in taken }.sorted().toList()
+        require(own.isNotEmpty() || removed.isNotEmpty()) { "В этом пакете нет ваших изменений: делиться нечем." }
+        require(!into.canonicalFile.toPath().startsWith(workspace.canonicalFile.toPath())) { "Черновик мода не кладётся в рабочую папку." }
+        deleteTree(into)
+        try {
+            for (path in own) {
+                val file = File(live, path)
+                // What a release may not hold, a mod may not either: said here, before anything is shared.
+                try { scanSource(path, file.readBytes(), JSONArray()) } catch (violation: StoreViolation) { throw IllegalArgumentException("Этим файлом поделиться нельзя: ${violation.message}") }
+                copyFile(file, File(into, "reference/$path"))
+                if (base.has(path)) copyFile(File(release, path), File(into, "base/$path"))
+            }
+            for (path in removed) copyFile(File(release, path), File(into, "base/$path"))
+            val manifest = JSONObject().put("id", id).put("kind", StoreFormat.MOD).put("version", "1.0.0").put("title", title).put("summary", summary)
+                .put("extends", record.getString("id")).put("reference", JSONObject().put("version", record.getString("version")))
+            if (removed.isNotEmpty()) manifest.put("removed", JSONArray(removed))
+            fun write(name: String, text: String) = File(into, name).apply { requireNotNull(parentFile).mkdirs(); writeText(text) }
+            write("store.json", manifest.toString(2) + "\n")
+            write("README.md", "# $title\n\n$summary\n\nДоработка пакета «${record.optString("title").ifEmpty { record.getString("id") }}», сделана на его версии ${record.getString("version")}.\n")
+            write("mod/brief.md", buildString {
+                append("# Задание: $title\n\n")
+                append("Это задание читает агент, который будет переносить доработку на ту версию пакета, что стоит у другого владельца. Заполните разделы и удалите эту строку.\n\n")
+                append("## Что меняется для владельца\n\n$summary\n\n## Зачем\n\n\n## Что должно получиться\n\nПо чему видно, что перенос удался.\n\n")
+                append("## Что важно дословно\n\nТексты, числа, картинки, которые нельзя менять.\n\n## Что можно сделать иначе\n\n\n## Файлы образца\n\n")
+                own.forEach { append("- `").append(it).append(if (base.has(it)) "` — изменён\n" else "` — добавлен\n") }
+                removed.forEach { append("- `").append(it).append("` — удалён\n") }
+            })
+            return JSONObject().put("id", id).put("extends", record.getString("id")).put("targetVersion", record.getString("version"))
+                .put("changed", JSONArray(own.filter { base.has(it) })).put("added", JSONArray(own.filter { !base.has(it) })).put("removed", JSONArray(removed))
+        } catch (error: Exception) { deleteTree(into); throw error }
     }
 
     // ---- carrying a mod over to what the owner has ---------------------------------------------------

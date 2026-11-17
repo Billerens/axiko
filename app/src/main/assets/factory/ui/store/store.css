@@ -50,6 +50,8 @@
 .store-pending p { color: var(--ink-2); font-size: 14px; margin-top: 4px; }
 .store-pending .btn { width: auto; flex: none; }
 .store-sources { display: flex; flex-direction: column; gap: 12px; }
+.store-field { display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: var(--ink-2); }
+.store-field input, .store-field textarea { width: 100%; min-width: 0; min-height: 46px; border: 1px solid var(--line); border-radius: 11px; padding: 10px 12px; background: var(--surface); color: var(--ink); font: inherit; }
 .store-source-form { border: 1px solid var(--line); background: var(--surface); border-radius: 17px; padding: 18px; }
 .store-source-form p { color: var(--ink-2); font-size: 14px; margin: 7px 0 14px; }
 .store-source-inputs { display: flex; align-items: stretch; gap: 8px; }
