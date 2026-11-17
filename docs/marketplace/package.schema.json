@@ -13,7 +13,6 @@
     "publisher",
     "license",
     "sourceFormat",
-    "entry",
     "runtime",
     "dependencies",
     "optionalDependencies",
@@ -176,8 +175,8 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 240,
-            "pattern": "^(?:README\\.md|LICENSE|(?:code|assets)/[^\\\\]+)$",
-            "description": "Canonical NFC relative path. Only code/, assets/, README.md and LICENSE; no empty/dot/hidden segments, backslashes, absolute paths or Windows-unsafe names. Semantic validation rejects case/NFC collisions."
+            "pattern": "^(?:README\\.md|LICENSE|(?:code|assets|mod|reference|base)/[^\\\\]+)$",
+            "description": "Canonical NFC relative path. A package holds code/ and assets/; a mod holds mod/, reference/, base/ and assets/; both hold README.md and LICENSE. No empty/dot/hidden segments, backslashes, absolute paths or Windows-unsafe names."
           },
           "sha256": {
             "type": "string",
@@ -187,6 +186,64 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 2097152
+          }
+        }
+      }
+    },
+    "extends": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 96,
+      "pattern": "^[a-z0-9][a-z0-9.-]*$",
+      "description": "For a mod: the package it changes."
+    },
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "base",
+        "added",
+        "removed"
+      ],
+      "description": "For a mod: what its sample was made on. Information for whoever carries the mod over, never a requirement.",
+      "properties": {
+        "version": {
+          "type": "string",
+          "maxLength": 96,
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\\+(?:[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?$"
+        },
+        "archiveSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "base": {
+          "type": "object",
+          "maxProperties": 511,
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "description": "Files of the target the mod changed or removed, by path in the target, with the hash of each as it was before."
+        },
+        "added": {
+          "type": "array",
+          "maxItems": 511,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
+          }
+        },
+        "removed": {
+          "type": "array",
+          "maxItems": 511,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
           }
         }
       }
@@ -222,6 +279,45 @@
               "path"
             ]
           }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "mod"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "extends",
+          "reference"
+        ],
+        "not": {
+          "required": [
+            "entry"
+          ]
+        }
+      },
+      "else": {
+        "required": [
+          "entry"
+        ],
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "extends"
+              ]
+            },
+            {
+              "required": [
+                "reference"
+              ]
+            }
+          ]
         }
       }
     }

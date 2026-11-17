@@ -48,6 +48,35 @@ class StoreFormatTest {
         reject { StoreFormat.details(details().put("description", "x".repeat(20_001)).toString().toByteArray()) }
     }
 
+    @Test fun modNamesItsTargetAndItsReferenceMustBeWhatItsFilesAre() {
+        fun file(path: String) = JSONObject().put("path", path).put("sha256", "1".repeat(64)).put("size", 1)
+        fun mod() = JSONObject().put("schemaVersion", 1).put("id", "demo.night").put("kind", "mod").put("version", "1.0.0").put("publisher", "demo").put("license", "MIT")
+            .put("sourceFormat", "readable").put("runtime", JSONObject().put("assiApi", 1)).put("capabilities", JSONArray().put("storage.own"))
+            .put("dependencies", JSONArray()).put("optionalDependencies", JSONArray()).put("extends", "demo.counter")
+            .put("reference", JSONObject().put("version", "1.0.0").put("base", JSONObject().put("main.js", "2".repeat(64))).put("added", JSONArray().put("ui/night.css")).put("removed", JSONArray()))
+            .put("files", JSONArray(listOf("README.md", "LICENSE", "mod/brief.md", "reference/main.js", "reference/ui/night.css", "base/main.js").map(::file)))
+        fun check(value: JSONObject) = StoreFormat.manifest(value.toString().toByteArray())
+        assertEquals("demo.counter", check(mod()).getString("extends"))
+        reject { check(mod().put("entry", "code/main.js")) }
+        reject { check(mod().put("extends", "demo.night")) }
+        reject { check(mod().apply { remove("reference") }) }
+        reject { check(mod().apply { getJSONArray("files").put(file("code/main.js")) }) }
+        reject { check(mod().apply { getJSONArray("files").remove(2) }) }
+        reject { check(mod().apply { getJSONObject("reference").put("added", JSONArray()) }) }
+        reject { check(mod().apply { getJSONObject("reference").getJSONObject("base").put("other.js", "3".repeat(64)) }) }
+        reject { check(mod().apply { getJSONObject("reference").put("removed", JSONArray().put("main.js")) }) }
+        reject { check(mod().apply { getJSONObject("reference").put("version", "latest") }) }
+        reject { check(mod().apply { getJSONObject("reference").put("removed", JSONArray().put("../escape.js")) }) }
+        // Nothing but a mod may name what it extends, in a manifest or in a card; a card of a mod must.
+        val plain = JSONObject(String(example("package")))
+        reject { check(plain.put("extends", "demo.counter")) }
+        val card = JSONObject(String(example("page"))).getJSONArray("packages").getJSONObject(0)
+        reject { StoreFormat.packageEntry(JSONObject(card.toString()).put("extends", "demo.counter")) }
+        reject { StoreFormat.packageEntry(JSONObject(card.toString()).put("kind", "mod")) }
+        StoreFormat.packageEntry(JSONObject(card.toString()).put("kind", "mod").put("extends", "demo.counter"))
+        reject { StoreFormat.packageEntry(JSONObject(card.toString()).put("kind", "mod").put("extends", card.getString("id"))) }
+    }
+
     @Test fun pictureIsWhatItsBytesAreAndAnSvgIsOnlyADrawing() {
         assertEquals("image/png", StoreFormat.pictureType(byteArrayOf(0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0)))
         assertEquals("image/jpeg", StoreFormat.pictureType(byteArrayOf(0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xe0.toByte())))

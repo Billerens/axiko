@@ -117,7 +117,7 @@ def check_https(url: str) -> str | None:
     return None
 
 
-def check_relative_path(path: str, *, entry=False) -> str | None:
+def check_relative_path(path: str, *, entry=False, mod=False) -> str | None:
     if unicodedata.normalize("NFC", path) != path:
         return "Path must be in canonical NFC Unicode form"
     if "\\" in path or path.startswith("/"):
@@ -125,7 +125,9 @@ def check_relative_path(path: str, *, entry=False) -> str | None:
     if entry:
         if not path.startswith("code/"):
             return "Entry must be inside code/"
-    elif path not in ("README.md", "LICENSE") and not path.startswith(("code/", "assets/")):
+    elif mod and path not in ("README.md", "LICENSE") and not path.startswith(("mod/", "reference/", "base/", "assets/")):
+        return "A mod holds only mod/, reference/, base/, assets/, README.md and LICENSE"
+    elif not mod and path not in ("README.md", "LICENSE") and not path.startswith(("code/", "assets/")):
         return "Only code/, assets/, README.md and LICENSE are allowed"
     for component in path.split("/"):
         if not component or component.startswith(".") or component.endswith((".", " ")):
@@ -212,15 +214,17 @@ def semantic_errors(value: dict, kind: str, byte_count: int):
                 errors.append(issue(('links', key), problem))
         return errors
 
-    problem = check_relative_path(value['entry'], entry=True)
-    if problem:
-        errors.append(issue(('entry',), problem))
+    mod = value['kind'] == 'mod'
+    if not mod:
+        problem = check_relative_path(value['entry'], entry=True)
+        if problem:
+            errors.append(issue(('entry',), problem))
     seen = {}
     original_paths = set()
     directories = {}
     for number, record in enumerate(value['files']):
         path = record['path']
-        problem = check_relative_path(path)
+        problem = check_relative_path(path, mod=mod)
         if problem:
             errors.append(issue(('files', number, 'path'), problem))
         canonical = unicodedata.normalize('NFC', path).casefold()
@@ -238,8 +242,29 @@ def semantic_errors(value: dict, kind: str, byte_count: int):
     for normalized, number in seen.items():
         if normalized in directories:
             errors.append(issue(('files', number, 'path'), "File path is also used as a directory"))
-    if value['entry'] not in original_paths:
+    if not mod and value['entry'] not in original_paths:
         errors.append(issue(('entry',), "Entry is missing from the file inventory"))
+    if mod:
+        # A mod is a brief and a sample: what it says about its sample must be what its files are.
+        reference = value['reference']
+        sample = {path[len('reference/'):] for path in original_paths if path.startswith('reference/')}
+        before = {path[len('base/'):] for path in original_paths if path.startswith('base/')}
+        if 'mod/brief.md' not in original_paths:
+            errors.append(issue(('files',), "A mod needs mod/brief.md: the task for whoever carries it over"))
+        if value['extends'] == value['id']:
+            errors.append(issue(('extends',), "A mod cannot extend itself"))
+        if not sample and not reference['removed']:
+            errors.append(issue(('reference',), "A mod changes nothing: no file in reference/ and nothing removed"))
+        if set(reference['base']) != before:
+            errors.append(issue(('reference', 'base'), "reference.base must list exactly the files in base/"))
+        if set(reference['added']) != sample - before:
+            errors.append(issue(('reference', 'added'), "reference.added must list exactly the files of reference/ that have no copy in base/"))
+        if set(reference['removed']) & sample or before - sample - set(reference['removed']):
+            errors.append(issue(('reference', 'removed'), "A removed file is not in reference/, and a file of base/ is either changed or removed"))
+        for field in ('added', 'removed'):
+            for number, name in enumerate(reference[field]):
+                if check_relative_path('reference/' + name, mod=True):
+                    errors.append(issue(('reference', field, number), "Not a valid path of a file in the target"))
     if len(value['files']) + 1 > MAX_FILES:
         errors.append(issue(('files',), f"Archive would exceed {MAX_FILES} files including package.json"))
     if byte_count + sum(record['size'] for record in value['files']) > MAX_UNPACKED_BYTES:

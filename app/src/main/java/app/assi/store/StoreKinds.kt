@@ -51,7 +51,8 @@ class StoreKinds(private val declarations: () -> List<Pair<String, JSONObject>>)
                 val name = item.optString("kind")
                 val descriptor = item.optString("descriptor")
                 val engine = item.optString("engine").ifEmpty { null }
-                if (!NAME.matches(name) || name in found || !DESCRIPTOR.matches(descriptor)) continue
+                // `module` and `mod` are the shell's own: no module can take them.
+                if (!NAME.matches(name) || name in found || name == StoreFormat.MOD || !DESCRIPTOR.matches(descriptor)) continue
                 if (engine != null && (!ENGINE.matches(engine) || engine in setOf("assiApi", "minAssiApi") || item.optInt("version") < 1)) continue
                 val reserved = item.optJSONArray("reserved")?.let { names -> (0 until names.length()).mapNotNull { names.optString(it).ifEmpty { null } } } ?: emptyList()
                 found[name] = StoreKind(name, host, descriptor, engine, if (engine == null) 0 else item.optInt("version"), item.optBoolean("screen"),

@@ -195,6 +195,88 @@ def inventory(payload: dict[str, bytes]) -> dict[str, str]:
 
 
 MODULE = {'host': None, 'descriptor': 'module.json'}
+MOD = 'mod'
+MOD_FOLDERS = ('mod', 'reference', 'base', 'assets')
+MAX_BRIEF = 20_000
+
+
+def collect_mod(folder: Path, license_raw: bytes):
+    """What a mod is made of: the brief for whoever carries it over, the author's files of the target
+    (reference/), what those files were before (base/), and material to reuse (assets/)."""
+    payload, excluded, audit = {}, [], []
+    for directory, directories, files in os.walk(folder, followlinks=False):
+        here = Path(directory)
+        for name in list(directories):
+            path = here / name
+            rel = path.relative_to(folder).as_posix()
+            if path.is_symlink():
+                raise BuildError(f'{rel}: symlinks are forbidden')
+            if name.startswith('.') or name in SKIP_NAMES - {'data'} or rel == 'store':
+                directories.remove(name)
+                excluded.append(rel + '/')
+            elif here == folder and name not in MOD_FOLDERS:
+                raise BuildError(f'{rel}/: a mod holds mod/, reference/, base/, assets/ and store/ only')
+        for name in sorted(files):
+            path = here / name
+            rel = path.relative_to(folder).as_posix()
+            if path.is_symlink():
+                raise BuildError(f'{rel}: symlinks are forbidden')
+            if name.startswith('.') or name in SENSITIVE_NAMES or name.endswith(('.p12', '.pfx', '.jks', '.keystore', '.pem', '.key')):
+                audit.extend(audit_file(rel, b''))
+                excluded.append(rel)
+            elif here != folder:
+                payload[rel] = path.read_bytes()
+            elif rel not in ('store.json', 'README.md', 'LICENSE'):
+                raise BuildError(f'{rel}: next to store.json and README.md a mod holds folders only: mod/, reference/, base/, assets/')
+    if not (folder / 'README.md').is_file():
+        raise BuildError('README.md is required')
+    payload['README.md'] = (folder / 'README.md').read_bytes()
+    payload['LICENSE'] = license_raw
+    for path, raw in sorted(payload.items()):
+        audit.extend(audit_file(path, raw))
+        scan_source(path, raw)
+        problem = metadata.check_relative_path(path, mod=True)
+        if problem:
+            raise BuildError(f'{path}: {problem}')
+    return payload, sorted(excluded), audit
+
+
+def prepare_mod(folder: Path, store: dict, identity: str, license_raw: bytes):
+    """A mod: a change to another package, published as a brief and a sample for an agent to carry over."""
+    target = store.get('extends')
+    if not isinstance(target, str) or not re.fullmatch(r'[a-z0-9][a-z0-9.-]{0,95}', target) or target == identity:
+        raise BuildError('store.json of a mod names the package it changes in "extends"')
+    described = store.get('reference')
+    if not isinstance(described, dict) or set(described) - {'version'}:
+        raise BuildError('store.json of a mod says in "reference": {"version": ...} which version of the target its sample was made on')
+    try:
+        versioning.parse(described.get('version'))
+    except versioning.VersionError as error:
+        raise BuildError('reference.version: the version of the target the sample was made on, in SemVer form') from error
+    payload, excluded, audit = collect_mod(folder, license_raw)
+    brief = payload.get('mod/brief.md', b'').decode('utf-8', errors='strict').strip()
+    if not 0 < len(brief) <= MAX_BRIEF:
+        raise BuildError(f'mod/brief.md is the task for whoever carries the mod over: 1 to {MAX_BRIEF} characters')
+    sample = {path[len('reference/'):] for path in payload if path.startswith('reference/')}
+    before = {path[len('base/'):]: raw for path, raw in payload.items() if path.startswith('base/')}
+    removed = store.get('removed', [])
+    if not isinstance(removed, list) or any(not isinstance(path, str) or metadata.check_relative_path('reference/' + path, mod=True) for path in removed):
+        raise BuildError('store.json removed: a list of files of the target the mod removes')
+    if not sample and not removed:
+        raise BuildError('a mod changes nothing: reference/ is empty and nothing is removed')
+    if set(removed) & sample:
+        raise BuildError('a file is both in reference/ and in removed')
+    stray = sorted(set(before) - sample - set(removed))
+    if stray:
+        raise BuildError(f'base/{stray[0]}: there is no such file in reference/ and it is not removed')
+    missing = sorted(set(removed) - set(before))
+    return {'store': store, 'id': identity, 'kind': MOD, 'spec': None, 'target': None, 'version': store.get('version'),
+            'payload': payload, 'excluded': excluded, 'audit': audit, 'descriptor': {}, 'transforms': [],
+            'mod': {'extends': target, 'reference': {
+                'version': described['version'], 'base': {path: sha256(raw) for path, raw in sorted(before.items())},
+                'added': sorted(sample - set(before)), 'removed': sorted(removed)},
+                # The exact change is the difference between base/ and reference/; a file without its base is known as a whole only.
+                'notes': [f'removed file {path} has no copy in base/' for path in missing]}}
 
 
 def load_kinds(store: Path) -> dict:
@@ -233,6 +315,8 @@ def prepare(folder: Path, license_raw: bytes, kinds: dict | None = None):
     kind = store.get('kind')
     if not re.fullmatch(r'[a-z0-9][a-z0-9.-]{0,95}', identity) or not isinstance(kind, str):
         raise BuildError('store.json requires a valid id and kind')
+    if kind == MOD:
+        return prepare_mod(folder, store, identity, license_raw)
     spec = MODULE if kind == 'module' else (kinds or {}).get(kind)
     if spec is None:
         raise BuildError(f'store.json kind "{kind}" is not declared in kinds.json of the store: name the module that hosts such packages there')
@@ -272,7 +356,8 @@ def download_base(args, identity: str, version: str) -> str:
 def package(folder: Path, output: Path, args, license_raw: bytes, ids: dict[str, str], dependency_versions: dict[str, str], published: dict):
     prepared = prepare(folder, license_raw, args.kinds)
     # The rules of the host a package is written for, under the name the host gave them: games name gamesEngine.
-    hosted = {prepared['spec']['engine']: prepared['spec']['version']} if prepared['spec'].get('engine') else {}
+    mod = prepared.get('mod')
+    hosted = {prepared['spec']['engine']: prepared['spec']['version']} if not mod and prepared['spec'].get('engine') else {}
     store, identity, kind, payload = prepared['store'], prepared['id'], prepared['kind'], prepared['payload']
     excluded, audit, descriptor, transforms = prepared['excluded'], prepared['audit'], prepared['descriptor'], prepared['transforms']
     expected_target = prepared['target']
@@ -294,6 +379,12 @@ def package(folder: Path, output: Path, args, license_raw: bytes, ids: dict[str,
     }
     entry.update(shown)
     entry['compatibility'].update(hosted)
+    if mod:
+        entry['extends'] = mod['extends']
+        listing_notes.extend(mod['notes'])
+        listed_target = published.get(mod['extends'])
+        if listed_target is not None and (listed_target.get('publisher') != args.publisher or listed_target.get('license') != args.license_id):
+            listing_notes.append('the target is published by someone else or under another license: check that it allows derived works')
     if details is not None:
         # What is read when the package is opened goes to a file of its own, pinned from the card.
         details_raw = json_bytes({'schemaVersion': 1, 'id': identity, 'version': version, **details})
@@ -318,11 +409,11 @@ def package(folder: Path, output: Path, args, license_raw: bytes, ids: dict[str,
                        'excludedSourcePaths': excluded, 'audit': audit}
     declared_entry = descriptor.get('entry')
     runtime_entry = declared_entry or ('ui/index.html' if 'code/ui/index.html' in payload else 'main.js')
-    if runtime_entry.startswith(expected_target + '/'):
+    if not mod and runtime_entry.startswith(expected_target + '/'):
         runtime_entry = runtime_entry[len(expected_target) + 1:]
-    if 'code/' + runtime_entry not in payload:
+    if not mod and 'code/' + runtime_entry not in payload:
         raise BuildError('Runtime entry is missing from package source')
-    requires = store.get('requires', [])
+    requires = [] if mod else store.get('requires', [])
     if not isinstance(requires, list) or any(not isinstance(value, str) for value in requires):
         raise BuildError('store.json requires must be an array of optional integration IDs')
     optional = sorted(set(ids.get(value, value) for value in requires))
@@ -345,6 +436,14 @@ def package(folder: Path, output: Path, args, license_raw: bytes, ids: dict[str,
         'files': [{'path': path, 'size': len(raw), 'sha256': sha256(raw)} for path, raw in sorted(payload.items())],
     }
     manifest['runtime'].update(hosted)
+    if mod:
+        # A mod runs nothing by itself: it has no entry. It names what it changes and what its sample was made on.
+        del manifest['entry']
+        manifest['extends'] = mod['extends']
+        manifest['reference'] = dict(mod['reference'])
+        made_on = published.get(mod['extends'])
+        if made_on is not None and made_on.get('version') == mod['reference']['version']:
+            manifest['reference']['archiveSha256'] = made_on['archive']['sha256']
     stem = identity + '-' + version
     manifest_name = stem + '.package.json'
     manifest_raw = json_bytes(manifest)

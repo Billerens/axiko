@@ -355,6 +355,81 @@ class CatalogBuildTests(unittest.TestCase):
             with self.assertRaises(builder.BuildError):
                 builder.build(self.args)
 
+    def mod(self, folder='clock-night', target='clock', version='1.0.0', made_on='0.1.0', sample=None, before=None, **extra):
+        """A mod of the clock: a night face. Its sample changes main.js and adds a stylesheet."""
+        shutil.rmtree(self.store / folder, ignore_errors=True)
+        self.write(folder + '/store.json', json.dumps({'id': folder, 'kind': 'mod', 'version': version, 'title': 'Night clock',
+                                                       'summary': 'A dark face for the clock.', 'extends': target,
+                                                       'reference': {'version': made_on}, **extra}))
+        self.write(folder + '/README.md', '# Night clock\n')
+        self.write(folder + '/mod/brief.md', 'Make the face dark at night. The numbers stay as they are.\n')
+        sample = {'main.js': "exports.start = function () { return 'night'; };\n", 'ui/night.css': 'body { background: #000; }\n'} if sample is None else sample
+        before = {'main.js': "exports.start = function () { return 'local'; };\n"} if before is None else before
+        for path, raw in sample.items():
+            self.write(folder + '/reference/' + path, raw)
+        for path, raw in before.items():
+            self.write(folder + '/base/' + path, raw)
+
+    def test_a_mod_is_a_brief_and_a_sample_of_a_change_to_another_package(self):
+        self.args.base_download_url = None
+        self.args.download_url_template = 'https://example.test/releases/{id}-v{version}'
+        self.package()
+        self.build()
+        self.publish()
+        self.mod()
+        self.write('clock-night/assets/moon.svg', '<svg xmlns="http://www.w3.org/2000/svg"/>')
+        self.write('clock-night/store/changelog.md', '## 1.0.0 — 2026-11-17\n\n- The night face.\n')
+        report = self.build()
+        self.assertEqual(['clock-night'], [item['id'] for item in report['toPublish']])
+        cards = {card['id']: card for card in self.cards()}
+        card = cards['clock-night']
+        self.assertEqual(('mod', 'clock', {'minAssiApi': 1}, 'A dark face for the clock.'), (card['kind'], card['extends'], card['compatibility'], card['summary']))
+        self.assertNotIn('extends', cards['clock'])
+        with zipfile.ZipFile(self.out / 'clock-night-1.0.0.zip') as archive:
+            self.assertEqual({'LICENSE', 'README.md', 'assets/moon.svg', 'base/main.js', 'mod/brief.md', 'package.json', 'reference/main.js', 'reference/ui/night.css'}, set(archive.namelist()))
+            manifest = json.loads(archive.read('package.json'))
+        self.assertNotIn('entry', manifest)
+        self.assertEqual(('mod', 'clock', {'assiApi': 1}), (manifest['kind'], manifest['extends'], manifest['runtime']))
+        # What the sample was made on is recorded, down to the published archive of the target: information, not a requirement.
+        before = builder.sha256(b"exports.start = function () { return 'local'; };\n")
+        self.assertEqual({'version': '0.1.0', 'archiveSha256': cards['clock']['archive']['sha256'], 'base': {'main.js': before},
+                          'added': ['ui/night.css'], 'removed': []}, manifest['reference'])
+        # A mod is versioned like any package: its files cannot change under a published version.
+        self.publish()
+        self.assertEqual([], self.build()['toPublish'])
+        self.write('clock-night/mod/brief.md', 'Make the face dark from dusk to dawn.\n')
+        self.assertIn('raise "version"', self.build(False)['blocked'][0]['error'])
+
+    def test_a_mod_must_say_what_it_changes_and_hold_nothing_else(self):
+        self.package()
+        cases = [
+            (dict(), lambda: (self.store / 'clock-night/mod/brief.md').unlink(), 'mod/brief.md is the task'),
+            (dict(before={'main.js': 'x', 'gone.js': 'y'}), None, 'base/gone.js'),
+            (dict(removed=['main.js']), None, 'both in reference/ and in removed'),
+            (dict(removed=['../escape.js'], sample={'a.js': 'x'}, before={}), None, 'store.json removed'),
+            (dict(target='clock-night'), None, 'names the package it changes'),
+            (dict(made_on='latest'), None, 'reference.version'),
+            (dict(sample={}, before={}), None, 'changes nothing'),
+            (dict(), lambda: self.write('clock-night/main.js', 'x'), 'holds folders only'),
+            (dict(), lambda: self.write('clock-night/code/main.js', 'x'), 'holds mod/, reference/, base/, assets/ and store/ only'),
+            (dict(), lambda: self.write('clock-night/reference/vendor.min.js', 'x'), 'minified'),
+        ]
+        for options, spoil, reason in cases:
+            with self.subTest(reason=reason):
+                self.mod(**options)
+                if spoil:
+                    spoil()
+                blocked = self.build(False)['blocked']
+                self.assertEqual(['clock-night'], [item['id'] for item in blocked])
+                self.assertIn(reason, blocked[0]['error'])
+        # A file the mod removes is named; its copy in base/ is welcome and its absence only noted.
+        self.mod(sample={'ui/night.css': 'x'}, before={'old.js': 'gone'}, removed=['old.js', 'older.js'])
+        report = self.build()
+        notes = next(item for item in report['packages'] if item['id'] == 'clock-night')['listing']['notes']
+        self.assertIn('removed file older.js has no copy in base/', notes)
+        manifest = json.loads((self.out / 'clock-night-1.0.0.package.json').read_bytes())
+        self.assertEqual((['ui/night.css'], ['old.js', 'older.js'], ['old.js']), (manifest['reference']['added'], manifest['reference']['removed'], list(manifest['reference']['base'])))
+
     def test_https_only_output_outside_store_and_unknown_exclusion(self):
         self.package()
         self.args.download_url_template = 'https://example.test/{id}'

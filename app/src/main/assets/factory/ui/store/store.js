@@ -197,6 +197,31 @@
     if (String(url).slice(0, prefix.length) !== prefix) return false;
     try { return /currentColor/i.test(atob(url.slice(prefix.length))); } catch (_) { return false; }
   }
+  function isMod(item) { return !!item && item.kind === 'mod'; }
+  // Taking a mod off is a plan like any other: it shows what goes back, and nothing changes before the owner agrees.
+  function removeMod(packageKey, modKey, control) {
+    return operation('remove-mod-' + modKey, control, async () => { const plan = await api('mod.remove', packageKey, modKey); state.pending = plan; showPlan(plan); renderPending(); });
+  }
+  // What others made of this package: the mods that connected sources offer for it, and those that stand on it.
+  async function modsOf(current, box, item, installed) {
+    const token = current.token, layers = installed && Array.isArray(installed.mods) ? installed.mods : [];
+    const page = await api('catalog', { extends: packageId(item), limit: 50 }).catch(() => null);
+    if (!state.dialog || state.dialog.token !== token) return;
+    const offered = listOf(page, 'items');
+    const gone = layers.filter(layer => !offered.some(mod => mod.modKey === layer.key));
+    if (!offered.length && !gone.length) return;
+    const row = (title, version, text, chips, action) => h('div', { class: 'store-plan-file store-mod', 'data-mod': title },
+      h('div', { class: 'grow' }, h('strong', {}, raw(title + (version ? ' · ' + version : ''))), text ? note(raw(text)) : null, chips.length ? h('div', { class: 'store-meta' }, chips) : null), action);
+    box.append(h('div', { class: 'store-mods', id: 'store-mods' }, h('h3', {}, tr('Доработки')),
+      note(tr('То, что другие сделали поверх этого пакета. Доработка накладывается как у автора, если у вас та же версия пакета и те же файлы.')),
+      h('div', { class: 'store-plan-list' },
+        offered.map(mod => { const on = mod.status === 'installed' || mod.status === 'update'; return row(mod.title || packageId(mod), mod.version, mod.summary,
+          [on ? h('span', { class: 'store-chip success' }, tr('Установлено')) : null, mod.status === 'banned' ? h('span', { class: 'store-chip problem' }, tr('Забанен')) : null].filter(Boolean),
+          on ? button(tr('Снять'), event => removeMod(mod.installationKey, mod.modKey, event.currentTarget), { 'data-remove-mod': packageId(mod) })
+            : button(tr('Установить'), event => prepare(mod, event.currentTarget), { 'data-install-mod': packageId(mod), disabled: mod.compatible === false || mod.status === 'banned' || mod.status === 'targetMissing' })); }),
+        gone.map(layer => row(layer.title || layer.id, layer.version, tr('Источник этой доработки больше не предлагает её.'), [h('span', { class: 'store-chip success' }, tr('Установлено'))],
+          button(tr('Снять'), event => removeMod(installed.key, layer.key, event.currentTarget), { 'data-remove-mod': layer.id }))))));
+  }
   function packageIcon(item, installedView) {
     const node = icon(hosted(item.kind) ? 'hosted' : 'module');
     const reference = installedView ? item.catalogEntry && item.catalogEntry.icon : item.icon;
@@ -210,6 +235,8 @@
   }
   function packageCard(item, installedView) {
     const installed = installedView ? item : installedFor(item);
+    // A mod has no folder of its own: it stands on the package it changes, and is taken off it.
+    const standing = isMod(item) && (item.status === 'installed' || item.status === 'update');
     const shown = installedView && item.catalogEntry ? Object.assign({}, item.catalogEntry, item) : item;
     const title = shown.title || packageId(item), card = h('article', { class: 'store-card', 'data-package': packageId(item), 'data-source': item.sourceId });
     // The head of a card is what opens the package: in the grid a card is a tile, and the tile is the way in.
@@ -218,7 +245,8 @@
     card.append(h('p', { class: 'store-description' }, raw(shown.summary || (installedView ? tr('Установлено через каталог Axiko') : ''))));
     const badges = h('div', { class: 'store-meta store-badges' });
     if (item.status === 'update' || item.updateAvailable) badges.append(h('span', { class: 'store-chip update' }, tr('Есть обновление')));
-    else if (installed) badges.append(h('span', { class: 'store-chip success' }, tr('Установлено')));
+    else if (installed || standing) badges.append(h('span', { class: 'store-chip success' }, tr('Установлено')));
+    if (item.status === 'targetMissing') badges.append(h('span', { class: 'store-chip changed', 'data-target-missing': '' }, tr('Нужен пакет «{}»', item.extends || '')));
     else if (unmanaged(item)) badges.append(h('span', { class: 'store-chip changed', 'data-unmanaged': '' }, tr('Стоит без магазина')));
     if (item.localModified || installed && installed.localModified) badges.append(h('span', { class: 'store-chip changed' }, tr('Есть свои правки')));
     if (item.ban || item.status === 'banned') badges.append(h('span', { class: 'store-chip problem', 'data-banned': '' }, tr('Забанен')));
@@ -229,10 +257,12 @@
     else if (item.status !== 'banned' && (item.compatible === false || item.status === 'incompatible')) badges.append(h('span', { class: 'store-chip problem' }, tr('Нужна другая версия Axiko')));
     (Array.isArray(shown.tags) ? shown.tags : []).slice(0, 3).forEach(tag => badges.append(h('span', { class: 'store-tag' }, raw('#' + tag))));
     if (item.archive && item.archive.size) badges.append(h('span', { class: 'store-size' }, bytes(item.archive.size)));
+    if (isMod(item)) card.append(h('div', { class: 'store-mod-target', 'data-mod-target': item.extends || '' }, tr('Для пакета «{}»', item.targetTitle || item.extends || '')));
     card.append(badges, h('div', { class: 'store-source-line' }, raw(item.sourceTitle || sourceName(item.sourceId))));
     const actions = h('div', { class: 'store-card-actions' });
-    if (installedView && entryPath(item)) actions.append(button(tr('Открыть'), () => openInstalled(item), { class: 'btn primary', 'data-open-package': packageId(item) }));
-    else if (!installed || item.status === 'update' || item.updateAvailable) actions.append(button(tr(installed ? 'Обновить' : unmanaged(item) ? 'Принять модуль' : 'Установить'), event => prepare(item, event.currentTarget), { class: 'btn primary', disabled: item.compatible === false || item.status === 'incompatible' || item.status === 'banned', 'data-install': packageId(item) }));
+    if (standing) actions.append(button(tr('Снять'), event => removeMod(item.installationKey, item.modKey, event.currentTarget), { 'data-remove-mod': packageId(item) }));
+    else if (installedView && entryPath(item)) actions.append(button(tr('Открыть'), () => openInstalled(item), { class: 'btn primary', 'data-open-package': packageId(item) }));
+    else if (!installed || item.status === 'update' || item.updateAvailable) actions.append(button(tr(installed ? 'Обновить' : unmanaged(item) ? 'Принять модуль' : 'Установить'), event => prepare(item, event.currentTarget), { class: 'btn primary', disabled: item.compatible === false || item.status === 'incompatible' || item.status === 'banned' || item.status === 'targetMissing', 'data-install': packageId(item) }));
     else if (entryPath(installed)) actions.append(button(tr('Открыть'), () => openInstalled(installed), { class: 'btn primary' }));
     card.append(actions); return card;
   }
@@ -388,7 +418,7 @@
     const banned = display.status === 'banned' || !!display.ban && !installed;
     const compatible = !banned && display.compatible !== false && display.status !== 'incompatible';
     current.body.append(h('p', {}, raw(display.summary || '')), facts([
-      ['Тип', kindItem(display.kind)], ['Версия', display.version], ['Установлена', installed && installed.version], ['Выпуск от', display.updated], ['Автор', display.publisher], ['Лицензия', display.license], ['Источник', display.sourceTitle || sourceName(item.sourceId)], ['Загрузка', display.archive && bytes(display.archive.size)], ['После распаковки', display.archive && bytes(display.archive.unpackedSize)]
+      ['Тип', kindItem(display.kind)], ['Для пакета', isMod(display) ? (display.targetTitle || display.extends) + (display.targetVersion ? ' ' + display.targetVersion : '') : ''], ['Версия', display.version], ['Установлена', installed && installed.version], ['Выпуск от', display.updated], ['Автор', display.publisher], ['Лицензия', display.license], ['Источник', display.sourceTitle || sourceName(item.sourceId)], ['Загрузка', display.archive && bytes(display.archive.size)], ['После распаковки', display.archive && bytes(display.archive.unpackedSize)]
     ]));
     if (Array.isArray(display.tags) && display.tags.length) current.body.append(h('div', { class: 'store-meta', 'data-tags': '' }, display.tags.map(tag => h('span', { class: 'store-tag' }, raw('#' + tag)))));
     if (display.compatibility) current.body.append(note(tr('API Axiko: от {}', display.compatibility.minAssiApi) + Object.keys(display.compatibility).filter(key => key !== 'minAssiApi').map(key => ' · ' + kindTitle(display.kind) + ': ' + display.compatibility[key]).join('')));
@@ -398,10 +428,14 @@
     if (installed && installed.review) current.body.append(installReview(installed.review));
     if (installed && installed.localModified) current.body.append(h('p', { class: 'store-notice' }, tr('В пакете есть ваши доработки. Перед обновлением покажем изменения и возможные конфликты.')));
     if (!installed && unmanaged(display)) current.body.append(h('p', { class: 'store-notice', 'data-unmanaged-note': '' }, tr('Этот модуль уже стоит на устройстве, но установлен не через магазин. Каталог не знает его версии и не обновляет его. Примите его под управление магазина: файлы, совпавшие с выпуском, останутся как есть, по остальным решите вы.')));
+    const standing = isMod(display) && (display.status === 'installed' || display.status === 'update');
+    if (isMod(display)) current.body.append(h('p', { class: 'store-notice', 'data-mod-note': '' }, tr('Доработка ставится поверх пакета и меняет его файлы. Если у вас та же версия пакета, на которой её сделал автор, и те же файлы, она накладывается как есть. Иначе её должен перенести на вашу версию агент.')));
     if (display.status && display.details) { const box = h('div', { class: 'store-about', 'aria-busy': 'true' }); current.body.append(box); about(current, box, display); }
+    if (display.status && !isMod(display)) { const box = h('div', { class: 'store-about' }); current.body.append(box); modsOf(current, box, display, installed); }
     current.body.append(note(tr('Перед установкой загрузим конкретную версию, проверим структуру и хеши. Код пакета на этом шаге не запускается.')));
     const controls = h('div', { class: 'store-dialog-actions' });
-    if (compatible && display.status && (!installed || display.status === 'update' || display.updateAvailable)) controls.append(button(tr(installed ? 'Подготовить обновление' : unmanaged(display) ? 'Принять под управление магазина' : 'Подготовить установку'), event => prepare(display, event.currentTarget), { class: 'btn primary', id: 'store-prepare' }));
+    if (standing) controls.append(button(tr('Снять доработку'), event => removeMod(display.installationKey, display.modKey, event.currentTarget), { class: 'btn primary', id: 'store-remove-mod' }));
+    else if (compatible && display.status && display.status !== 'targetMissing' && (!installed || display.status === 'update' || display.updateAvailable)) controls.append(button(tr(installed ? 'Подготовить обновление' : unmanaged(display) ? 'Принять под управление магазина' : 'Подготовить установку'), event => prepare(display, event.currentTarget), { class: 'btn primary', id: 'store-prepare' }));
     if (installed && entryPath(installed)) controls.append(button(tr('Открыть пакет'), () => { closeDialog(); openInstalled(installed); }));
     if (installed && installed.rollbackAvailable) controls.append(button(tr('Вернуть предыдущую версию'), event => operation('prepare-rollback', event.currentTarget, async () => {
       const plan = await api('rollback', installationKey(installed)); state.pending = plan; showPlan(plan); renderPending();
@@ -444,8 +478,8 @@
   }
   function showPlan(plan, report) {
     const previous = state.dialog, origin = previous && previous.origin;
-    const adoption = !!plan.adoption;
-    const current = dialog(plan.status === 'applied' ? tr('Готово') : tr(plan.rollback || plan.operation === 'rollback' ? 'Возврат версии' : adoption ? 'Принятие под управление магазина' : 'Проверка перед установкой'));
+    const adoption = !!plan.adoption, mod = plan.mod || null, removal = !!(mod && mod.removal);
+    const current = dialog(plan.status === 'applied' ? tr('Готово') : tr(plan.rollback || plan.operation === 'rollback' ? 'Возврат версии' : removal ? 'Снятие доработки' : mod ? 'Установка доработки' : adoption ? 'Принятие под управление магазина' : 'Проверка перед установкой'));
     if (origin) current.origin = origin; current.planId = plan.id;
     state.pending = plan; renderPending();
     const manifest = plan.manifest || {}, conflicts = Array.isArray(plan.conflicts) ? plan.conflicts.filter(c => !c.resolved) : [];
@@ -455,7 +489,7 @@
     const about = facts([['Пакет', plan.title || manifest.id || plan.packageId], ['Версия', plan.version || manifest.version], ['Автор', manifest.publisher], ['Лицензия', manifest.license]]);
     current.body.append(about);
     if (plan.status === 'applied') {
-      current.body.append(h('p', { class: 'store-notice' }, tr(adoption ? 'Модуль принят под управление магазина: теперь каталог знает его версию и покажет обновления. Сохранения, настройки и оставленные вами файлы на месте.' : 'Пакет установлен. Сохранения, настройки и сохранённые локальные правки остались на месте.')));
+      current.body.append(h('p', { class: 'store-notice' }, removal ? tr('Доработка снята: файлы пакета «{}» такие, какими были до неё. Сохранения и настройки на месте.', mod.targetTitle || mod.extends || '') : mod ? tr('Доработка установлена поверх пакета «{}». Сохранения и настройки на месте; снять её можно в карточке пакета.', mod.targetTitle || mod.extends || '') : tr(adoption ? 'Модуль принят под управление магазина: теперь каталог знает его версию и покажет обновления. Сохранения, настройки и оставленные вами файлы на месте.' : 'Пакет установлен. Сохранения, настройки и сохранённые локальные правки остались на месте.')));
       const completedReport = report || plan.review;
       if (completedReport && completedReport.completed && completedReport.historicalOnly) current.body.append(reviewCard(completedReport, plan.reviewTask || completedReport));
       const installed = state.installed.find(item => installationKey(item) === plan.installationKey);
@@ -476,7 +510,9 @@
       return;
     }
     (Array.isArray(plan.previousBans) ? plan.previousBans : []).forEach(ban => current.body.append(banNotice(ban, true)));
-    current.body.append(note(adoption ? tr('Модуль уже стоит на устройстве. Файлов, совпавших с выпуском {}: {}. Личные данные и сохранения не заменяются.', plan.version || manifest.version || '', Number(plan.matchingFiles) || 0) : tr('Обновляется код пакета. Личные данные и сохранения не заменяются.')));
+    current.body.append(note(removal ? tr('Файлы пакета «{}» вернутся к тому, какими были до доработки. Личные данные и сохранения не затрагиваются.', mod.targetTitle || mod.extends || '')
+      : mod ? tr('Доработка накладывается на пакет «{}» {} как у автора: версия та же, файлы совпали. Личные данные и сохранения не затрагиваются.', mod.targetTitle || mod.extends || '', mod.targetVersion || '')
+      : adoption ? tr('Модуль уже стоит на устройстве. Файлов, совпавших с выпуском {}: {}. Личные данные и сохранения не заменяются.', plan.version || manifest.version || '', Number(plan.matchingFiles) || 0) : tr('Обновляется код пакета. Личные данные и сохранения не заменяются.')));
     if (blocked) current.body.append(h('div', { class: 'store-notice danger', 'data-plan-blocked': '' }, h('strong', {}, tr('Сначала нужно устранить препятствия')), h('ul', { class: 'store-plain-list' }, blockers.length ? blockers.map(reason => h('li', {}, raw(typeof reason === 'string' ? reason : reason.message || reason.reason || JSON.stringify(reason)))) : h('li', {}, tr('Подготовьте пакет заново после обновления источника.')))));
     if (Array.isArray(plan.dependencies) && plan.dependencies.length) current.body.append(h('details', { open: blocked }, h('summary', {}, tr('Зависимости: {}', plan.dependencies.length)), h('ul', { class: 'store-plain-list' }, plan.dependencies.map(item => h('li', {}, raw(item.id + ' ' + (item.version || '')), ' · ', tr(item.satisfied ? 'Установлено' : item.optional ? 'Необязательная связь' : 'Не установлено'))))));
     if (plan.rollback || plan.operation === 'rollback') current.body.append(h('p', { class: 'store-notice' }, tr('Возвращается предыдущий код. Данные сохраняются; старый код может не поддерживать более новый формат сохранения.')));
@@ -492,16 +528,18 @@
         try { for (const conflict of conflicts) next = await settle(conflict, incoming); }
         finally { state.pending = next; showPlan(next); }
       });
-      current.body.append(h('p', { class: 'store-notice' }, tr(adoption
+      current.body.append(h('p', { class: 'store-notice' }, tr(removal
+        ? 'Эти файлы меняли уже после доработки. Выберите для каждого: оставить как сейчас или вернуть, каким он был до неё. Ничего не заменено.'
+        : adoption
         ? 'Эти файлы у вас отличаются от выпуска магазина, и неизвестно, чья версия новее. Выберите для каждого, что оставить. Ничего не заменено; перед заменой будет сделан снимок.'
         : 'Есть конфликт с вашими доработками. Сохраните свою версию файла, возьмите версию магазина или поручите агенту разобраться. Ничего не заменено.')));
       if (conflicts.length > 1) current.body.append(h('div', { class: 'store-dialog-actions', 'data-resolve-all': '' },
-        button(tr('Взять все из магазина'), every(true), { 'data-take-all': '' }), button(tr('Оставить все мои'), every(false), { 'data-keep-all': '' })));
+        button(tr(removal ? 'Вернуть все прежние' : 'Взять все из магазина'), every(true), { 'data-take-all': '' }), button(tr(removal ? 'Оставить все как сейчас' : 'Оставить все мои'), every(false), { 'data-keep-all': '' })));
       current.body.append(h('div', { class: 'store-plan-list' }, conflicts.map(conflict => h('div', { class: 'store-plan-file store-plan-conflict', 'data-conflict': conflict.path },
-        h('div', { class: 'grow' }, h('code', {}, raw(conflict.path)), note(tr(adoption ? 'Отличается от выпуска магазина' : 'Изменён и у вас, и в новой версии'))),
+        h('div', { class: 'grow' }, h('code', {}, raw(conflict.path)), note(tr(removal ? 'Изменён после доработки' : adoption ? 'Отличается от выпуска магазина' : 'Изменён и у вас, и в новой версии'))),
         h('div', { class: 'store-plan-choice' },
-          button(tr(adoption ? 'Оставить мою' : 'Сохранить мою версию'), one(conflict, false), { 'data-keep-local': conflict.path }),
-          button(tr('Взять из магазина'), one(conflict, true), { 'data-take-incoming': conflict.path }))))));
+          button(tr(removal ? 'Оставить как сейчас' : adoption ? 'Оставить мою' : 'Сохранить мою версию'), one(conflict, false), { 'data-keep-local': conflict.path }),
+          button(tr(removal ? 'Вернуть прежний' : 'Взять из магазина'), one(conflict, true), { 'data-take-incoming': conflict.path }))))));
     }
     const preserved = changes.filter(change => change.localModified || /preserv|keep|local/i.test(change.kind || ''));
     if (preserved.length && !adoption) current.body.append(note(tr('Локальных правок будет сохранено: {}', preserved.length)));
@@ -523,7 +561,7 @@
     }
     const ackKey = plan.id + ':' + plan.digest;
     const ack = h('input', { type: 'checkbox', id: 'store-trust-ack', checked: state.acknowledged.has(ackKey) });
-    const direct = button(tr(plan.rollback || plan.operation === 'rollback' ? 'Вернуть версию' : adoption ? 'Принять модуль' : 'Установить'), event => operation('apply-' + plan.id, event.currentTarget, async () => {
+    const direct = button(tr(plan.rollback || plan.operation === 'rollback' ? 'Вернуть версию' : removal ? 'Снять доработку' : mod ? 'Установить доработку' : adoption ? 'Принять модуль' : 'Установить'), event => operation('apply-' + plan.id, event.currentTarget, async () => {
       if (!state.acknowledged.has(ackKey) || conflicts.length || blocked || agentRunning) return;
       current.locked = true; current.close.disabled = true; dialogStatus(tr('Устанавливаем проверенный пакет…'));
       try {
@@ -543,6 +581,8 @@
       direct.disabled = blocked || agentRunning || !ack.checked || conflicts.length > 0 || currentReport && currentReport.status === 'reject'; agent.disabled = blocked || !ack.checked || agentRunning;
     });
     const trust = h('label', { class: 'store-trust' }, ack, h('span', {}, tr('Разрешаю запуск этого пакета с возможностями Axiko'), h('small', {}, tr('Для этой версии и показанного плана установки.'))));
+    // Taking a mod off brings back files that were there before: there is nothing new for an agent to review.
+    if (removal) { current.footer.append(trust, h('div', { class: 'store-dialog-actions' }, direct)); return; }
     if (!warned) { current.footer.append(trust, h('div', { class: 'store-dialog-actions' }, direct, agent)); return; }
     // The agent does not install a release it has doubts about, and no page or model can say yes for the owner:
     // the shell asks in its own dialog, bound to this plan and digest.

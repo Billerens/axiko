@@ -252,6 +252,52 @@ class MetadataTests(unittest.TestCase):
         minimal = {key: self.details[key] for key in ('schemaVersion', 'id', 'version')}
         self.assertTrue(self.check(minimal, 'details')['ok'])
 
+    def mod(self):
+        """The manifest of a mod: no entry, the package it changes, and what its sample was made on."""
+        value = copy.deepcopy(self.package)
+        del value['entry']
+        value.update(kind='mod', extends='example.clock', reference={'version': '1.0.0', 'base': {'main.js': '1' * 64}, 'added': ['ui/night.css'], 'removed': []})
+        value['files'] = [record for record in value['files'] if record['path'] in ('README.md', 'LICENSE')] + [
+            {'path': path, 'size': 1, 'sha256': '1' * 64} for path in ('mod/brief.md', 'reference/main.js', 'reference/ui/night.css', 'base/main.js')]
+        return value
+
+    def test_mod_manifest_names_its_target_and_what_its_sample_was_made_on(self):
+        self.assertTrue(self.check(self.mod())['ok'], self.check(self.mod()))
+        removing = self.mod()
+        removing['reference']['removed'] = ['old.js']
+        self.assertTrue(self.check(removing)['ok'])
+        spoiled = {
+            '$': lambda value: value.update(entry='code/main.js'),
+            '$ without reference': lambda value: value.pop('reference'),
+            '$.extends': lambda value: value.update(extends=value['id']),
+            '$.files': lambda value: value['files'].pop(2),
+            '$.reference.base': lambda value: value['reference']['base'].update({'other.js': '2' * 64}),
+            '$.reference.added': lambda value: value['reference'].update(added=[]),
+            '$.reference.removed': lambda value: value['reference'].update(removed=['main.js']),
+            '$.reference.version': lambda value: value['reference'].update(version='latest'),
+            '$.files[2]': lambda value: value['files'][2].update(path='code/brief.md'),
+            '$.reference.archiveSha256': lambda value: value['reference'].update(archiveSha256='abc'),
+        }
+        for path, spoil in spoiled.items():
+            with self.subTest(path=path):
+                value = self.mod()
+                spoil(value)
+                self.invalid(value, path=path.split(' ')[0])
+        # What is a mod's is not an ordinary package's, and the other way round.
+        plain = copy.deepcopy(self.package)
+        plain['extends'] = 'example.clock'
+        self.invalid(plain)
+        plain = copy.deepcopy(self.package)
+        plain['files'].append({'path': 'reference/main.js', 'size': 1, 'sha256': '1' * 64})
+        self.invalid(plain, path='$.files')
+        page = copy.deepcopy(self.page)
+        page['packages'][0]['kind'] = 'mod'
+        self.invalid(page, 'page', '$.packages[0]')
+        page['packages'][0]['extends'] = 'example.clock'
+        self.assertTrue(self.check(page, 'page')['ok'])
+        page['packages'][0]['kind'] = 'module'
+        self.invalid(page, 'page', '$.packages[0]')
+
     def test_dependency_identity_and_supported_range_syntax(self):
         value = copy.deepcopy(self.package)
         value['dependencies'] = [{'id': 'example.library', 'version': '>=1.0.0'}]

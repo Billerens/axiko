@@ -46,6 +46,7 @@ class StoreService(
             val entries = try { sources.cached(source.getString("id")).getJSONArray("packages") } catch (_: Exception) { continue }
             for (number in 0 until entries.length()) {
                 val entry = StoreDisk.copy(entries.getJSONObject(number))
+                if (entry.getString("kind") == StoreFormat.MOD) { out.put(modEntry(entry, source, installed, banned)); continue }
                 val sameId = installed.firstOrNull { it.getString("id") == entry.getString("id") }
                 val own = installed.firstOrNull { it.getString("id") == entry.getString("id") && it.getString("sourceId") == source.getString("id") }
                 var error = compatibility(entry.getJSONObject("compatibility"), false, entry.getString("kind"), known)
@@ -96,6 +97,37 @@ class StoreService(
         return out
     }
 
+    /**
+     * A mod in the catalog. It has no folder of its own: its status is about the package it changes,
+     * which must stand under the store's care for the mod to be laid over it.
+     */
+    private fun modEntry(entry: JSONObject, source: JSONObject, installed: List<JSONObject>, banned: List<JSONObject>): JSONObject {
+        val target = installed.firstOrNull { it.getString("id") == entry.getString("extends") }
+        val layer = target?.optJSONArray("mods")?.let { list -> (0 until list.length()).map { list.getJSONObject(it) } }
+            ?.firstOrNull { it.getString("id") == entry.getString("id") && it.getString("sourceId") == source.getString("id") }
+        var error = compatibility(entry.getJSONObject("compatibility"), false, StoreFormat.MOD)
+        var status = when {
+            target == null -> "targetMissing"
+            layer == null -> "available"
+            StoreFormat.compareVersions(entry.getString("version"), layer.getString("version")) > 0 -> "update"
+            else -> "installed"
+        }
+        if (target == null && error == null) error = "Сначала установите пакет «${entry.getString("extends")}»: мод ставится поверх него."
+        if (error != null && status == "available") status = "incompatible"
+        val sha = entry.getJSONObject("archive").getString("sha256")
+        banned.firstOrNull { it.getString("artifactSha256") == sha }?.let { ban ->
+            entry.put("ban", StoreBans.brief(ban))
+            // A mod that already stands stays what it is; the release is simply not offered again.
+            if (layer?.optString("artifactSha256") != sha) { status = "banned"; error = StoreBans.refusal(ban) }
+        }
+        return entry.put("sourceId", source.getString("id")).put("sourceTitle", source.getString("title")).put("sourceEnabled", true)
+            .put("cached", source.optString("error").isNotEmpty()).put("sourceError", source.optString("error")).put("status", status)
+            .put("compatible", error == null).put("compatibilityError", error ?: "")
+            .put("installedVersion", layer?.getString("version") ?: "").put("installationKey", target?.optString("key") ?: "")
+            .put("modKey", layer?.optString("key") ?: "").put("targetTitle", target?.optString("title") ?: "")
+            .put("targetVersion", target?.optString("version") ?: "").put("localModified", false)
+    }
+
     /** The decorated catalog for the paged screen, kept for a moment: scrolling asks for it many times in a row. */
     @Volatile private var listed: Pair<Long, List<JSONObject>>? = null
 
@@ -118,11 +150,14 @@ class StoreService(
         val query = options.optString("query").trim().lowercase(Locale.ROOT)
         val kind = options.optString("kind"); val sourceId = options.optString("sourceId")
         val tag = options.optString("tag").trim().lowercase(Locale.ROOT); val only = options.optString("only")
+        // The mods of one package: what its card shows under «Доработки».
+        val extends = options.optString("extends")
         fun tags(entry: JSONObject) = entry.optJSONArray("tags")?.let { list -> (0 until list.length()).map { list.getString(it) } } ?: emptyList()
         val matched = all.filter { entry ->
             (kind.isEmpty() || kind == "all" || entry.getString("kind") == kind) &&
                 (sourceId.isEmpty() || sourceId == "all" || entry.getString("sourceId") == sourceId) &&
                 (tag.isEmpty() || tag in tags(entry)) &&
+                (extends.isEmpty() || entry.optString("extends") == extends) &&
                 (only != "updates" || entry.getString("status") in PENDING) &&
                 (query.isEmpty() || (listOf(entry.getString("title"), entry.getString("summary"), entry.getString("id"), entry.getString("publisher")) + tags(entry))
                     .any { it.lowercase(Locale.ROOT).contains(query) })
@@ -152,8 +187,11 @@ class StoreService(
         val known = kinds.all(); val numbers = sortedMapOf<String, Int>()
         all.forEach { entry -> numbers[entry.getString("kind")] = (numbers[entry.getString("kind")] ?: 0) + 1 }
         return numbers.map { (name, count) ->
-            JSONObject().put("kind", name).put("count", count).put("title", known[name]?.title ?: name).put("item", known[name]?.item ?: name)
-                .put("host", known[name]?.host ?: JSONObject.NULL).put("hosted", known.containsKey(name))
+            // A mod is the shell's own kind, as a module is: it needs no host.
+            val mod = name == StoreFormat.MOD
+            JSONObject().put("kind", name).put("count", count).put("title", if (mod) "Доработки" else known[name]?.title ?: name)
+                .put("item", if (mod) "Доработка" else known[name]?.item ?: name)
+                .put("host", known[name]?.host ?: JSONObject.NULL).put("hosted", mod || known.containsKey(name))
         }
     }
 
@@ -240,7 +278,8 @@ class StoreService(
                 val latest = sources.packageEntry(sourceId, packageId)
                 require(StoreFormat.canonical(latest) == StoreFormat.canonical(entry)) { "Каталог изменился во время загрузки. Подготовьте новую версию." }
                 val result = try {
-                    installer.prepare(sourceId, entry, manifestResponse.bytes, file, adopt)
+                    if (entry.getString("kind") == StoreFormat.MOD) installer.prepareMod(sourceId, entry, manifestResponse.bytes, file)
+                    else installer.prepare(sourceId, entry, manifestResponse.bytes, file, adopt)
                 } catch (violation: StoreViolation) {
                     // The archive is exactly the one the index names, and it breaks a rule no review is needed for.
                     val rule = StoreRules.rule(violation.rule)
@@ -315,6 +354,24 @@ class StoreService(
         decorate(result, envelope)
     }
 
+    /**
+     * Prepares taking a mod off its package. Like a rollback it needs no source: what is put back was
+     * kept on the device when the mod was laid over.
+     */
+    fun removeMod(packageKey: String, modKey: String): JSONObject = synchronized(operationLock) {
+        val result = installer.prepareModRemoval(packageKey, modKey)
+        val known = runCatching { sources.source(result.getString("sourceId")) }.getOrNull()
+        val envelope = JSONObject().put("sourceId", result.getString("sourceId"))
+            .put("sourceCreatedAt", known?.optLong("createdAt") ?: 0L).put("sourceInstanceId", known?.optString("instanceId") ?: "")
+            .put("repositoryId", known?.optString("repositoryId") ?: "").put("indexUrl", known?.optString("indexUrl") ?: "")
+            .put("manifestSha256", result.getString("manifestSha256")).put("localRollback", true).put("createdAt", System.currentTimeMillis())
+        StoreDisk.write(subjectFile(result.getString("id")), envelope)
+        decorate(result, envelope)
+    }
+
+    /** Taking a mod off is always allowed: a ban or a warning about its release is a reason to remove it, not an obstacle. */
+    private fun removal(plan: JSONObject): Boolean = plan.optJSONObject("mod")?.optBoolean("removal") == true
+
     fun apply(id: String, expectedDigest: String, acceptTrustedCode: Boolean): JSONObject = synchronized(operationLock) {
         require(acceptTrustedCode) { "Подтвердите установку кода с доступом Axiko или поручите проверку агенту." }
         commit(id, expectedDigest, null)
@@ -324,13 +381,14 @@ class StoreService(
     private fun commit(id: String, expectedDigest: String, decision: JSONObject?): JSONObject {
         val current = plan(id)
         require(current.optString("status") != "applied") { "Этот план уже установлен. Для новых изменений подготовьте новый план." }
-        bans.find(current.getString("artifactSha256"))?.let { throw StoreBanned(it) }
+        val removal = removal(current)
+        if (!removal) bans.find(current.getString("artifactSha256"))?.let { throw StoreBanned(it) }
         require(current.getString("digest") == expectedDigest) { "План изменился. Проверьте изменения перед установкой." }
         require(current.getJSONArray("blockers").length() == 0) { current.getJSONArray("blockers").getString(0) }
         val report = review(id)
-        require(report.optString("status") != "reject") { "Проверка отклонила этот план. Исправьте пакет и подготовьте новую проверку." }
+        require(removal || report.optString("status") != "reject") { "Проверка отклонила этот план. Исправьте пакет и подготовьте новую проверку." }
         val effective = effective(report)
-        require(effective?.optString("status") != "needsAttention" || decision != null) {
+        require(removal || effective?.optString("status") != "needsAttention" || decision != null) {
             "Проверка нашла в этом выпуске подозрительные места. Установить его может только владелец: кнопка «Установить, несмотря на предупреждения» в плане магазина."
         }
         // Persist the reviewed subject before the core transaction. If the process
@@ -538,7 +596,8 @@ class StoreService(
         }
         val manifest = result.getJSONObject("manifest")
         compatibility(manifest.getJSONObject("runtime"), true, manifest.getString("kind"))?.let { blockers.put(it) }
-        val dependencies = dependencyState(result.getString("sourceId"), manifest, blockers)
+        // A mod depends on nothing but the package it changes, and that one is checked by the installer.
+        val dependencies = if (raw.has("mod")) JSONArray() else dependencyState(result.getString("sourceId"), manifest, blockers)
         val coreDigest = result.getString("digest")
         val scope = JSONObject().put("core", coreDigest).put("dependencies", dependencies).put("sourceInstance", sourceInstance)
             .put("blockers", blockers).put("policy", StoreRules.VERSION)
@@ -551,7 +610,7 @@ class StoreService(
         val banned = bans.all()
         banned.firstOrNull { it.getString("artifactSha256") == raw.getString("artifactSha256") }?.let { ban ->
             result.put("ban", StoreBans.brief(ban))
-            if (raw.optString("status") != "applied") result.put("status", "banned")
+            if (raw.optString("status") != "applied" && !removal(raw)) result.put("status", "banned")
         }
         StoreBans.earlier(banned, raw.getString("packageId"), raw.getString("sourceId"), envelope.optString("repositoryId"), raw.getString("artifactSha256"))
             .takeIf { it.length() > 0 }?.let { result.put("previousBans", it) }
@@ -595,6 +654,7 @@ class StoreService(
     private fun compatibility(value: JSONObject, manifest: Boolean, kind: String, known: Map<String, StoreKind> = kinds.all()): String? {
         val required = value.getInt(if (manifest) "assiApi" else "minAssiApi")
         if (required > ASSI_API) return "Пакету нужен API Axiko $required; установлен $ASSI_API."
+        if (kind == StoreFormat.MOD) return null
         return kinds.mismatch(kind, value, known)
     }
 
@@ -683,6 +743,7 @@ object Store {
             "store.source.enable" -> service.sources.enable(args.getString(0), args.getBoolean(1))
             "store.catalog" -> service.catalogPage(args.optJSONObject(0) ?: JSONObject())
             "store.kinds" -> service.kindList()
+            "store.mod.remove" -> service.removeMod(args.getString(0), args.getString(1))
             "store.details" -> service.details(args.getString(0), args.getString(1))
             "store.media" -> service.media(args.getString(0), args.getString(1), args.getString(2), args.optInt(3, 0))
             "store.installed" -> service.installed()

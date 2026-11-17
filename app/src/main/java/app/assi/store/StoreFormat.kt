@@ -26,6 +26,8 @@ object StoreFormat {
     const val MAX_SCREENSHOT = 1_048_576
     private val iconTypes = setOf("image/svg+xml", "image/png", "image/webp", "image/jpeg")
     private val screenshotTypes = setOf("image/png", "image/webp", "image/jpeg")
+    /** A change to another package, carried over to the owner's version of it; the shell's own kind, like `module`. */
+    const val MOD = "mod"
     private val kindPattern = Regex("[a-z][a-z0-9-]{0,31}")
     private val enginePattern = Regex("[a-z][A-Za-z0-9]{0,31}")
     private val datePattern = Regex("[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])")
@@ -88,7 +90,10 @@ object StoreFormat {
 
     /** A card: what the list shows and what an installation is decided by. Long texts and screenshots are in [details]. */
     fun packageEntry(value: JSONObject): JSONObject = value.also {
-        fields(it, setOf("id", "kind", "title", "summary", "version", "publisher", "license", "manifestUrl", "archive", "compatibility"), setOf("tags", "icon", "updated", "details"))
+        fields(it, setOf("id", "kind", "title", "summary", "version", "publisher", "license", "manifestUrl", "archive", "compatibility"), setOf("tags", "icon", "updated", "details", "extends"))
+        // A mod is a change to another package and names it; nothing else may.
+        require(it.has("extends") == (it.optString("kind") == MOD)) { "Поле extends есть у мода и только у него." }
+        if (it.has("extends")) require(id(str(it, "extends", 96)) != it.optString("id")) { "Мод не может менять сам себя." }
         identity(it); str(it, "title", 120); str(it, "summary", 600); https(str(it, "manifestUrl", 2048))
         val archive = obj(it, "archive")
         fields(archive, setOf("url", "sha256", "size", "unpackedSize", "fileCount"))
@@ -176,11 +181,14 @@ object StoreFormat {
     }
 
     fun manifest(bytes: ByteArray): JSONObject = parse(bytes).also { value ->
-        fields(value, setOf("schemaVersion", "id", "kind", "version", "publisher", "license", "sourceFormat", "entry", "runtime", "dependencies", "optionalDependencies", "capabilities", "files"), setOf("networkDomains"))
+        // A mod runs nothing by itself: no entry. It names the package it changes and what its sample was made on.
+        val mod = value.optString("kind") == MOD
+        fields(value, setOf("schemaVersion", "id", "kind", "version", "publisher", "license", "sourceFormat", "runtime", "dependencies", "optionalDependencies", "capabilities", "files") +
+            if (mod) setOf("extends", "reference") else setOf("entry"), setOf("networkDomains"))
         integer(value, "schemaVersion", 1, 1); identity(value)
         require(str(value, "sourceFormat", 32) == "readable") { "Пакет должен содержать читаемые исходники." }
-        val entry = path(str(value, "entry", 240))
-        require(entry.startsWith("code/")) { "Точка входа должна находиться в code/." }
+        val entry = if (mod) "mod/brief.md" else path(str(value, "entry", 240))
+        require(mod || entry.startsWith("code/")) { "Точка входа должна находиться в code/." }
         val runtime = obj(value, "runtime")
         versions(runtime, "assiApi")
         val dependencies = HashSet<String>()
@@ -203,16 +211,42 @@ object StoreFormat {
         for (i in 0 until files.length()) {
             val file = files.optJSONObject(i) ?: error("files[$i] должен быть объектом.")
             fields(file, setOf("path", "sha256", "size")); val p = path(str(file, "path", 240))
-            require(p == "README.md" || p == "LICENSE" || p.startsWith("code/") || p.startsWith("assets/")) { "Файл вне разрешённой структуры: $p." }
+            val folders = if (mod) listOf("mod/", "reference/", "base/", "assets/") else listOf("code/", "assets/")
+            require(p == "README.md" || p == "LICENSE" || folders.any(p::startsWith)) { "Файл вне разрешённой структуры: $p." }
             paths.add(p); hash(str(file, "sha256", 64)); total += integer(file, "size", 0, MAX_FILE.toLong())
         }
         uniquePaths(paths)
-        require(paths.containsAll(listOf("README.md", "LICENSE", entry))) { "В описи отсутствуют README.md, LICENSE или точка входа." }
+        require(paths.containsAll(listOf("README.md", "LICENSE", entry))) { if (mod) "В описи мода отсутствуют README.md, LICENSE или задание mod/brief.md." else "В описи отсутствуют README.md, LICENSE или точка входа." }
         require(total <= MAX_UNPACKED) { "Распакованный пакет превышает 20 МиБ." }
+        if (mod) reference(value, paths)
+    }
+
+    /**
+     * What a mod says about its sample must be what its files are: `reference/` holds the author's files
+     * of the target, `base/` what those files were before. The version the sample was made on is
+     * information for whoever carries the mod over, never a requirement.
+     */
+    private fun reference(value: JSONObject, paths: List<String>) {
+        require(id(str(value, "extends", 96)) != value.getString("id")) { "Мод не может менять сам себя." }
+        val reference = obj(value, "reference")
+        fields(reference, setOf("version", "base", "added", "removed"), setOf("archiveSha256"))
+        version(str(reference, "version", 96))
+        if (reference.has("archiveSha256")) hash(str(reference, "archiveSha256", 64))
+        val sample = paths.filter { it.startsWith("reference/") }.map { it.removePrefix("reference/") }.toSet()
+        val before = paths.filter { it.startsWith("base/") }.map { it.removePrefix("base/") }.toSet()
+        val base = obj(reference, "base")
+        base.keys().forEach { path(it); hash(str(base, it, 64)) }
+        val added = strings(reference, "added", MAX_FILES, 240).onEach { path(it) }.toSet()
+        val removed = strings(reference, "removed", MAX_FILES, 240).onEach { path(it) }.toSet()
+        require(base.keys().asSequence().toSet() == before) { "reference.base должен перечислять ровно файлы из base/." }
+        require(added == sample - before) { "reference.added должен перечислять файлы reference/, у которых нет исходника в base/." }
+        require(removed.intersect(sample).isEmpty() && (before - sample - removed).isEmpty()) { "Файл из base/ либо изменён в reference/, либо назван в removed." }
+        require(sample.isNotEmpty() || removed.isNotEmpty()) { "Мод ничего не меняет." }
     }
 
     fun compatible(entry: JSONObject, manifest: JSONObject) {
         for (key in listOf("id", "kind", "version", "publisher", "license")) require(entry.getString(key) == manifest.getString(key)) { "Манифест не совпадает с индексом: $key." }
+        require(entry.optString("extends") == manifest.optString("extends")) { "Манифест не совпадает с индексом: extends." }
         val expected = entry.getJSONObject("compatibility"); val runtime = manifest.getJSONObject("runtime")
         require(expected.getInt("minAssiApi") == runtime.getInt("assiApi")) { "Требования API не совпадают с индексом." }
         require(runtime.getInt("assiApi") <= ASSI_API) { "Нужна более новая версия API Axiko." }
