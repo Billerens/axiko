@@ -120,6 +120,10 @@ class StoreSources(private val stateDir: File, private val transport: StoreTrans
     private val lock = Any()
     private val registry = File(stateDir, "sources.json")
     private val catalogs = File(stateDir, "catalogs")
+    /** Pictures of listings, named by their hash: one file serves every source and version that shows it. */
+    private val pictures = File(stateDir, "media")
+    /** Parsed catalogs by source, for as long as the head they were read by is the current one. */
+    private val memory = HashMap<String, Pair<String, JSONObject>>()
 
     fun list(): JSONArray = synchronized(lock) {
         val out = JSONArray()
@@ -134,13 +138,122 @@ class StoreSources(private val stateDir: File, private val transport: StoreTrans
         StoreDisk.copy(item)
     }
 
+    /**
+     * The validated catalog of a source as one list: every page its head names, read from disk and
+     * checked again. The same object is handed out until the catalog changes; callers copy what they change.
+     */
     fun cached(id: String): JSONObject = synchronized(lock) {
         val record = source(id)
+        val known = record.optString("indexSha256")
+        memory[id]?.takeIf { it.first == known }?.let { return@synchronized it.second }
         val file = cacheFile(id)
         require(file.isFile) { "Каталог ещё не загружен. Обновите источник." }
         val bytes = readLimited(file, MAX_METADATA_BYTES)
-        require(StoreFormat.sha256(bytes) == record.getString("indexSha256")) { "Кэш источника не соответствует реестру. Обновите источник." }
-        StoreFormat.index(bytes)
+        require(StoreFormat.sha256(bytes) == known) { "Кэш источника не соответствует реестру. Обновите источник." }
+        val head = StoreFormat.index(bytes)
+        val packages = JSONArray(); val ids = HashSet<String>()
+        val pages = head.getJSONArray("pages")
+        for (i in 0 until pages.length()) {
+            val page = pages.getJSONObject(i)
+            val stored = pageFile(id, page.getString("sha256"))
+            require(stored.isFile) { "Страница каталога не загружена. Обновите источник." }
+            val raw = readLimited(stored, MAX_METADATA_BYTES)
+            require(StoreFormat.sha256(raw) == page.getString("sha256")) { "Страница каталога повреждена. Обновите источник." }
+            val list = StoreFormat.page(raw).getJSONArray("packages")
+            for (n in 0 until list.length()) {
+                val entry = list.getJSONObject(n)
+                require(ids.add(entry.getString("id"))) { "Повторяющийся ID пакета в каталоге." }
+                packages.put(entry)
+            }
+        }
+        JSONObject().put("schemaVersion", 1).put("repository", head.getJSONObject("repository")).put("packages", packages)
+            .also { memory[id] = known to it }
+    }
+
+    /** A catalog as it came: the head and the pages that had to be fetched, all checked. Nothing is on disk yet. */
+    private class Loaded(val head: JSONObject, val packages: List<JSONObject>, val fresh: Map<String, ByteArray>)
+
+    private fun load(indexUrl: String, headBytes: ByteArray, id: String?): Loaded {
+        val head = StoreFormat.index(headBytes)
+        val pages = head.getJSONArray("pages")
+        val fresh = LinkedHashMap<String, ByteArray>(); val packages = ArrayList<JSONObject>(); val ids = HashSet<String>()
+        for (i in 0 until pages.length()) {
+            val page = pages.getJSONObject(i); val sha = page.getString("sha256"); val name = page.getString("path")
+            // A page that did not change is not downloaded again: its file is named by the hash the head pins.
+            val kept = id?.let { pageFile(it, sha) }?.takeIf { it.isFile }?.let { readLimited(it, MAX_METADATA_BYTES) }?.takeIf { StoreFormat.sha256(it) == sha }
+            val raw = kept ?: fresh[sha] ?: run {
+                val response = fetch(resolve(indexUrl, name), page.getInt("size"))
+                require(response.status == 200) { "Страница каталога $name не загружена." }
+                require(response.bytes.size == page.getInt("size") && StoreFormat.sha256(response.bytes) == sha) { "Страница каталога $name не совпала с index.json." }
+                response.bytes.also { fresh[sha] = it }
+            }
+            val list = StoreFormat.page(raw).getJSONArray("packages")
+            require(list.length() == page.getInt("count")) { "Число пакетов на странице $name не совпало с index.json." }
+            for (n in 0 until list.length()) {
+                val entry = list.getJSONObject(n)
+                require(ids.add(entry.getString("id"))) { "Повторяющийся ID пакета: ${entry.getString("id")}." }
+                packages.add(entry)
+            }
+        }
+        return Loaded(head, packages, fresh)
+    }
+
+    /** Puts a loaded catalog in place of the old one: new pages first, the head last, pages nobody names any more removed. */
+    private fun store(id: String, headBytes: ByteArray, loaded: Loaded) {
+        loaded.fresh.forEach { (sha, raw) -> writeAtomic(pageFile(id, sha), raw) }
+        saveCache(id, headBytes)
+        memory.remove(id)
+        val named = (0 until loaded.head.getJSONArray("pages").length()).map { loaded.head.getJSONArray("pages").getJSONObject(it).getString("sha256") + ".json" }.toSet()
+        pageDir(id).listFiles().orEmpty().filter { it.isFile && it.name.endsWith(".json") && it.name !in named }.forEach { it.delete() }
+    }
+
+    /** A file published next to the index. A path cannot leave the folder of the index: it has no `..`, and no host of its own. */
+    private fun resolve(indexUrl: String, path: String): String {
+        val base = indexUrl.toHttpUrl(); val builder = base.newBuilder().query(null)
+        builder.removePathSegment(base.pathSize - 1)
+        StoreFormat.path(path).split('/').forEach { builder.addPathSegment(it) }
+        return builder.build().toString()
+    }
+
+    /**
+     * What is read when the owner opens a package: fetched on demand and kept by its hash, so an
+     * unchanged description is not downloaded twice. A package without details gives just its id and version.
+     */
+    fun details(sourceId: String, packageId: String): JSONObject {
+        val source = source(sourceId)
+        val entry = packageEntry(sourceId, packageId)
+        val ref = entry.optJSONObject("details")
+            ?: return JSONObject().put("schemaVersion", 1).put("id", packageId).put("version", entry.getString("version"))
+        val sha = ref.getString("sha256")
+        val stored = File(File(pageDir(sourceId), "details"), "$sha.json")
+        val kept = stored.takeIf { it.isFile }?.let { readLimited(it, StoreFormat.MAX_DETAILS) }?.takeIf { StoreFormat.sha256(it) == sha }
+        val raw = kept ?: run {
+            val response = fetch(resolve(source.getString("indexUrl"), ref.getString("path")), ref.getInt("size"))
+            require(response.status == 200) { "Описание пакета не загружено." }
+            require(response.bytes.size == ref.getInt("size") && StoreFormat.sha256(response.bytes) == sha) { "Описание пакета не совпало с каталогом." }
+            response.bytes
+        }
+        val details = StoreFormat.details(raw)
+        require(details.getString("id") == packageId && details.getString("version") == entry.getString("version")) { "Описание относится к другому пакету или версии." }
+        if (kept == null) writeAtomic(stored, raw)
+        return details
+    }
+
+    /**
+     * A picture of a listing by the reference a checked card or details file gave: never more bytes
+     * than declared, the declared hash, and the declared type by what the bytes really are.
+     */
+    fun picture(sourceId: String, ref: JSONObject): ByteArray {
+        val source = source(sourceId)
+        val sha = StoreFormat.hash(ref.getString("sha256")); val size = ref.getInt("size")
+        val stored = File(pictures, sha)
+        stored.takeIf { it.isFile && it.length() == size.toLong() }?.let { readLimited(it, size) }?.takeIf { StoreFormat.sha256(it) == sha }?.let { return it }
+        val response = fetch(resolve(source.getString("indexUrl"), ref.getString("path")), size)
+        require(response.status == 200) { "Картинка не загружена." }
+        require(response.bytes.size == size && StoreFormat.sha256(response.bytes) == sha) { "Картинка не совпала с каталогом." }
+        require(StoreFormat.pictureType(response.bytes) == ref.getString("type")) { "Файл не является картинкой заявленного типа." }
+        writeAtomic(stored, response.bytes)
+        return response.bytes
     }
 
     fun packageEntry(sourceId: String, packageId: String): JSONObject {
@@ -157,16 +270,17 @@ class StoreSources(private val stateDir: File, private val transport: StoreTrans
         val indexUrl = resolveIndex(input)
         val response = fetch(indexUrl, MAX_METADATA_BYTES)
         require(response.status == 200) { "Новый источник не вернул index.json." }
-        val index = StoreFormat.index(response.bytes)
-        val repository = index.getJSONObject("repository")
+        val known = synchronized(lock) { records().firstOrNull { it.getString("indexUrl") == indexUrl }?.getString("id") }
+        val loaded = load(indexUrl, response.bytes, known)
+        val repository = loaded.head.getJSONObject("repository")
         return synchronized(lock) {
             val all = records()
             val existing = all.firstOrNull { it.getString("indexUrl") == indexUrl }
             if (existing != null) {
                 require(existing.getString("repositoryId") == repository.getString("id")) { "По этому адресу изменился идентификатор репозитория. Старое доверие не перенесено." }
-                validateContinuity(existing, index)
-                val updated = updated(existing, index, response)
-                saveCache(updated.getString("id"), response.bytes)
+                validateContinuity(existing, loaded.packages)
+                val updated = updated(existing, loaded.head, response)
+                store(updated.getString("id"), response.bytes, loaded)
                 save(all.map { if (it.getString("id") == updated.getString("id")) updated else it })
                 publicRecord(updated)
             } else {
@@ -175,8 +289,8 @@ class StoreSources(private val stateDir: File, private val transport: StoreTrans
                 val created = JSONObject().put("id", id).put("indexUrl", indexUrl)
                     .put("repositoryId", repository.getString("id")).put("enabled", true)
                     .put("createdAt", System.currentTimeMillis()).put("instanceId", UUID.randomUUID().toString())
-                val item = updated(created, index, response)
-                saveCache(id, response.bytes); save(all + item)
+                val item = updated(created, loaded.head, response)
+                store(id, response.bytes, loaded); save(all + item)
                 publicRecord(item)
             }
         }
@@ -204,21 +318,23 @@ class StoreSources(private val stateDir: File, private val transport: StoreTrans
     fun refresh(id: String): JSONObject {
         val before = source(id)
         try {
+            // A cache that cannot be read (damaged, or written by an older format) is not vouched for by a 304.
+            val readable = runCatching { cached(id) }.isSuccess
             val response = fetch(before.getString("indexUrl"), MAX_METADATA_BYTES,
-                before.optString("etag").ifBlank { null }, before.optString("lastModified").ifBlank { null })
+                before.optString("etag").ifBlank { null }.takeIf { readable }, before.optString("lastModified").ifBlank { null }.takeIf { readable })
+            val loaded = if (response.status == 304) null else load(before.getString("indexUrl"), response.bytes, id)
             return synchronized(lock) {
                 val current = source(id)
                 require(current.getString("instanceId") == before.getString("instanceId")) { "Источник был изменён во время загрузки." }
                 val result: JSONObject
-                if (response.status == 304) {
+                if (loaded == null) {
                     cached(id) // A 304 cannot create an empty catalog.
                     result = current.put("lastChecked", System.currentTimeMillis()).put("lastSuccess", System.currentTimeMillis()).put("error", "")
                 } else {
-                    val index = StoreFormat.index(response.bytes)
-                    require(index.getJSONObject("repository").getString("id") == current.getString("repositoryId")) { "Источник изменил идентификатор. Кэш и установленный код сохранены." }
-                    validateContinuity(current, index)
-                    result = updated(current, index, response)
-                    saveCache(id, response.bytes)
+                    require(loaded.head.getJSONObject("repository").getString("id") == current.getString("repositoryId")) { "Источник изменил идентификатор. Кэш и установленный код сохранены." }
+                    validateContinuity(current, loaded.packages)
+                    result = updated(current, loaded.head, response)
+                    store(id, response.bytes, loaded)
                 }
                 save(records().map { if (it.getString("id") == id) result else it })
                 publicRecord(result)
@@ -266,7 +382,7 @@ class StoreSources(private val stateDir: File, private val transport: StoreTrans
         val all = records(); require(all.any { it.getString("id") == id }) { "Источник не найден." }
         save(all.filterNot { it.getString("id") == id })
         // An installed package never depends on the continued existence of this cached index.
-        cacheFile(id).delete()
+        cacheFile(id).delete(); pageDir(id).deleteRecursively(); memory.remove(id)
         JSONObject().put("removed", true).put("id", id).put("installedKept", true)
     }
 
@@ -310,15 +426,13 @@ class StoreSources(private val stateDir: File, private val transport: StoreTrans
         return StoreFormat.https(value).toHttpUrl().toString()
     }
 
-    private fun validateContinuity(source: JSONObject, index: JSONObject) {
-        val oldFile = cacheFile(source.getString("id"))
-        if (!oldFile.isFile) return
-        val old = StoreFormat.index(readLimited(oldFile, MAX_METADATA_BYTES)).getJSONArray("packages")
+    private fun validateContinuity(source: JSONObject, next: List<JSONObject>) {
+        // No readable catalog to continue from: a first load, or a cache written by an older format.
+        val old = runCatching { cached(source.getString("id")).getJSONArray("packages") }.getOrNull() ?: return
         val previous = HashMap<String, JSONObject>()
         for (i in 0 until old.length()) previous[old.getJSONObject(i).getString("id")] = old.getJSONObject(i)
-        val next = index.getJSONArray("packages")
-        for (i in 0 until next.length()) {
-            val entry = next.getJSONObject(i); val was = previous[entry.getString("id")] ?: continue
+        for (entry in next) {
+            val was = previous[entry.getString("id")] ?: continue
             require(was.getString("publisher") == entry.getString("publisher")) { "У пакета ${entry.getString("id")} изменился издатель. Обновление источника остановлено." }
             if (was.getString("version") == entry.getString("version")) {
                 require(was.getJSONObject("archive").getString("sha256") == entry.getJSONObject("archive").getString("sha256")) { "Архив уже опубликованной версии ${entry.getString("id")} изменился. Старый каталог сохранён." }
@@ -326,11 +440,12 @@ class StoreSources(private val stateDir: File, private val transport: StoreTrans
         }
     }
 
-    private fun updated(source: JSONObject, index: JSONObject, response: StoreFetch): JSONObject {
-        val repository = index.getJSONObject("repository")
+    private fun updated(source: JSONObject, head: JSONObject, response: StoreFetch): JSONObject {
+        val repository = head.getJSONObject("repository")
         return StoreDisk.copy(source).put("title", repository.getString("title")).put("homepage", repository.getString("homepage"))
+            .put("description", repository.optString("description"))
             .put("lastChecked", System.currentTimeMillis()).put("lastSuccess", System.currentTimeMillis()).put("error", "")
-            .put("packageCount", index.getJSONArray("packages").length()).put("indexSha256", StoreFormat.sha256(response.bytes))
+            .put("packageCount", head.getInt("packageCount")).put("indexSha256", StoreFormat.sha256(response.bytes))
             .put("finalUrl", response.finalUrl).put("etag", response.etag ?: "").put("lastModified", response.lastModified ?: "")
     }
 
@@ -338,6 +453,22 @@ class StoreSources(private val stateDir: File, private val transport: StoreTrans
     private fun cacheFile(id: String): File {
         require(Regex("[a-f0-9]{32}").matches(id)) { "Некорректный идентификатор источника." }
         return File(catalogs, "$id.json")
+    }
+
+    private fun pageDir(id: String): File {
+        require(Regex("[a-f0-9]{32}").matches(id)) { "Некорректный идентификатор источника." }
+        return File(catalogs, id)
+    }
+    private fun pageFile(id: String, sha256: String) = File(pageDir(id), StoreFormat.hash(sha256) + ".json")
+
+    private fun writeAtomic(file: File, bytes: ByteArray) {
+        require(file.parentFile.mkdirs() || file.parentFile.isDirectory) { "Не удалось открыть кэш каталога." }
+        val temporary = File(file.parentFile, ".${file.name}-${UUID.randomUUID()}.tmp")
+        try {
+            FileOutputStream(temporary).use { it.write(bytes); it.fd.sync() }
+            try { Files.move(temporary.toPath(), file.toPath(), ATOMIC_MOVE, REPLACE_EXISTING) }
+            catch (_: AtomicMoveNotSupportedException) { Files.move(temporary.toPath(), file.toPath(), REPLACE_EXISTING) }
+        } finally { temporary.delete() }
     }
 
     private fun records(): List<JSONObject> {

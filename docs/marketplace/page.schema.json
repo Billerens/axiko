@@ -1,0 +1,242 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.org/assi-marketplace/schema/v1/page.schema.json",
+  "title": "Axiko catalog page v1",
+  "description": "One page of cards named by index.json. 1 MiB UTF-8 limit.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "packages"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "packages": {
+      "type": "array",
+      "maxItems": 2000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "title",
+          "summary",
+          "version",
+          "publisher",
+          "license",
+          "manifestUrl",
+          "archive",
+          "compatibility"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 96,
+            "pattern": "^[a-z0-9][a-z0-9.-]*$"
+          },
+          "kind": {
+            "enum": [
+              "module",
+              "game"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 600
+          },
+          "version": {
+            "type": "string",
+            "maxLength": 96,
+            "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\\+(?:[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?$"
+          },
+          "publisher": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 96,
+            "pattern": "^[a-z0-9][a-z0-9.-]*$",
+            "description": "Stable publisher identity, not a trust or signature verdict."
+          },
+          "license": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "Declared license identifier or SPDX expression; this validator does not verify license terms."
+          },
+          "manifestUrl": {
+            "type": "string",
+            "minLength": 9,
+            "maxLength": 2048,
+            "pattern": "^https://",
+            "format": "uri",
+            "description": "HTTPS URL without credentials or a fragment. Additional semantic validation applies."
+          },
+          "archive": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "url",
+              "sha256",
+              "size",
+              "unpackedSize",
+              "fileCount"
+            ],
+            "properties": {
+              "url": {
+                "type": "string",
+                "minLength": 9,
+                "maxLength": 2048,
+                "pattern": "^https://",
+                "format": "uri",
+                "description": "HTTPS URL without credentials or a fragment. Additional semantic validation applies."
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 5242880
+              },
+              "unpackedSize": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 20971520
+              },
+              "fileCount": {
+                "type": "integer",
+                "minimum": 4,
+                "maximum": 512
+              }
+            }
+          },
+          "compatibility": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "minAssiApi"
+            ],
+            "properties": {
+              "minAssiApi": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "gamesEngine": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "tags": {
+            "type": "array",
+            "maxItems": 12,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "description": "Lowercase; additional semantic validation applies."
+          },
+          "icon": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "sha256",
+              "size",
+              "type"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 240,
+                "description": "Relative to the folder of index.json, forward slashes, no parent or hidden components. Additional semantic validation applies."
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 131072
+              },
+              "type": {
+                "enum": [
+                  "image/svg+xml",
+                  "image/png",
+                  "image/webp",
+                  "image/jpeg"
+                ]
+              }
+            }
+          },
+          "updated": {
+            "type": "string",
+            "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$",
+            "description": "Date of this release."
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "sha256",
+              "size"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 240,
+                "description": "Relative to the folder of index.json, forward slashes, no parent or hidden components. Additional semantic validation applies.",
+                "pattern": "\\.json$"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 2,
+                "maximum": 262144
+              }
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "game"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "compatibility": {
+                  "required": [
+                    "gamesEngine"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

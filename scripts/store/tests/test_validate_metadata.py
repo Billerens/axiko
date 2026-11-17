@@ -23,6 +23,8 @@ class MetadataTests(unittest.TestCase):
         examples = ROOT / 'docs' / 'marketplace' / 'examples'
         cls.index = json.loads((examples / 'index.json').read_text(encoding='utf-8'))
         cls.package = json.loads((examples / 'package.json').read_text(encoding='utf-8'))
+        cls.page = json.loads((examples / 'page.json').read_text(encoding='utf-8'))
+        cls.details = json.loads((examples / 'details.json').read_text(encoding='utf-8'))
 
     def check(self, value, kind='package', raw=None):
         with tempfile.TemporaryDirectory() as directory:
@@ -41,29 +43,36 @@ class MetadataTests(unittest.TestCase):
         return result
 
     def test_schemas_are_valid_2020_12_and_examples_are_consistent_metadata(self):
-        for kind in ['index', 'package']:
-            schema = json.loads((ROOT / 'docs' / 'marketplace' / (kind + '.schema.json')).read_text())
+        for kind in ['index', 'page', 'details', 'package']:
+            schema = json.loads((ROOT / 'docs' / 'marketplace' / (kind + '.schema.json')).read_text(encoding='utf-8'))
             Draft202012Validator.check_schema(schema)
             result = self.check(getattr(self, kind), kind)
             self.assertTrue(result['ok'], result)
         for key in ['id', 'kind', 'version', 'publisher', 'license']:
-            self.assertEqual(self.index['packages'][0][key], self.package[key])
-        self.assertEqual(self.index['packages'][0]['archive']['fileCount'], len(self.package['files']) + 1)
+            self.assertEqual(self.page['packages'][0][key], self.package[key])
+        self.assertEqual(self.page['packages'][0]['archive']['fileCount'], len(self.package['files']) + 1)
 
     def test_missing_index_fields_and_unknown_properties_fail_closed(self):
-        for field in ['schemaVersion', 'repository', 'packages']:
+        for field in ['schemaVersion', 'repository', 'packageCount', 'pages']:
             value = copy.deepcopy(self.index)
             del value[field]
             self.invalid(value, 'index')
         value = copy.deepcopy(self.index)
         value['limits'] = {'size': 999999999}
         self.invalid(value, 'index')
+        for kind, extra in [('page', 'limits'), ('details', 'html')]:
+            value = copy.deepcopy(getattr(self, kind))
+            value[extra] = 'x'
+            self.invalid(value, kind)
+        card = copy.deepcopy(self.page)
+        card['packages'][0]['screenshots'] = ['https://example.org/a.png']
+        self.invalid(card, 'page', '$.packages[0]')
         value = copy.deepcopy(self.package)
         value['installHook'] = 'fetch("https://example.org/")'
         self.invalid(value)
 
     def test_unknown_versions_and_non_semver_are_rejected(self):
-        for kind in ['index', 'package']:
+        for kind in ['index', 'page', 'details', 'package']:
             value = copy.deepcopy(getattr(self, kind))
             value['schemaVersion'] = 2
             self.invalid(value, kind, '$.schemaVersion')
@@ -75,20 +84,20 @@ class MetadataTests(unittest.TestCase):
         self.assertTrue(self.check(value)['ok'])
 
     def test_duplicate_package_ids_are_rejected(self):
-        value = copy.deepcopy(self.index)
+        value = copy.deepcopy(self.page)
         value['packages'].append(copy.deepcopy(value['packages'][0]))
-        self.invalid(value, 'index', '$.packages[1].id')
+        self.invalid(value, 'page', '$.packages[1].id')
 
     def test_https_rejects_plain_http_credentials_fragments_and_malformed_hosts(self):
         for url in ['http://example.org/index.json', 'https://user:secret@example.org/a',
                     'https://@example.org/a', 'https://example.org/a#section',
                     'https://example.org/a#', 'https://example.org:99999/a',
                     'https://bad%20host/a', 'https://example.org\\evil/a']:
-            value = copy.deepcopy(self.index)
+            value = copy.deepcopy(self.page)
             value['packages'][0]['manifestUrl'] = url
-            self.invalid(value, 'index', '$.packages[0].manifestUrl')
+            self.invalid(value, 'page', '$.packages[0].manifestUrl')
         value['packages'][0]['manifestUrl'] = 'https://example.org/a?revision=1'
-        self.assertTrue(self.check(value, 'index')['ok'])
+        self.assertTrue(self.check(value, 'page')['ok'])
 
     def test_relative_paths_reject_traversal_ambiguity_and_arbitrary_destinations(self):
         paths = ['code/../main.js', '../main.js', '/code/main.js', 'C:/main.js',
@@ -137,17 +146,17 @@ class MetadataTests(unittest.TestCase):
         self.invalid(value, path='$.runtime')
         value['runtime']['gamesEngine'] = 1
         self.assertTrue(self.check(value)['ok'])
-        index = copy.deepcopy(self.index)
+        index = copy.deepcopy(self.page)
         index['packages'][0]['kind'] = 'game'
-        self.invalid(index, 'index', '$.packages[0].compatibility')
+        self.invalid(index, 'page', '$.packages[0].compatibility')
         index['packages'][0]['compatibility']['gamesEngine'] = 1
-        self.assertTrue(self.check(index, 'index')['ok'])
+        self.assertTrue(self.check(index, 'page')['ok'])
 
     def test_limits_include_manifest_and_cannot_be_raised_by_metadata(self):
         for field, limit in [('size', 5242880), ('unpackedSize', 20971520), ('fileCount', 512)]:
-            value = copy.deepcopy(self.index)
+            value = copy.deepcopy(self.page)
             value['packages'][0]['archive'][field] = limit + 1
-            self.invalid(value, 'index', '$.packages[0].archive.' + field)
+            self.invalid(value, 'page', '$.packages[0].archive.' + field)
         value = copy.deepcopy(self.package)
         value['files'][2]['size'] = 2097153
         self.invalid(value, path='$.files[2].size')
@@ -162,24 +171,74 @@ class MetadataTests(unittest.TestCase):
         self.invalid(None, 'index', raw=b' ' * (validator.MAX_METADATA_BYTES + 1))
 
     def test_index_count_limit_produces_a_compact_error(self):
-        value = copy.deepcopy(self.index)
+        value = copy.deepcopy(self.page)
         item = value['packages'][0]
         item['title'] = item['summary'] = item['license'] = item['publisher'] = 'x'
         item['manifestUrl'] = item['archive']['url'] = 'https://e/a'
-        item.pop('tags')
+        for key in ('tags', 'icon', 'updated', 'details'):
+            item.pop(key)
         value['packages'] = [dict(item, id=f'p{i}') for i in range(2001)]
         raw = json.dumps(value, separators=(',', ':')).encode()
         self.assertLessEqual(len(raw), validator.MAX_METADATA_BYTES)
-        result = self.invalid(None, 'index', path='$.packages', raw=raw)
+        result = self.invalid(None, 'page', path='$.packages', raw=raw)
         self.assertLess(len(json.dumps(result)), 1000)
 
     def test_duplicate_json_keys_non_json_numbers_and_invalid_utf8_are_rejected(self):
         raw = json.dumps(self.index).replace('"schemaVersion": 1', '"schemaVersion": 1, "schemaVersion": 1').encode()
         self.invalid(None, 'index', path='$.schemaVersion', raw=raw)
-        raw = json.dumps(self.index).replace('"kind": "module"', '"kind": "module", "kind": "game"').encode()
-        self.invalid(None, 'index', path='$.packages[0].kind', raw=raw)
+        raw = json.dumps(self.page).replace('"kind": "module"', '"kind": "module", "kind": "game"').encode()
+        self.invalid(None, 'page', path='$.packages[0].kind', raw=raw)
         for raw in [b'{"value":NaN}', b'{"value":Infinity}', b'\xff', b'\xef\xbb\xbf{}', br'{"value":"\ud800"}']:
             self.invalid(None, raw=raw)
+
+    def test_head_pages_and_listing_files_stay_inside_the_catalog(self):
+        value = copy.deepcopy(self.index)
+        value['packageCount'] = 2
+        self.invalid(value, 'index', '$.packageCount')
+        value = copy.deepcopy(self.index)
+        value['pages'].append(copy.deepcopy(value['pages'][0]))
+        value['packageCount'] = 2
+        self.invalid(value, 'index', '$.pages[1].path')
+        for bad in ['../p.json', '/catalog/p.json', 'https://evil.example/p.json', 'catalog\\p.json', 'catalog/.p.json', 'catalog/p.txt']:
+            value = copy.deepcopy(self.index)
+            value['pages'][0]['path'] = bad
+            self.invalid(value, 'index', '$.pages[0].path')
+        empty = copy.deepcopy(self.index)
+        empty.update(packageCount=0, pages=[])
+        self.assertTrue(self.check(empty, 'index')['ok'])
+        for field, bad in [('icon', '../icon.svg'), ('details', 'https://evil.example/d.json')]:
+            value = copy.deepcopy(self.page)
+            value['packages'][0][field]['path'] = bad
+            self.invalid(value, 'page', '$.packages[0].' + field)
+        for field, bad in [('tags', ['Big']), ('updated', '17.11.2026')]:
+            value = copy.deepcopy(self.page)
+            value['packages'][0][field] = bad
+            self.invalid(value, 'page', '$.packages[0].' + field)
+        value = copy.deepcopy(self.page)
+        value['packages'][0]['icon']['type'] = 'text/html'
+        self.invalid(value, 'page', '$.packages[0].icon.type')
+        value = copy.deepcopy(self.page)
+        value['packages'][0]['icon']['size'] = 131073
+        self.invalid(value, 'page', '$.packages[0].icon.size')
+
+    def test_details_limit_texts_pictures_and_links(self):
+        value = copy.deepcopy(self.details)
+        value['screenshots'][0]['type'] = 'image/svg+xml'
+        self.invalid(value, 'details', '$.screenshots[0].type')
+        value = copy.deepcopy(self.details)
+        value['screenshots'].append(copy.deepcopy(value['screenshots'][0]))
+        self.invalid(value, 'details', '$.screenshots[1].path')
+        value = copy.deepcopy(self.details)
+        value['changes'].append(copy.deepcopy(value['changes'][0]))
+        self.invalid(value, 'details', '$.changes')
+        value = copy.deepcopy(self.details)
+        value['links']['support'] = 'http://example.org/help'
+        self.invalid(value, 'details', '$.links.support')
+        value = copy.deepcopy(self.details)
+        value['description'] = 'x' * 20001
+        self.invalid(value, 'details', '$.description')
+        minimal = {key: self.details[key] for key in ('schemaVersion', 'id', 'version')}
+        self.assertTrue(self.check(minimal, 'details')['ok'])
 
     def test_dependency_identity_and_supported_range_syntax(self):
         value = copy.deepcopy(self.package)

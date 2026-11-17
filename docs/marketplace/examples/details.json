@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "example.counter",
+  "version": "1.0.0",
+  "description": "# Example counter\n\nCounts what you tap. **Illustrative text only.**\n\n- one button\n- one number",
+  "screenshots": [
+    {
+      "path": "counter/store/shots/1.webp",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 40960,
+      "type": "image/webp",
+      "width": 1080,
+      "height": 2340,
+      "caption": "The counter"
+    }
+  ],
+  "changes": [
+    {
+      "version": "1.0.0",
+      "date": "2026-11-17",
+      "notes": "- First release."
+    }
+  ],
+  "links": {
+    "homepage": "https://example.org/assi-catalog/",
+    "source": "https://example.org/assi-catalog/source"
+  }
+}

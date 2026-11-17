@@ -2,6 +2,8 @@
 import importlib.util
 import io
 import json
+import shutil
+import struct
 import sys
 import tempfile
 import unittest
@@ -14,6 +16,12 @@ SPEC = importlib.util.spec_from_file_location('build_catalog', SCRIPT)
 builder = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(builder)
 versions = builder.versioning
+listing = builder.listing
+
+
+def png(width, height):
+    """The start of a PNG file: enough for its type and size to be read."""
+    return b'\x89PNG\r\n\x1a\n' + struct.pack('>I', 13) + b'IHDR' + struct.pack('>II', width, height) + b'\x08\x06\x00\x00\x00' + b'\x00' * 4
 
 
 class CatalogBuildTests(unittest.TestCase):
@@ -55,6 +63,20 @@ class CatalogBuildTests(unittest.TestCase):
         self.write(folder + '/main.js', "exports.start = function () { return 'local'; };\n")
         self.write(folder + '/ui/index.html', '<html><body>Clock</body></html>\n')
 
+    def cards(self, base=None):
+        """The packages of a built catalog: its head names the pages, the pages hold the cards."""
+        base = base or self.out
+        head = json.loads((base / 'index.json').read_bytes())
+        found = []
+        for page in head['pages']:
+            raw = (base / page['path']).read_bytes()
+            self.assertEqual((page['sha256'], page['size']), (builder.sha256(raw), len(raw)))
+            packages = json.loads(raw)['packages']
+            self.assertEqual(page['count'], len(packages))
+            found.extend(packages)
+        self.assertEqual(head['packageCount'], len(found))
+        return sorted(found, key=lambda card: card['id'])
+
     def build(self, valid=True):
         report = builder.build(self.args)
         self.assertEqual(valid, report['ok'], report)
@@ -66,13 +88,12 @@ class CatalogBuildTests(unittest.TestCase):
         self.write('clock/tests/private-test.js', "throw new Error('must never execute');\n")
         self.write('clock/data/save.json', '{"important":true}')
         report = self.build()
-        before = {path.name: path.read_bytes() for path in self.out.iterdir()}
+        before = {path.relative_to(self.out).as_posix(): path.read_bytes() for path in self.out.rglob('*') if path.is_file()}
         self.build()
-        self.assertEqual(before, {path.name: path.read_bytes() for path in self.out.iterdir()})
+        self.assertEqual(before, {path.relative_to(self.out).as_posix(): path.read_bytes() for path in self.out.rglob('*') if path.is_file()})
         self.assertEqual(original, (self.store / 'clock/module.json').read_bytes())
         self.assertEqual('{"important":true}', (self.store / 'clock/data/save.json').read_text())
-        index = json.loads((self.out / 'index.json').read_bytes())
-        entry = index['packages'][0]
+        entry = self.cards()[0]
         raw = (self.out / 'clock-0.1.0.zip').read_bytes()
         self.assertEqual(entry['archive']['sha256'], builder.sha256(raw))
         self.assertEqual(entry['archive']['size'], len(raw))
@@ -118,6 +139,8 @@ class CatalogBuildTests(unittest.TestCase):
     def publish(self):
         """What an author does after uploading a build: the index goes to the store and the build is recorded."""
         (self.store / 'index.json').write_bytes((self.out / 'index.json').read_bytes())
+        shutil.rmtree(self.store / 'catalog', ignore_errors=True)
+        shutil.copytree(self.out / 'catalog', self.store / 'catalog')
         return versions.record(self.store, self.out)
 
     def test_published_version_never_changes_its_contents_and_an_unchanged_package_keeps_its_release(self):
@@ -129,7 +152,7 @@ class CatalogBuildTests(unittest.TestCase):
         self.assertEqual(['new', 'new'], [item['release'] for item in first['packages']])
         self.assertEqual('https://example.test/releases/clock-v0.1.0', first['toPublish'][0]['downloadBase'])
         self.assertEqual([{'id': 'clock', 'version': '0.1.0'}, {'id': 'timer', 'version': '0.1.0'}], self.publish()['recorded'])
-        published = json.loads((self.store / 'index.json').read_bytes())['packages']
+        published = self.cards(self.store)
         self.assertTrue(versions.check(self.store, self.license.read_bytes(), [])['ok'])
 
         # Nothing changed: nothing is rebuilt, and the index keeps the published archive of each package.
@@ -137,7 +160,7 @@ class CatalogBuildTests(unittest.TestCase):
             stale.unlink()
         again = self.build()
         self.assertEqual([], again['toPublish'])
-        self.assertEqual(published, json.loads((self.out / 'index.json').read_bytes())['packages'])
+        self.assertEqual(published, self.cards())
         self.assertEqual([], list(self.out.glob('*.zip')))
 
         # A changed file under the published version stops the build and names the file.
@@ -160,7 +183,7 @@ class CatalogBuildTests(unittest.TestCase):
                          versions.check(self.store, self.license.read_bytes(), [])['toRelease'])
         report = self.build()
         self.assertEqual({'clock': 'update', 'timer': 'unchanged'}, {item['id']: item['release'] for item in report['packages']})
-        entries = {entry['id']: entry for entry in json.loads((self.out / 'index.json').read_bytes())['packages']}
+        entries = {entry['id']: entry for entry in self.cards()}
         self.assertEqual('https://example.test/releases/clock-v0.1.1/clock-0.1.1.zip', entries['clock']['archive']['url'])
         self.assertEqual(published[1], entries['timer'])
         self.assertEqual([{'id': 'clock', 'version': '0.1.1'}], self.publish()['recorded'])
@@ -174,7 +197,7 @@ class CatalogBuildTests(unittest.TestCase):
         self.args.exclude = ['sparks-ring']
         report = self.build()
         self.assertIn('legacy runtime target alias', report['excluded'][0]['reason'])
-        self.assertEqual(1, len(json.loads((self.out / 'index.json').read_bytes())['packages']))
+        self.assertEqual(1, len(self.cards()))
 
     def test_read_only_dictionary_assets_preserve_third_party_license(self):
         self.package('word-weaver', kind='game')
@@ -217,6 +240,86 @@ class CatalogBuildTests(unittest.TestCase):
                 path = self.write('clock/' + filename, raw)
                 self.assertIn(reason, self.build(False)['blocked'][0]['error'])
                 path.unlink()
+
+    def test_listing_is_published_in_place_and_stays_out_of_the_archive(self):
+        self.package('clock', kind='game')
+        icon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><path d="M1 1h6v6H1z"/></svg>'
+        self.write('clock/icon.svg', icon)
+        self.write('clock/store/shots/1.png', png(1080, 2340))
+        self.write('clock/store/shots/2.png', png(720, 1280))
+        self.write('clock/store/description.md', '# Clock\n\nShows the **time**.\n')
+        self.write('clock/store/changelog.md', '# Changes\n\n## 0.1.0 — 2026-11-17\n\n- First release.\n\n## 0.0.9\n\nA preview.\n')
+        described = json.loads((self.store / 'clock/store.json').read_text())
+        described.update(summary='A clock for the home screen.', tags=['time', 'часы'], links={'homepage': 'https://example.test/clock'},
+                         screenshots=[{'file': 'store/shots/2.png', 'caption': 'Night'}, 'store/shots/1.png'])
+        self.write('clock/store.json', json.dumps(described))
+        report = self.build()
+        card = self.cards()[0]
+        self.assertEqual(('A clock for the home screen.', ['time', 'часы'], '2026-11-17'), (card['summary'], card['tags'], card['updated']))
+        self.assertEqual({'path': 'clock/icon.svg', 'sha256': builder.sha256(icon.encode()), 'size': len(icon), 'type': 'image/svg+xml'}, card['icon'])
+        raw = (self.out / card['details']['path']).read_bytes()
+        self.assertEqual((builder.sha256(raw), len(raw), 'catalog/details/clock.json'), (card['details']['sha256'], card['details']['size'], card['details']['path']))
+        details = json.loads(raw)
+        self.assertEqual(('clock', '0.1.0', '# Clock\n\nShows the **time**.'), (details['id'], details['version'], details['description']))
+        self.assertEqual([('clock/store/shots/2.png', 720, 1280, 'Night'), ('clock/store/shots/1.png', 1080, 2340, None)],
+                         [(shot['path'], shot['width'], shot['height'], shot.get('caption')) for shot in details['screenshots']])
+        self.assertEqual([{'version': '0.1.0', 'date': '2026-11-17', 'notes': '- First release.'}, {'version': '0.0.9', 'notes': 'A preview.'}], details['changes'])
+        self.assertEqual({'homepage': 'https://example.test/clock'}, details['links'])
+        self.assertEqual({'icon': True, 'tags': 2, 'description': True, 'screenshots': 2, 'changes': 2, 'notes': []}, report['packages'][0]['listing'])
+        # The listing is what the store shows, not what gets installed: nothing of store/ is in the archive.
+        with zipfile.ZipFile(self.out / 'clock-0.1.0.zip') as archive:
+            self.assertFalse(any('store/' in name for name in archive.namelist()))
+            self.assertIn('code/icon.svg', archive.namelist())
+        # Editing the listing does not make a new release of the package.
+        self.publish()
+        self.write('clock/store/description.md', 'A new text.')
+        again = self.build()
+        self.assertEqual(([], 'unchanged'), (again['toPublish'], again['packages'][0]['release']))
+        self.assertNotEqual(card['details']['sha256'], self.cards()[0]['details']['sha256'])
+        self.assertEqual(card['archive'], self.cards()[0]['archive'])
+
+    def test_listing_material_is_checked_by_content_and_limits(self):
+        cases = [
+            ('store/icon.svg', '<svg xmlns="http://www.w3.org/2000/svg"><script>steal()</script></svg>', {}, 'drawing only'),
+            ('store/icon.png', b'not a picture', {}, 'by its content'),
+            ('store/icon.png', png(8, 8) + b'\x00' * listing.MAX_ICON_BYTES, {}, 'the limit is'),
+            ('store/shots/1.png', '<svg xmlns="http://www.w3.org/2000/svg"/>', {}, 'by its content'),
+            ('store/changelog.md', '## next\n\nSoon.\n', {}, 'changelog heading'),
+            ('store/changelog.md', '## 0.1.0\n\n## 0.0.9\n\nText.\n', {}, 'characters of notes'),
+            ('store/description.md', 'x' * (listing.MAX_DESCRIPTION + 1), {}, 'store/description.md'),
+            (None, None, {'tags': ['Big']}, 'store.json tags'),
+            (None, None, {'icon': '../clock/icon.svg'}, 'unsafe path component'),
+            (None, None, {'screenshots': ['store/shots/missing.png']}, 'no such file'),
+            (None, None, {'links': {'blog': 'https://example.test/'}}, 'store.json links'),
+        ]
+        for name, raw, extra, reason in cases:
+            with self.subTest(reason=reason, name=name):
+                shutil.rmtree(self.store / 'clock', ignore_errors=True)
+                self.package()
+                if name:
+                    self.write('clock/' + name, raw)
+                if extra:
+                    described = json.loads((self.store / 'clock/store.json').read_text())
+                    described.update(extra)
+                    self.write('clock/store.json', json.dumps(described))
+                self.assertIn(reason, self.build(False)['blocked'][0]['error'])
+        self.assertEqual(('image/webp', (64, 32)), (listing.picture_type(b'RIFF\x00\x00\x00\x00WEBPVP8X' + b'\x00' * 8 + b'\x3f\x00\x00\x1f\x00\x00'),
+                                                   listing.picture_size(b'RIFF\x00\x00\x00\x00WEBPVP8X' + b'\x00' * 8 + b'\x3f\x00\x00\x1f\x00\x00', 'image/webp')))
+        jpeg = b'\xff\xd8\xff\xe0\x00\x04\x00\x00\xff\xc0\x00\x11\x08\x00\x20\x00\x40\x03' + b'\x00' * 12
+        self.assertEqual(('image/jpeg', (64, 32)), (listing.picture_type(jpeg), listing.picture_size(jpeg, 'image/jpeg')))
+
+    def test_a_large_catalog_is_split_so_that_one_release_changes_one_page(self):
+        self.assertEqual('catalog/p-0.json', listing.page_name('clock', 200))
+        names = {listing.page_name('package-%d' % number, 201) for number in range(400)}
+        self.assertEqual(16, len(names))
+        self.assertTrue(all(len(name) == len('catalog/p-0.json') for name in names))
+        self.assertEqual(listing.page_name('clock', 201), listing.page_name('clock', 3200))
+        self.assertEqual(len('catalog/p-00.json'), len(listing.page_name('clock', 3201)))
+        for number in range(3):
+            self.package('tool-%d' % number)
+        self.build()
+        self.assertEqual(['tool-0', 'tool-1', 'tool-2'], [card['id'] for card in self.cards()])
+        self.assertEqual(1, len(json.loads((self.out / 'index.json').read_bytes())['pages']))
 
     def test_https_only_output_outside_store_and_unknown_exclusion(self):
         self.package()

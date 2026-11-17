@@ -13,12 +13,14 @@ import io
 import json
 import os
 import re
+import shutil
 import tempfile
 import unicodedata
 import zipfile
 from pathlib import Path
 from urllib.parse import urlsplit
 
+import listing
 import validate_metadata as metadata
 import versions as versioning
 
@@ -145,7 +147,9 @@ def collect_payload(folder: Path, license_raw: bytes):
             rel = path.relative_to(folder).as_posix()
             if path.is_symlink():
                 raise BuildError(f'{rel}: symlinks are forbidden')
-            if name in SKIP_NAMES or name.startswith('.'):
+            # The listing of the package (icon, screenshots, description, changes) is shown by the
+            # store and published in place; it is not part of what gets installed.
+            if name in SKIP_NAMES or name.startswith('.') or rel == 'store':
                 directories.remove(name)
                 excluded.append(rel + '/')
         for name in sorted(files):
@@ -242,21 +246,40 @@ def package(folder: Path, output: Path, args, license_raw: bytes, ids: dict[str,
         state, changed = versioning.verdict(version, inventory(payload), versioning.released_manifest(args.store.resolve(), identity))
     except versioning.VersionError as error:
         raise BuildError(str(error)) from error
-    summary = descriptor.get('description') or descriptor.get('about') or store.get('title') or identity
+    try:
+        shown, details, listing_notes = listing.collect(folder, store, descriptor, kind, version)
+    except listing.ListingError as error:
+        raise BuildError(str(error)) from error
     entry = {
-        'id': identity, 'kind': kind, 'title': store.get('title', identity), 'summary': str(summary)[:600],
+        'id': identity, 'kind': kind, 'title': store.get('title', identity),
         'version': version, 'publisher': args.publisher, 'license': args.license_id,
         'compatibility': {'minAssiApi': 1},
     }
+    entry.update(shown)
     if kind == 'game':
         entry['compatibility']['gamesEngine'] = 1
+    if details is not None:
+        # What is read when the package is opened goes to a file of its own, pinned from the card.
+        details_raw = json_bytes({'schemaVersion': 1, 'id': identity, 'version': version, **details})
+        details_path = 'catalog/details/' + identity + '.json'
+        (output / 'catalog' / 'details').mkdir(parents=True, exist_ok=True)
+        (output / details_path).write_bytes(details_raw)
+        validate_written(output / details_path, 'details')
+        entry['details'] = {'path': details_path, 'sha256': sha256(details_raw), 'size': len(details_raw)}
+    shown_report = {'icon': 'icon' in entry, 'tags': len(entry.get('tags', [])), 'description': bool(details and 'description' in details),
+                    'screenshots': len(details.get('screenshots', [])) if details else 0,
+                    'changes': len(details.get('changes', [])) if details else 0, 'notes': listing_notes}
     listed = published.get(identity)
-    if state == 'unchanged' and listed and listed.get('version') == version:
+    if state == 'unchanged':
+        if not listed or listed.get('version') != version:
+            raise BuildError(f'released/ records {version} as published but the index in the store does not offer it; '
+                             f'put the published index.json and catalog/ back before building')
         # The same files under the same version: the published archive stays the release. It is not
         # rebuilt, so its bytes and hash cannot drift with the compressor of the machine that builds.
         entry['manifestUrl'], entry['archive'] = listed['manifestUrl'], listed['archive']
         return entry, {'id': identity, 'folder': folder.name, 'version': version, 'release': 'unchanged',
-                       'archiveSha256': listed['archive']['sha256'], 'excludedSourcePaths': excluded, 'audit': audit}
+                       'archiveSha256': listed['archive']['sha256'], 'listing': shown_report,
+                       'excludedSourcePaths': excluded, 'audit': audit}
     declared_entry = descriptor.get('entry')
     runtime_entry = declared_entry or ('ui/index.html' if 'code/ui/index.html' in payload else 'main.js')
     if runtime_entry.startswith(expected_target + '/'):
@@ -307,8 +330,25 @@ def package(folder: Path, output: Path, args, license_raw: bytes, ids: dict[str,
                    'changedFiles': len(changed), 'archive': archive_name, 'downloadBase': base,
                    'archiveSha256': entry['archive']['sha256'], 'archiveBytes': len(archive_raw),
                    'unpackedBytes': entry['archive']['unpackedSize'], 'fileCount': len(payload),
-                   'transforms': transforms, 'excludedSourcePaths': excluded, 'audit': audit,
+                   'listing': shown_report, 'transforms': transforms, 'excludedSourcePaths': excluded, 'audit': audit,
                    'networkSourcePaths': sorted(network_files), 'literalNetworkHosts': sorted(domains)}
+
+
+def published_entries(index: Path) -> dict:
+    """Cards of the catalog a store offers now, by package ID: its head and the pages next to it."""
+    if not index.is_file():
+        return {}
+    head, errors = metadata.parse_metadata(index.read_bytes())
+    if errors or not isinstance(head, dict):
+        raise BuildError('The published index is not valid JSON metadata')
+    cards = list(head.get('packages', []))  # A catalog published before pages existed lists its packages in the head.
+    for page in head.get('pages', []):
+        listing.check_path(page['path'])
+        value, errors = metadata.parse_metadata((index.parent / page['path']).read_bytes())
+        if errors or not isinstance(value, dict):
+            raise BuildError(f'{page["path"]} of the published catalog is not valid JSON metadata')
+        cards.extend(value.get('packages', []))
+    return {card['id']: card for card in cards if isinstance(card, dict) and 'id' in card}
 
 
 def build(args):
@@ -343,13 +383,7 @@ def build(args):
         if isinstance(described.get('version'), str):
             dependency_versions[identity] = described['version']
     # What is offered now: a package that did not change keeps its entry's archive and manifest.
-    published = {}
-    listing = args.published or store / 'index.json'
-    if listing.is_file():
-        current, errors = metadata.parse_metadata(listing.read_bytes())
-        if errors or not isinstance(current, dict):
-            raise BuildError('The published index is not valid JSON metadata')
-        published = {entry['id']: entry for entry in current.get('packages', []) if isinstance(entry, dict) and 'id' in entry}
+    published = published_entries(args.published or store / 'index.json')
     unknown = set(args.exclude) - set(ids) - set(ids.values())
     if unknown:
         raise BuildError('Unknown excluded package: ' + ', '.join(sorted(unknown)))
@@ -385,14 +419,25 @@ def build(args):
                     report['packages'].append(package_report)
             except (BuildError, OSError, ValueError, UnicodeError, TypeError) as error:
                 report['blocked'].append({'id': identity, 'folder': folder.name, 'error': str(error)})
-        index = {'schemaVersion': 1, 'repository': {'id': args.repository_id,
-                  'title': args.repository_title, 'homepage': args.repository_homepage},
-                 'packages': sorted(entries, key=lambda value: value['id'])}
-        (stage / 'index.json').write_bytes(json_bytes(index))
+        repository = {'id': args.repository_id, 'title': args.repository_title, 'homepage': args.repository_homepage}
+        if args.repository_description:
+            repository['description'] = args.repository_description
+        pages = {}
+        for entry in sorted(entries, key=lambda value: value['id']):
+            pages.setdefault(listing.page_name(entry['id'], len(entries)), []).append(entry)
+        head = {'schemaVersion': 1, 'repository': repository, 'packageCount': len(entries), 'pages': []}
         try:
+            (stage / 'catalog').mkdir(exist_ok=True)
+            for name, cards in sorted(pages.items()):
+                raw = json_bytes({'schemaVersion': 1, 'packages': cards})
+                (stage / name).write_bytes(raw)
+                validate_written(stage / name, 'page')
+                head['pages'].append({'path': name, 'sha256': sha256(raw), 'size': len(raw), 'count': len(cards)})
+            (stage / 'index.json').write_bytes(json_bytes(head))
             validate_written(stage / 'index.json', 'index')
         except BuildError as error:
             report['blocked'].append({'id': None, 'error': str(error)})
+        report['pages'] = len(head['pages'])
         report['ok'] = not report['blocked']
         report['toPublish'] = [{'id': item['id'], 'version': item['version'], 'downloadBase': item['downloadBase'],
                                 'files': [item['archive'], item['id'] + '-' + item['version'] + '.package.json']}
@@ -400,6 +445,7 @@ def build(args):
         if report['ok']:
             # A failed build never replaces the last complete index or artifacts.
             # Publication is an explicit subsequent step, outside this tool.
+            shutil.rmtree(output / 'catalog', ignore_errors=True)
             for artifact in sorted(stage.iterdir()):
                 os.replace(artifact, output / artifact.name)
             (output / 'catalog-validation.json').unlink(missing_ok=True)
@@ -420,7 +466,8 @@ def parser():
     result.add_argument('--licensefile', type=Path, required=True, help='License or explicit no-license notice; copied as LICENSE')
     result.add_argument('--license-id', default='UNLICENSED', help='License metadata, defaults to UNLICENSED; does not grant rights')
     result.add_argument('--repository-id', default='billerens.assi-store')
-    result.add_argument('--repository-title', default='Assi Store')
+    result.add_argument('--repository-title', default='Axiko Store')
+    result.add_argument('--repository-description', default='', help='What the catalog is, up to 600 characters; shown with the source')
     result.add_argument('--repository-homepage', default='https://github.com/Billerens/assi-store')
     result.add_argument('--exclude', action='append', default=[], help='Explicit package ID or source folder to omit, repeatable')
     return result

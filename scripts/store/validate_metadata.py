@@ -135,24 +135,81 @@ def check_relative_path(path: str, *, entry=False) -> str | None:
     return None
 
 
+def check_listing_path(path: str) -> str | None:
+    """A file published next to index.json: a page, the details of a package or a picture."""
+    if unicodedata.normalize("NFC", path) != path:
+        return "Path must be in canonical NFC Unicode form"
+    if "\\" in path or path.startswith("/") or "://" in path:
+        return "Path must be relative to the folder of index.json and use forward slashes"
+    for component in path.split("/"):
+        if not component or component.startswith(".") or component.endswith((".", " ")):
+            return "Empty, dot, hidden or trailing-dot/space path components are not allowed"
+        if UNSAFE_COMPONENT.search(component) or RESERVED_COMPONENT.match(component):
+            return "Path contains an unsafe or reserved component"
+    return None
+
+
+def card_errors(package: dict, path: tuple):
+    errors = []
+    for where, url in [(path + ('manifestUrl',), package['manifestUrl']), (path + ('archive', 'url'), package['archive']['url'])]:
+        problem = check_https(url)
+        if problem:
+            errors.append(issue(where, problem))
+    for number, tag in enumerate(package.get('tags', [])):
+        if tag != tag.lower() or tag != tag.strip():
+            errors.append(issue(path + ('tags', number), "Tags are lowercase, without surrounding spaces"))
+    for field in ('icon', 'details'):
+        if field in package:
+            problem = check_listing_path(package[field]['path'])
+            if problem:
+                errors.append(issue(path + (field, 'path'), problem))
+    return errors
+
+
 def semantic_errors(value: dict, kind: str, byte_count: int):
     errors = []
     if kind == "index":
-        urls = [(('repository', 'homepage'), value['repository']['homepage'])]
+        problem = check_https(value['repository']['homepage'])
+        if problem:
+            errors.append(issue(('repository', 'homepage'), problem))
+        seen = set()
+        for number, page in enumerate(value['pages']):
+            problem = check_listing_path(page['path'])
+            if problem:
+                errors.append(issue(('pages', number, 'path'), problem))
+            if page['path'].casefold() in seen:
+                errors.append(issue(('pages', number, 'path'), "The same page is listed twice"))
+            seen.add(page['path'].casefold())
+        if sum(page['count'] for page in value['pages']) != value['packageCount']:
+            errors.append(issue(('packageCount',), "packageCount differs from the sum of the pages' counts"))
+        return errors
+    if kind == "page":
         seen = set()
         for number, package in enumerate(value['packages']):
-            path = ('packages', number)
             identity = unicodedata.normalize('NFC', package['id']).casefold()
             if identity in seen:
-                errors.append(issue(path + ('id',), "Duplicate package ID in repository index"))
+                errors.append(issue(('packages', number, 'id'), "Duplicate package ID on the page"))
             seen.add(identity)
-            urls.extend([(path + ('manifestUrl',), package['manifestUrl']),
-                         (path + ('archive', 'url'), package['archive']['url'])])
-            urls.extend((path + ('screenshots', i), url) for i, url in enumerate(package.get('screenshots', [])))
-        for path, url in urls:
+            errors.extend(card_errors(package, ('packages', number)))
+        return errors
+    if kind == "details":
+        if byte_count > 262_144:
+            errors.append(issue((), "Details exceed 262144 UTF-8 bytes"))
+        seen = set()
+        for number, shot in enumerate(value.get('screenshots', [])):
+            problem = check_listing_path(shot['path'])
+            if problem:
+                errors.append(issue(('screenshots', number, 'path'), problem))
+            if shot['path'] in seen:
+                errors.append(issue(('screenshots', number, 'path'), "The same picture is listed twice"))
+            seen.add(shot['path'])
+        versions = [change['version'] for change in value.get('changes', [])]
+        if len(set(versions)) != len(versions):
+            errors.append(issue(('changes',), "A version is listed twice"))
+        for key, url in value.get('links', {}).items():
             problem = check_https(url)
             if problem:
-                errors.append(issue(path, problem))
+                errors.append(issue(('links', key), problem))
         return errors
 
     problem = check_relative_path(value['entry'], entry=True)
@@ -218,7 +275,9 @@ def validate_path(path: Path, kind: str):
             result['errorCount'] = len(errors)
         else:
             result['ok'] = True
-            result['packages' if kind == 'index' else 'files'] = len(value['packages' if kind == 'index' else 'files'])
+            counted = {'index': 'pages', 'page': 'packages', 'package': 'files'}.get(kind)
+            if counted:
+                result[counted] = len(value[counted])
     except (OSError, ValueError, UnicodeError, RecursionError) as error:
         result['errors'] = [issue((), str(error))]
         result['errorCount'] = 1
@@ -228,11 +287,13 @@ def validate_path(path: Path, kind: str):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument('--index', type=Path, metavar='PATH', help='Validate a local index.json')
+    mode.add_argument('--index', type=Path, metavar='PATH', help='Validate a local index.json (the head of a catalog)')
+    mode.add_argument('--page', type=Path, metavar='PATH', help='Validate a local page of a catalog')
+    mode.add_argument('--details', type=Path, metavar='PATH', help='Validate the local details file of a package')
     mode.add_argument('--package', type=Path, metavar='PATH', help='Validate a local package.json')
     args = parser.parse_args(argv)
-    kind = 'index' if args.index is not None else 'package'
-    result = validate_path(args.index if kind == 'index' else args.package, kind)
+    kind = next(name for name in ('index', 'page', 'details', 'package') if getattr(args, name) is not None)
+    result = validate_path(getattr(args, kind), kind)
     print(json.dumps(result, ensure_ascii=True, indent=2))
     return 0 if result['ok'] else 2
 

@@ -51,13 +51,13 @@ object Native {
         "notice.full", "notice.removed", "notice.open", "notify.actions", "dnd", "off", "job.once",
         "vibrate.pattern", "app.visible", "speech.stream", "transcribe.segments", "speech.render",
         "theme.decor", "widget.image", "home.cards", "usage", "store.v1", "button.face", "launcher.icon",
-        "launcher.icons", "ui.scale", "store.adopt", "ui.probe", "bubble.looks",
+        "launcher.icons", "ui.scale", "store.adopt", "ui.probe", "bubble.looks", "store.pages",
     )
 
     fun call(method: String, args: JSONArray): Any? = when (method) {
         "shell.features" -> JSONArray(FEATURES)
         "store.sources", "store.source.add", "store.source.refresh", "store.source.remove", "store.source.enable",
-        "store.catalog", "store.installed", "store.prepare", "store.plans", "store.plan", "store.read", "store.resolve",
+        "store.catalog", "store.details", "store.media", "store.installed", "store.prepare", "store.plans", "store.plan", "store.read", "store.resolve",
         "store.apply", "store.rollback", "store.review", "store.reviewStart", "store.rules", "store.bans", "store.discard",
         // The owner's own decisions: each is answered in a dialog of the shell (StoreOwner), not by the caller.
         "store.acceptWarnings", "store.unban" -> StoreAgent.native(method, args)

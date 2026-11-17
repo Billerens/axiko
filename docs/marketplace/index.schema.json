@@ -1,14 +1,15 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.org/assi-marketplace/schema/v1/index.schema.json",
-  "title": "Axiko marketplace index v1",
-  "description": "Example schema namespace is a placeholder. The index file has an additional 1 MiB UTF-8 byte limit. Client hard limits cannot be raised by repository metadata.",
+  "title": "Axiko catalog head v1",
+  "description": "index.json: the repository and the pages that hold its packages. Example schema namespace is a placeholder. 1 MiB UTF-8 limit; client hard limits cannot be raised by repository metadata.",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "schemaVersion",
     "repository",
-    "packages"
+    "packageCount",
+    "pages"
   ],
   "properties": {
     "schemaVersion": {
@@ -41,177 +42,54 @@
           "pattern": "^https://",
           "format": "uri",
           "description": "HTTPS URL without credentials or a fragment. Additional semantic validation applies."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 600
         }
       }
     },
-    "packages": {
+    "packageCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 20000
+    },
+    "pages": {
       "type": "array",
-      "maxItems": 2000,
+      "maxItems": 256,
       "items": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "id",
-          "kind",
-          "title",
-          "summary",
-          "version",
-          "publisher",
-          "license",
-          "manifestUrl",
-          "archive",
-          "compatibility"
+          "path",
+          "sha256",
+          "size",
+          "count"
         ],
         "properties": {
-          "id": {
+          "path": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 96,
-            "pattern": "^[a-z0-9][a-z0-9.-]*$"
+            "maxLength": 240,
+            "description": "Relative to the folder of index.json, forward slashes, no parent or hidden components. Additional semantic validation applies.",
+            "pattern": "\\.json$"
           },
-          "kind": {
-            "enum": [
-              "module",
-              "game"
-            ]
-          },
-          "title": {
+          "sha256": {
             "type": "string",
-            "minLength": 1,
-            "maxLength": 120
+            "pattern": "^[a-f0-9]{64}$"
           },
-          "summary": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 600
+          "size": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 1048576
           },
-          "version": {
-            "type": "string",
-            "maxLength": 96,
-            "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\\+(?:[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?$"
-          },
-          "publisher": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 96,
-            "pattern": "^[a-z0-9][a-z0-9.-]*$",
-            "description": "Stable publisher identity, not a trust or signature verdict."
-          },
-          "license": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128,
-            "description": "Declared license identifier or SPDX expression; this validator does not verify license terms."
-          },
-          "manifestUrl": {
-            "type": "string",
-            "minLength": 9,
-            "maxLength": 2048,
-            "pattern": "^https://",
-            "format": "uri",
-            "description": "HTTPS URL without credentials or a fragment. Additional semantic validation applies."
-          },
-          "archive": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "url",
-              "sha256",
-              "size",
-              "unpackedSize",
-              "fileCount"
-            ],
-            "properties": {
-              "url": {
-                "type": "string",
-                "minLength": 9,
-                "maxLength": 2048,
-                "pattern": "^https://",
-                "format": "uri",
-                "description": "HTTPS URL without credentials or a fragment. Additional semantic validation applies."
-              },
-              "sha256": {
-                "type": "string",
-                "pattern": "^[a-f0-9]{64}$"
-              },
-              "size": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 5242880
-              },
-              "unpackedSize": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 20971520
-              },
-              "fileCount": {
-                "type": "integer",
-                "minimum": 4,
-                "maximum": 512
-              }
-            }
-          },
-          "compatibility": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "minAssiApi"
-            ],
-            "properties": {
-              "minAssiApi": {
-                "type": "integer",
-                "minimum": 1
-              },
-              "gamesEngine": {
-                "type": "integer",
-                "minimum": 1
-              }
-            }
-          },
-          "tags": {
-            "type": "array",
-            "maxItems": 12,
-            "uniqueItems": true,
-            "items": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 32
-            }
-          },
-          "screenshots": {
-            "type": "array",
-            "maxItems": 8,
-            "uniqueItems": true,
-            "items": {
-              "type": "string",
-              "minLength": 9,
-              "maxLength": 2048,
-              "pattern": "^https://",
-              "format": "uri",
-              "description": "HTTPS URL without credentials or a fragment. Additional semantic validation applies."
-            }
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2000
           }
-        },
-        "allOf": [
-          {
-            "if": {
-              "properties": {
-                "kind": {
-                  "const": "game"
-                }
-              }
-            },
-            "then": {
-              "properties": {
-                "compatibility": {
-                  "required": [
-                    "gamesEngine"
-                  ]
-                }
-              }
-            }
-          }
-        ]
+        }
       }
     }
   }

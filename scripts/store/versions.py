@@ -97,12 +97,10 @@ def check(store: Path, license_raw: bytes, exclude):
     import build_catalog as builder
     result = {'ok': True, 'scope': 'source-versions', 'unchanged': [], 'toRelease': [], 'errors': []}
     index = {}
-    if (store / 'index.json').is_file():
-        value, errors = metadata.parse_metadata((store / 'index.json').read_bytes())
-        if errors or not isinstance(value, dict):
-            result['errors'].append({'id': None, 'error': 'index.json is not valid JSON metadata'})
-        else:
-            index = {entry['id']: entry for entry in value.get('packages', [])}
+    try:
+        index = builder.published_entries(store / 'index.json')
+    except (builder.BuildError, OSError, ValueError, KeyError) as error:
+        result['errors'].append({'id': None, 'error': str(error)})
     seen = set()
     for folder in sorted(path.parent for path in store.glob('*/store.json')):
         identity = builder.load_json(folder / 'store.json').get('id')

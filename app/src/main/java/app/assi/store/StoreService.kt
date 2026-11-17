@@ -4,6 +4,7 @@ import app.assi.core.Workspace
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.util.Locale
 import java.util.UUID
 
 /** Catalog, download and review coordination. No package code is executed by this service. */
@@ -89,6 +90,73 @@ class StoreService(
             }
         }
         return out
+    }
+
+    /** The decorated catalog for the paged screen, kept for a moment: scrolling asks for it many times in a row. */
+    @Volatile private var listed: Pair<Long, List<JSONObject>>? = null
+
+    /** Something the statuses depend on has changed: the next page is computed anew. */
+    fun invalidate() { listed = null }
+
+    private fun listing(): List<JSONObject> {
+        val now = System.currentTimeMillis()
+        listed?.takeIf { now - it.first in 0 until LISTING_TTL_MS }?.let { return it.second }
+        return objects(catalog()).also { listed = now to it }
+    }
+
+    /**
+     * One portion of the catalog for a screen that never draws it whole: filtered, sorted and cut
+     * here, over the catalog cached on disk, so searching needs no network. `counts`, `tags` and
+     * `kinds` are of the whole catalog, whatever the filter.
+     */
+    fun catalogPage(options: JSONObject = JSONObject()): JSONObject {
+        val all = listing()
+        val query = options.optString("query").trim().lowercase(Locale.ROOT)
+        val kind = options.optString("kind"); val sourceId = options.optString("sourceId")
+        val tag = options.optString("tag").trim().lowercase(Locale.ROOT); val only = options.optString("only")
+        fun tags(entry: JSONObject) = entry.optJSONArray("tags")?.let { list -> (0 until list.length()).map { list.getString(it) } } ?: emptyList()
+        val matched = all.filter { entry ->
+            (kind.isEmpty() || kind == "all" || entry.getString("kind") == kind) &&
+                (sourceId.isEmpty() || sourceId == "all" || entry.getString("sourceId") == sourceId) &&
+                (tag.isEmpty() || tag in tags(entry)) &&
+                (only != "updates" || entry.getString("status") in PENDING) &&
+                (query.isEmpty() || (listOf(entry.getString("title"), entry.getString("summary"), entry.getString("id"), entry.getString("publisher")) + tags(entry))
+                    .any { it.lowercase(Locale.ROOT).contains(query) })
+        }
+        val collator = java.text.Collator.getInstance()
+        val byTitle = Comparator<JSONObject> { a, b -> collator.compare(a.getString("title"), b.getString("title")) }.thenBy { it.getString("id") }
+        val sorted = when (options.optString("sort")) {
+            "updated" -> matched.sortedWith(compareByDescending<JSONObject> { it.optString("updated") }.then(byTitle))
+            else -> matched.sortedWith(byTitle)
+        }
+        val offset = options.optInt("offset", 0).coerceIn(0, sorted.size); val limit = options.optInt("limit", 40).coerceIn(1, 200)
+        val counted = HashMap<String, Int>()
+        all.forEach { entry -> tags(entry).forEach { counted[it] = (counted[it] ?: 0) + 1 } }
+        val top = counted.entries.sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key }).take(30)
+        // What the catalog can be narrowed by is what its packages say about themselves, not a list kept here.
+        val kinds = sortedMapOf<String, Int>()
+        all.forEach { entry -> kinds[entry.getString("kind")] = (kinds[entry.getString("kind")] ?: 0) + 1 }
+        return JSONObject().put("items", JSONArray(sorted.drop(offset).take(limit).map(StoreDisk::copy)))
+            .put("total", sorted.size).put("offset", offset).put("limit", limit)
+            .put("counts", JSONObject().put("all", all.size).put("updates", all.count { it.getString("status") in PENDING }))
+            .put("tags", JSONArray(top.map { JSONObject().put("tag", it.key).put("count", it.value) }))
+            .put("kinds", JSONArray(kinds.map { JSONObject().put("kind", it.key).put("count", it.value) }))
+    }
+
+    /** The description, screenshots and changes of one package; fetched when it is opened and kept by hash. */
+    fun details(sourceId: String, packageId: String): JSONObject = StoreDisk.copy(sources.details(sourceId, packageId))
+
+    /**
+     * A picture of a listing as a `data:` address for the page. Which file it is comes from the
+     * checked catalog, never from the caller, and the page does not talk to the source's host itself.
+     */
+    fun media(sourceId: String, packageId: String, kind: String, index: Int = 0): String {
+        val ref = when (kind) {
+            "icon" -> sources.packageEntry(sourceId, packageId).optJSONObject("icon")
+            "screenshot" -> sources.details(sourceId, packageId).optJSONArray("screenshots")?.optJSONObject(index)
+            else -> throw IllegalArgumentException("Неизвестный вид картинки.")
+        } ?: throw IllegalArgumentException("У пакета нет такой картинки.")
+        return "data:" + ref.getString("type") + ";base64," + java.util.Base64.getEncoder().encodeToString(sources.picture(sourceId, ref))
     }
 
     fun installed(): JSONArray {
@@ -259,6 +327,7 @@ class StoreService(
         if (decision != null) receipt.put("ownerDecision", StoreDisk.copy(decision))
         StoreDisk.write(receiptFile(current.getString("installationKey"), current.getString("artifactSha256")), receipt)
         val result = installer.apply(id, current.getString("installerDigest"))
+        invalidate()
         if (decision != null) runCatching {
             val file = reviewFile(id)
             if (file.isFile) StoreDisk.read(file).takeIf { it.optString("planDigest") == expectedDigest }?.let { StoreDisk.write(file, it.put("ownerDecision", StoreDisk.copy(decision))) }
@@ -526,6 +595,9 @@ class StoreService(
     companion object {
         const val ASSI_API = 1
         const val GAMES_ENGINE = 1
+        private const val LISTING_TTL_MS = 3000L
+        /** What the «Обновления» tab shows: a newer release, or a module to take over. */
+        private val PENDING = setOf("update", "unmanaged")
         private const val VALIDATOR_RESOLUTION = "Не устанавливать. Автору нужно исправить пакет и выпустить его с новым номером версии."
     }
 }
@@ -561,18 +633,29 @@ object Store {
         val now = System.currentTimeMillis()
         if (service.sources.factorySettled() || now - factoryTried < 60_000) return
         factoryTried = now
-        Thread({ runCatching { service.sources.ensureFactory(FACTORY_SOURCE) }.getOrNull()?.let { connected() } }, "store-factory-source").start()
+        Thread({ runCatching { service.sources.ensureFactory(FACTORY_SOURCE) }.getOrNull()?.let { service.invalidate(); connected() } }, "store-factory-source").start()
     }
+
+    /** Calls after which the statuses of the catalog may be different. */
+    private val CHANGING = setOf("store.source.add", "store.source.refresh", "store.source.remove", "store.source.enable",
+        "store.apply", "store.acceptWarnings", "store.unban", "store.submitReview")
 
     fun call(method: String, args: JSONArray): Any? {
         val service = service
+        if (method in CHANGING) service.invalidate()
+        return try { dispatch(service, method, args) } finally { if (method in CHANGING) service.invalidate() }
+    }
+
+    private fun dispatch(service: StoreService, method: String, args: JSONArray): Any? {
         return when (method) {
             "store.sources" -> service.sources.list()
             "store.source.add" -> service.sources.add(args.getString(0))
             "store.source.refresh" -> service.sources.refresh(args.getString(0))
             "store.source.remove" -> service.sources.remove(args.getString(0))
             "store.source.enable" -> service.sources.enable(args.getString(0), args.getBoolean(1))
-            "store.catalog" -> service.catalog()
+            "store.catalog" -> service.catalogPage(args.optJSONObject(0) ?: JSONObject())
+            "store.details" -> service.details(args.getString(0), args.getString(1))
+            "store.media" -> service.media(args.getString(0), args.getString(1), args.getString(2), args.optInt(3, 0))
             "store.installed" -> service.installed()
             "store.prepare" -> service.prepare(args.getString(0), args.getString(1), args.optBoolean(2, false))
             "store.plans" -> service.plans()

@@ -26,8 +26,15 @@
   <div id="store-pending" hidden></div>
   <div class="store-controls" id="store-controls">
     <label class="store-search"><span class="sr-only">Поиск по каталогу</span><input id="store-search" type="search" placeholder="Найти игру или модуль" autocomplete="off"></label>
-    <select id="store-kind" aria-label="Тип пакета"><option value="all">Все типы</option><option value="game">Игры</option><option value="module">Модули</option></select>
+    <select id="store-kind" aria-label="Раздел каталога"><option value="all">Все разделы</option></select>
     <select id="store-source" aria-label="Источник пакетов"><option value="all">Все источники</option></select>
+    <select id="store-tag" aria-label="Тег" hidden><option value="">Все теги</option></select>
+    <select id="store-sort" aria-label="Порядок"><option value="title">По названию</option><option value="updated">Сначала новые</option></select>
+    <div class="store-view" id="store-view" role="group" aria-label="Вид списка">
+      <button type="button" data-view="grid" aria-pressed="true" aria-label="Сетка" title="Сетка"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg></button>
+      <button type="button" data-view="list" aria-pressed="false" aria-label="Список" title="Список"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="5" height="5" rx="1.2"/><rect x="4" y="14" width="5" height="5" rx="1.2"/><path d="M12 6h8M12 9h5M12 15h8M12 18h5"/></svg></button>
+      <button type="button" data-view="compact" aria-pressed="false" aria-label="Компактный список" title="Компактный список"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg></button>
+    </div>
   </div>
   <section id="store-content" class="store-content" role="tabpanel" aria-labelledby="store-tab-catalog" aria-busy="true"><div class="store-loading">Загружаем каталог…</div></section>
 </main>

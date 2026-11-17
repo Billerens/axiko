@@ -3,7 +3,8 @@
   'use strict';
   const h = ui.h, tr = (...args) => ui.t(...args), raw = value => ui.raw(String(value == null ? '' : value));
   const $ = id => document.getElementById(id);
-  const state = { tab: 'catalog', sources: [], catalog: [], installed: [], plans: [], bans: [], query: '', kind: 'all', source: 'all', sourceUrl: '', loaded: false, operations: new Set(), pending: null, reviewTask: null, dialog: null, token: 0, acknowledged: new Set(), poll: null, visible: true, loadSerial: 0 };
+  const PORTION = 24;
+  const state = { tab: 'catalog', sources: [], items: [], total: 0, counts: { all: 0, updates: 0 }, tags: [], kinds: [], tag: '', sort: 'title', view: 'grid', listing: false, listSerial: 0, installed: [], plans: [], bans: [], query: '', kind: 'all', source: 'all', sourceUrl: '', loaded: false, operations: new Set(), pending: null, reviewTask: null, dialog: null, token: 0, acknowledged: new Set(), poll: null, visible: true, loadSerial: 0 };
   const api = (method, ...args) => assi.native('store.' + method, ...args);
   const listOf = (value, key) => Array.isArray(value) ? value : value && Array.isArray(value[key]) ? value[key] : [];
   const packageId = item => item.packageId || item.id;
@@ -64,20 +65,20 @@
     catch (error) { if (state.dialog) dialogStatus(errorText(error), true); else status(errorText(error), true); }
     finally { state.operations.delete(key); if (control && control.isConnected) control.disabled = false; }
   }
+  function listed() { return state.tab === 'catalog' || state.tab === 'updates'; }
   function pickTab(tab, focus) {
     state.tab = tab;
     document.querySelectorAll('.store-tabs [data-tab]').forEach(node => { const selected = node.dataset.tab === tab; node.setAttribute('aria-selected', String(selected)); node.tabIndex = selected ? 0 : -1; });
     $('store-content').setAttribute('aria-labelledby', 'store-tab-' + tab);
     document.querySelector('.store-intro').hidden = tab !== 'catalog';
-    $('store-controls').hidden = tab === 'sources'; render();
+    $('store-controls').hidden = tab === 'sources';
+    if (listed()) relist(); else render();
     if (focus) $('store-tab-' + tab).focus({ preventScroll: true });
   }
   function updateCount(name, value) { document.querySelector('[data-count="' + name + '"]').textContent = value ? String(value) : ''; }
-  function availableCatalog() { return state.catalog.filter(item => item.sourceEnabled !== false); }
   // A module that stands on the device without the store's record: the catalog cannot tell its version,
   // so it is offered for taking over next to the real updates instead of being called absent.
   function unmanaged(item) { return item.status === 'unmanaged'; }
-  function updates() { return availableCatalog().filter(item => item.status === 'update' || item.updateAvailable || unmanaged(item)); }
   function installedFor(item) { return state.installed.find(entry => entry.sourceId === item.sourceId && packageId(entry) === packageId(item)); }
   function sourceName(id) { const source = state.sources.find(item => item.id === id); return source ? source.title || source.repositoryId || id : tr('Источник удалён'); }
   function entryPath(item) { const value = item.entryPath || ''; return /^(?:modules|ui)\/[a-zA-Z0-9_./-]+\.html?$/i.test(value) && !value.split('/').includes('..') ? value : ''; }
@@ -89,31 +90,117 @@
     return (state.kind === 'all' || item.kind === state.kind) && (state.source === 'all' || item.sourceId === state.source) &&
       (!state.query || [item.title, item.summary, item.publisher, packageId(item), ...(item.tags || [])].join(' ').toLocaleLowerCase().includes(state.query));
   }
+  function filtered() { return !!state.query || state.kind !== 'all' || state.source !== 'all' || !!state.tag; }
+
+  // The catalog is never asked for or drawn whole: the shell cuts it into portions over what it keeps
+  // on disk, and the next portion is asked for when the end of the list comes near.
+  function listOptions(offset) { return { query: state.query, kind: state.kind, sourceId: state.source, tag: state.tag, only: state.tab === 'updates' ? 'updates' : '', sort: state.sort, offset: offset, limit: PORTION }; }
+  async function list(reset) {
+    if (!listed()) return;
+    if (!reset && (state.listing || state.items.length >= state.total)) return;
+    // A newer request (another tab, another search) makes an older answer void.
+    const serial = reset ? ++state.listSerial : state.listSerial;
+    state.listing = true;
+    try {
+      const page = await api('catalog', listOptions(reset ? 0 : state.items.length));
+      if (serial !== state.listSerial) return;
+      const items = listOf(page, 'items');
+      state.items = reset ? items : state.items.concat(items);
+      state.total = Number(page && page.total) || state.items.length;
+      if (page && page.counts) state.counts = page.counts;
+      state.tags = listOf(page, 'tags'); state.kinds = listOf(page, 'kinds');
+      state.listing = false;
+      if (reset) render(); else extend(items);
+    } finally { if (serial === state.listSerial) state.listing = false; }
+  }
+  function relist() { state.items = []; state.total = 0; state.listing = true; render(); return list(true).catch(error => { state.listing = false; render(); status(errorText(error), true, relist); }); }
+
+  // What the catalog can be narrowed by comes from the catalog itself: the kinds and tags its packages
+  // carry. Nothing here is a fixed list; a name for a kind is only a nicer word for what the data says.
+  const KIND_NAMES = { module: 'Модули', game: 'Игры' };
+  function fill(select, first, rows, chosen) {
+    select.replaceChildren(h('option', { value: first[0] }, first[1]), ...rows.map(row => h('option', { value: row[0] }, raw(row[1]))));
+    select.value = rows.some(row => row[0] === chosen) ? chosen : first[0];
+    return select.value;
+  }
+  function facets() {
+    state.source = fill($('store-source'), ['all', tr('Все источники')], state.sources.map(source => [source.id, source.title || source.repositoryId]), state.source);
+    const kinds = state.tab === 'installed' ? [...new Set(state.installed.map(item => item.kind))].map(kind => ({ kind: kind })) : state.kinds;
+    state.kind = fill($('store-kind'), ['all', tr('Все разделы')], kinds.map(row => [row.kind, (KIND_NAMES[row.kind] ? tr(KIND_NAMES[row.kind]) : row.kind) + (row.count ? ' · ' + row.count : '')]), state.kind);
+    const tags = $('store-tag'); tags.hidden = !listed() || !state.tags.length && !state.tag;
+    const known = state.tags.map(row => [row.tag, row.tag + ' · ' + row.count]);
+    if (state.tag && !known.some(row => row[0] === state.tag)) known.unshift([state.tag, state.tag]);
+    state.tag = fill(tags, ['', tr('Все теги')], known, state.tag);
+    $('store-sort').hidden = !listed(); $('store-sort').value = state.sort;
+    document.querySelectorAll('#store-view [data-view]').forEach(node => node.setAttribute('aria-pressed', String(node.dataset.view === state.view)));
+  }
+
   function render() {
-    updateCount('catalog', availableCatalog().length); updateCount('installed', state.installed.length); updateCount('updates', updates().length); updateCount('sources', state.sources.length);
-    const select = $('store-source'), before = select.value;
-    select.replaceChildren(h('option', { value: 'all' }, tr('Все источники')), ...state.sources.map(source => h('option', { value: source.id }, raw(source.title || source.repositoryId))));
-    select.value = state.sources.some(source => source.id === before) ? before : 'all'; state.source = select.value;
-    renderPending();
-    const content = $('store-content'); content.setAttribute('aria-busy', String(!state.loaded));
+    updateCount('catalog', state.counts.all); updateCount('installed', state.installed.length); updateCount('updates', state.counts.updates); updateCount('sources', state.sources.length);
+    facets(); renderPending();
+    const content = $('store-content'); content.setAttribute('aria-busy', String(!state.loaded || listed() && state.listing && !state.items.length));
     if (!state.loaded) return;
     if (state.tab === 'sources') { renderSources(content); return; }
-    const items = (state.tab === 'installed' ? state.installed : state.tab === 'updates' ? updates() : availableCatalog()).filter(matches);
+    if (listed() && state.listing && !state.items.length) { content.replaceChildren(h('div', { class: 'store-loading' }, tr('Загружаем каталог…'))); return; }
+    const items = state.tab === 'installed' ? state.installed.filter(matches) : state.items;
     if (!items.length) {
-      if (state.query || state.kind !== 'all' || state.source !== 'all') content.replaceChildren(empty(tr('Ничего не найдено'), tr('Попробуйте другое название или измените фильтры.')));
+      if (filtered()) content.replaceChildren(empty(tr('Ничего не найдено'), tr('Попробуйте другое название или измените фильтры.')));
       else if (state.tab === 'updates') content.replaceChildren(empty(tr('Всё актуально'), tr('Когда в подключённых источниках появятся новые версии, они будут здесь.'), tr('Проверить источники'), refreshSources));
       else if (state.tab === 'installed') content.replaceChildren(empty(tr('Пакетов из каталога пока нет'), tr('Ваши существующие модули остаются на месте. Здесь появятся пакеты, установленные через магазин.'), tr('Открыть каталог'), () => pickTab('catalog', true)));
       else content.replaceChildren(empty(tr(state.sources.length ? 'В источниках пока нет пакетов' : 'Подключите первый источник'), tr(state.sources.length ? 'Проверьте, включён ли источник, и обновите его каталог.' : 'Добавьте GitHub-репозиторий или ссылку на index.json. Каталог проверит формат перед подключением.'), tr('Добавить источник'), () => pickTab('sources', true)));
       return;
     }
-    content.replaceChildren(h('div', { class: 'store-grid' }, items.map(item => packageCard(item, state.tab === 'installed'))));
+    content.replaceChildren(h('div', { class: 'store-grid', id: 'store-list', 'data-view': state.view }, items.map(item => packageCard(item, state.tab === 'installed'))));
+    more(content);
+  }
+  // The next portion is appended to what is already on the screen; nothing drawn is drawn again.
+  function extend(items) {
+    const grid = $('store-list'); if (!grid || !listed()) { render(); return; }
+    items.forEach(item => grid.append(packageCard(item, false)));
+    more($('store-content'));
+  }
+  let nearEnd = null;
+  function more(content) {
+    const old = $('store-more'); if (old) old.remove();
+    if (nearEnd) { nearEnd.disconnect(); nearEnd = null; }
+    if (!listed() || state.items.length >= state.total) return;
+    const next = () => list(false).catch(error => status(errorText(error), true));
+    const node = h('div', { class: 'store-more', id: 'store-more' }, h('span', { id: 'store-shown' }, tr('Показано {} из {}', state.items.length, state.total)), button(tr('Показать ещё'), next, { id: 'store-more-button' }));
+    content.append(node);
+    if (typeof IntersectionObserver === 'function') { nearEnd = new IntersectionObserver(entries => { if (entries.some(entry => entry.isIntersecting)) next(); }, { rootMargin: '800px 0px' }); nearEnd.observe(node); }
+  }
+
+  // Pictures of listings come through the shell as data, by the reference of the checked catalog, and only
+  // for what is near the screen. One picture is asked for once, however many cards show it.
+  const pictures = new Map();
+  const nearScreen = typeof IntersectionObserver === 'function' ? new IntersectionObserver(entries => entries.forEach(entry => {
+    if (!entry.isIntersecting) return; nearScreen.unobserve(entry.target);
+    const job = entry.target.storePicture; entry.target.storePicture = null; if (job) job();
+  }), { rootMargin: '400px 0px' }) : null;
+  function picture(node, key, fetch, place) {
+    node.storePicture = () => {
+      let promise = pictures.get(key);
+      if (!promise) { promise = fetch(); pictures.set(key, promise); promise.catch(() => pictures.delete(key)); }
+      promise.then(url => {
+        if (!/^data:image\/(?:png|jpeg|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(String(url)) || !node.isConnected) return;
+        place(h('img', { src: url, alt: '', decoding: 'async' }));
+      }).catch(() => {});
+    };
+    if (nearScreen) nearScreen.observe(node); else node.storePicture();
+  }
+  function packageIcon(item, installedView) {
+    const node = icon(item.kind === 'game' ? 'game' : 'module');
+    const reference = installedView ? item.catalogEntry && item.catalogEntry.icon : item.icon;
+    if (reference && reference.sha256 && item.sourceId) picture(node, reference.sha256, () => api('media', item.sourceId, packageId(item), 'icon'), img => { node.classList.add('picture'); node.replaceChildren(img); });
+    return node;
   }
   function packageCard(item, installedView) {
     const installed = installedView ? item : installedFor(item);
-    const title = item.title || packageId(item), card = h('article', { class: 'store-card', 'data-package': packageId(item), 'data-source': item.sourceId });
-    card.append(h('div', { class: 'store-card-top' }, icon(item.kind || 'module'), h('div', { class: 'grow' }, h('h3', {}, raw(title)), h('div', { class: 'store-meta' }, h('span', {}, tr(item.kind === 'game' ? 'Игра' : 'Модуль')), h('span', {}, raw(item.version || ''))))));
-    card.append(h('p', { class: 'store-description' }, raw(item.summary || (installedView ? tr('Установлено через каталог Axiko') : ''))));
-    const badges = h('div', { class: 'store-meta' });
+    const shown = installedView && item.catalogEntry ? Object.assign({}, item.catalogEntry, item) : item;
+    const title = shown.title || packageId(item), card = h('article', { class: 'store-card', 'data-package': packageId(item), 'data-source': item.sourceId });
+    card.append(h('div', { class: 'store-card-top' }, packageIcon(item, installedView), h('div', { class: 'grow' }, h('h3', {}, raw(title)), h('div', { class: 'store-meta' }, h('span', {}, KIND_NAMES[item.kind] ? tr(item.kind === 'game' ? 'Игра' : 'Модуль') : raw(item.kind || '')), h('span', {}, raw(item.version || ''))))));
+    card.append(h('p', { class: 'store-description' }, raw(shown.summary || (installedView ? tr('Установлено через каталог Axiko') : ''))));
+    const badges = h('div', { class: 'store-meta store-badges' });
     if (item.status === 'update' || item.updateAvailable) badges.append(h('span', { class: 'store-chip update' }, tr('Есть обновление')));
     else if (installed) badges.append(h('span', { class: 'store-chip success' }, tr('Установлено')));
     else if (unmanaged(item)) badges.append(h('span', { class: 'store-chip changed', 'data-unmanaged': '' }, tr('Стоит без магазина')));
@@ -124,9 +211,10 @@
     if (item.status === 'sourceConflict') badges.append(h('span', { class: 'store-chip problem' }, tr('Конфликт источников')));
     else if (item.status === 'changedRelease') badges.append(h('span', { class: 'store-chip problem' }, tr('Выпуск изменён')));
     else if (item.status !== 'banned' && (item.compatible === false || item.status === 'incompatible')) badges.append(h('span', { class: 'store-chip problem' }, tr('Нужна другая версия Axiko')));
-    if (item.archive && item.archive.size) badges.append(h('span', {}, bytes(item.archive.size)));
+    (Array.isArray(shown.tags) ? shown.tags : []).slice(0, 3).forEach(tag => badges.append(h('span', { class: 'store-tag' }, raw('#' + tag))));
+    if (item.archive && item.archive.size) badges.append(h('span', { class: 'store-size' }, bytes(item.archive.size)));
     card.append(badges, h('div', { class: 'store-source-line' }, raw(item.sourceTitle || sourceName(item.sourceId))));
-    const actions = h('div', { class: 'store-card-actions' }, button(tr('Подробнее'), () => showPackage(item, installed), { 'data-details': packageId(item) }));
+    const actions = h('div', { class: 'store-card-actions' }, button(tr('Подробнее'), event => operation('details-' + item.sourceId + ':' + packageId(item), event.currentTarget, () => showPackage(item, installed)), { 'data-details': packageId(item) }));
     if (installedView && entryPath(item)) actions.append(button(tr('Открыть'), () => openInstalled(item), { class: 'btn primary', 'data-open-package': packageId(item) }));
     else if (!installed || item.status === 'update' || item.updateAvailable) actions.append(button(tr(installed ? 'Обновить' : unmanaged(item) ? 'Принять модуль' : 'Установить'), event => prepare(item, event.currentTarget), { class: 'btn primary', disabled: item.compatible === false || item.status === 'incompatible' || item.status === 'banned', 'data-install': packageId(item) }));
     else if (entryPath(installed)) actions.append(button(tr('Открыть'), () => openInstalled(installed), { class: 'btn primary' }));
@@ -134,21 +222,26 @@
   }
   async function load(options) {
     const serial = ++state.loadSerial;
-    const results = await Promise.allSettled([api('sources'), api('catalog'), api('installed'), api('plans'), api('bans')]);
+    const results = await Promise.allSettled([api('sources'), api('installed'), api('plans'), api('bans')]);
     if (serial !== state.loadSerial) return;
-    const fields = [['sources','sources'],['catalog','packages'],['installed','installed']];
-    results.slice(0, 3).forEach((result, index) => { if (result.status === 'fulfilled') state[fields[index][0]] = listOf(result.value, fields[index][1]); });
-    if (results[3].status === 'fulfilled') {
-      const plans = listOf(results[3].value, 'plans');
+    if (results[0].status === 'fulfilled') state.sources = listOf(results[0].value, 'sources');
+    if (results[1].status === 'fulfilled') state.installed = listOf(results[1].value, 'installed');
+    if (results[2].status === 'fulfilled') {
+      const plans = listOf(results[2].value, 'plans');
       state.plans = plans;
       const live = state.pending && plans.find(plan => plan.id === state.pending.id);
       if (live) state.pending = live;
       else if (!state.pending) state.pending = plans.find(plan => ['ready','conflicts','blocked'].includes(plan.status)) || null;
       if (state.pending && state.pending.reviewTask && state.pending.reviewTask.status === 'running' && state.pending.status !== 'applied') state.reviewTask = Object.assign({ planId: state.pending.id }, state.pending.reviewTask);
     }
-    if (results[4].status === 'fulfilled') state.bans = listOf(results[4].value, 'bans');
-    state.loaded = true; render();
-    const failed = results.find(result => result.status === 'rejected');
+    if (results[3].status === 'fulfilled') state.bans = listOf(results[3].value, 'bans');
+    let failed = results.find(result => result.status === 'rejected');
+    // The counts of the tabs come with a portion of the catalog, so one is asked for whatever tab is open.
+    try {
+      if (listed()) { state.loaded = true; await list(true); }
+      else { const page = await api('catalog', { limit: 1 }); if (page && page.counts) state.counts = page.counts; }
+    } catch (error) { failed = failed || { reason: error }; }
+    state.loaded = true; state.listing = false; render();
     if (failed) status(errorText(failed.reason), true, () => load());
     else if (!(options && options.keepStatus)) status('');
     schedulePoll();
@@ -240,15 +333,48 @@
   }
   function facts(rows) { return h('dl', { class: 'store-details' }, rows.filter(row => row[1] !== undefined && row[1] !== '').map(([label,value]) => h('div', {}, h('dt', {}, tr(label)), h('dd', {}, raw(value))))); }
   function safeHttps(value) { try { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password && !url.hash ? url.href : null; } catch (_) { return null; } }
-  function showPackage(item, installed) {
-    const catalogEntry = state.catalog.find(entry => entry.sourceId === item.sourceId && packageId(entry) === packageId(item));
-    const display = catalogEntry || item;
+  // Text from a repository is the author's, not ours: it goes through the kit's Markdown, which escapes
+  // everything first, and its links open outside, without telling the site where the reader came from.
+  function authorText(source) {
+    const node = h('div', { class: 'store-text', html: ui.md(String(source || '')) });
+    node.querySelectorAll('a').forEach(link => { if (safeHttps(link.getAttribute('href'))) { link.target = '_blank'; link.rel = 'noopener noreferrer'; link.referrerPolicy = 'no-referrer'; } else link.replaceWith(document.createTextNode(link.textContent)); });
+    return node;
+  }
+  // What is read when a package is opened: fetched then, not with the list.
+  async function about(current, box, item) {
+    const token = current.token;
+    try {
+      const details = await api('details', item.sourceId, packageId(item));
+      if (!state.dialog || state.dialog.token !== token) return;
+      const shots = listOf(details, 'screenshots');
+      if (shots.length) box.append(h('div', { class: 'store-shots', role: 'list', 'aria-label': tr('Снимки экрана') }, shots.map((shot, index) => {
+        const frame = h('figure', { class: 'store-shot', role: 'listitem', 'data-shot': String(index), style: 'aspect-ratio:' + (Number(shot.width) || 9) + '/' + (Number(shot.height) || 16) }, shot.caption ? h('figcaption', {}, raw(shot.caption)) : null);
+        picture(frame, shot.sha256, () => api('media', item.sourceId, packageId(item), 'screenshot', index), img => { img.alt = shot.caption || ''; frame.prepend(img); });
+        return frame;
+      })));
+      if (details.description) box.append(authorText(details.description));
+      const changes = listOf(details, 'changes');
+      if (changes.length) box.append(h('details', { class: 'store-changes', open: true }, h('summary', {}, tr('Что нового')),
+        changes.map(change => h('div', { class: 'store-change', 'data-change': change.version }, h('strong', {}, raw(change.version + (change.date ? ' · ' + change.date : ''))), authorText(change.notes)))));
+      const links = Object.entries(details.links || {}).map(([kind, url]) => [({ homepage: 'Сайт', source: 'Исходники', support: 'Поддержка' })[kind], safeHttps(url)]).filter(row => row[0] && row[1]);
+      if (links.length) box.append(h('div', { class: 'store-links' }, links.map(([label, url]) => h('a', { href: url, target: '_blank', rel: 'noopener noreferrer', referrerpolicy: 'no-referrer' }, tr(label)))));
+    } catch (error) { if (state.dialog && state.dialog.token === token) box.append(note(tr('Описание не загрузилось: {}', errorText(error)))); }
+    finally { box.setAttribute('aria-busy', 'false'); }
+  }
+  async function showPackage(item, installed) {
+    let display = item;
+    // An installed record is opened with what the catalog offers for it now, if its source still lists it.
+    if (!item.status && item.sourceId) {
+      const page = await api('catalog', { query: packageId(item), sourceId: item.sourceId, limit: 50 }).catch(() => null);
+      display = listOf(page, 'items').find(entry => packageId(entry) === packageId(item)) || (item.catalogEntry ? Object.assign({}, item.catalogEntry, item) : item);
+    }
     const current = dialog(display.title || packageId(item));
     const banned = display.status === 'banned' || !!display.ban && !installed;
     const compatible = !banned && display.compatible !== false && display.status !== 'incompatible';
     current.body.append(h('p', {}, raw(display.summary || '')), facts([
-      ['Тип', tr(display.kind === 'game' ? 'Игра' : 'Модуль')], ['Версия', display.version], ['Установлена', installed && installed.version], ['Автор', display.publisher], ['Лицензия', display.license], ['Источник', display.sourceTitle || sourceName(item.sourceId)], ['Загрузка', display.archive && bytes(display.archive.size)], ['После распаковки', display.archive && bytes(display.archive.unpackedSize)]
+      ['Тип', KIND_NAMES[display.kind] ? tr(display.kind === 'game' ? 'Игра' : 'Модуль') : display.kind], ['Версия', display.version], ['Установлена', installed && installed.version], ['Выпуск от', display.updated], ['Автор', display.publisher], ['Лицензия', display.license], ['Источник', display.sourceTitle || sourceName(item.sourceId)], ['Загрузка', display.archive && bytes(display.archive.size)], ['После распаковки', display.archive && bytes(display.archive.unpackedSize)]
     ]));
+    if (Array.isArray(display.tags) && display.tags.length) current.body.append(h('div', { class: 'store-meta', 'data-tags': '' }, display.tags.map(tag => h('span', { class: 'store-tag' }, raw('#' + tag)))));
     if (display.compatibility) current.body.append(note(tr('API Axiko: от {}', display.compatibility.minAssiApi) + (display.compatibility.gamesEngine ? ' · ' + tr('Движок игр: {}', display.compatibility.gamesEngine) : '')));
     if (display.ban) current.body.append(banNotice(display.ban));
     else if (!compatible) current.body.append(h('p', { class: 'store-notice danger' }, raw(display.compatibilityError || tr('Пакет несовместим с установленной версией Axiko.'))));
@@ -256,13 +382,10 @@
     if (installed && installed.review) current.body.append(installReview(installed.review));
     if (installed && installed.localModified) current.body.append(h('p', { class: 'store-notice' }, tr('В пакете есть ваши доработки. Перед обновлением покажем изменения и возможные конфликты.')));
     if (!installed && unmanaged(display)) current.body.append(h('p', { class: 'store-notice', 'data-unmanaged-note': '' }, tr('Этот модуль уже стоит на устройстве, но установлен не через магазин. Каталог не знает его версии и не обновляет его. Примите его под управление магазина: файлы, совпавшие с выпуском, останутся как есть, по остальным решите вы.')));
-    if (display.screenshots && display.screenshots.length) {
-      const links = display.screenshots.map(safeHttps).filter(Boolean).map((url,index) => h('a', { href: url, target: '_blank', rel: 'noopener noreferrer', referrerpolicy: 'no-referrer' }, tr('Снимок {}', index + 1)));
-      current.body.append(h('div', { class: 'store-screenshot-links' }, links));
-    }
+    if (display.status && display.details) { const box = h('div', { class: 'store-about', 'aria-busy': 'true' }); current.body.append(box); about(current, box, display); }
     current.body.append(note(tr('Перед установкой загрузим конкретную версию, проверим структуру и хеши. Код пакета на этом шаге не запускается.')));
     const controls = h('div', { class: 'store-dialog-actions' });
-    if (compatible && (!installed || display.status === 'update' || display.updateAvailable)) controls.append(button(tr(installed ? 'Подготовить обновление' : unmanaged(display) ? 'Принять под управление магазина' : 'Подготовить установку'), event => prepare(display, event.currentTarget), { class: 'btn primary', id: 'store-prepare' }));
+    if (compatible && display.status && (!installed || display.status === 'update' || display.updateAvailable)) controls.append(button(tr(installed ? 'Подготовить обновление' : unmanaged(display) ? 'Принять под управление магазина' : 'Подготовить установку'), event => prepare(display, event.currentTarget), { class: 'btn primary', id: 'store-prepare' }));
     if (installed && entryPath(installed)) controls.append(button(tr('Открыть пакет'), () => { closeDialog(); openInstalled(installed); }));
     if (installed && installed.rollbackAvailable) controls.append(button(tr('Вернуть предыдущую версию'), event => operation('prepare-rollback', event.currentTarget, async () => {
       const plan = await api('rollback', installationKey(installed)); state.pending = plan; showPlan(plan); renderPending();
@@ -455,9 +578,18 @@
     event.preventDefault(); const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : buttons.length - 1)) % buttons.length;
     pickTab(buttons[next].dataset.tab, true); buttons[next].scrollIntoView({ block: 'nearest', inline: 'nearest' });
   });
-  $('store-search').addEventListener('input', event => { state.query = event.target.value.trim().toLocaleLowerCase(); render(); });
-  $('store-kind').addEventListener('change', event => { state.kind = event.target.value; render(); });
-  $('store-source').addEventListener('change', event => { state.source = event.target.value; render(); });
+  const again = () => { if (listed()) relist(); else render(); };
+  const remember = (key, value) => { Promise.resolve(assi.native('pref.set', key, value)).catch(() => {}); };
+  let typing = null;
+  $('store-search').addEventListener('input', event => { state.query = event.target.value.trim().toLocaleLowerCase(); if (typing) clearTimeout(typing); typing = setTimeout(again, listed() ? 250 : 0); });
+  $('store-kind').addEventListener('change', event => { state.kind = event.target.value; again(); });
+  $('store-source').addEventListener('change', event => { state.source = event.target.value; again(); });
+  $('store-tag').addEventListener('change', event => { state.tag = event.target.value; again(); });
+  $('store-sort').addEventListener('change', event => { state.sort = event.target.value; remember('store.sort', state.sort); again(); });
+  document.querySelectorAll('#store-view [data-view]').forEach(node => node.addEventListener('click', () => {
+    state.view = node.dataset.view; remember('store.view', state.view);
+    const grid = $('store-list'); if (grid) grid.dataset.view = state.view; facets();
+  }));
   $('store-reload').addEventListener('click', refreshSources); $('store-back').addEventListener('click', () => assi.back());
   document.addEventListener('visibilitychange', schedulePoll);
   window.addEventListener('pagehide', () => { if (state.poll) clearTimeout(state.poll); state.poll = null; });
@@ -465,7 +597,11 @@
     assi.on('app.visible', event => { state.visible = !event || event.on !== false; schedulePoll(); });
     assi.on('store.changed', () => { if (visible()) load({ keepStatus: true }).catch(error => status(errorText(error), true)); });
   }
-  load().catch(error => { state.loaded = true; render(); status(errorText(error), true, () => load()); }).then(() => ui.tour && ui.tour.offer('store', [
+  // How the list looks is the owner's habit, kept between visits.
+  Promise.all([assi.native('pref.get', 'store.view', 'grid'), assi.native('pref.get', 'store.sort', 'title')]).then(([view, sort]) => {
+    if (['grid', 'list', 'compact'].includes(view)) state.view = view;
+    if (['title', 'updated'].includes(sort)) state.sort = sort;
+  }).catch(() => {}).then(() => load()).catch(error => { state.loaded = true; state.listing = false; render(); status(errorText(error), true, () => load()); }).then(() => ui.tour && ui.tour.offer('store', [
     { target: '#store-tab-catalog', title: 'Каталог', text: 'Готовые модули и игры из подключённых источников. Установка идёт через план: сначала видно, какие файлы изменятся, и только потом что-то меняется.' },
     { target: '#store-tab-sources', title: 'Источники', text: 'Откуда берётся каталог. Источник — это репозиторий с модулями; добавляйте только те, авторам которых доверяете: пакеты работают с возможностями всего приложения.' },
     { target: '#store-tab-updates', title: 'Обновления и откат', text: 'Новые версии установленного. Ваши данные и ваши правки сохраняются, а прежнюю версию можно вернуть.' },

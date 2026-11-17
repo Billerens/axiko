@@ -6,6 +6,7 @@ import app.assi.store.StoreSources
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Rule
@@ -54,6 +55,79 @@ class StoreSourcesTest {
         sources.enable(byHand.getString("id"), false)
         assertEquals(byHand.getString("id"), sources.ensureFactory(StoreServiceFixtures.INDEX)!!.getString("id"))
         assertEquals(1, sources.list().length()); assertFalse(sources.list().getJSONObject(0).getBoolean("enabled"))
+    }
+
+    private fun entries() = listOf("demo.alpha", "demo.beta", "demo.gamma").map { StoreServiceFixtures.entry(it) }
+    private fun requested(from: Int) = transport.requests.drop(from).map { it.url.substringAfter("https://catalog.example/") }
+
+    @Test fun pagedCatalogFetchesOnlyChangedPagesAndIsTakenWholeOrNotAtAll() {
+        val first = entries()
+        transport.put(StoreServiceFixtures.INDEX, StoreServiceFixtures.index(*first.toTypedArray(), perPage = 1))
+        val sources = sources(); val id = sources.add(StoreServiceFixtures.INDEX).getString("id")
+        assertEquals(listOf("index.json", "catalog/p-0.json", "catalog/p-1.json", "catalog/p-2.json"), requested(0))
+        assertEquals(3, sources.source(id).getInt("packageCount")); assertEquals(3, sources.cached(id).getJSONArray("packages").length())
+
+        // One package is released: its page alone is downloaded, the other two are the files already kept.
+        val second = first.map { JSONObject(it.toString()) }.also { it[1].put("version", "1.1.0").getJSONObject("archive").put("sha256", "1".repeat(64)) }
+        transport.put(StoreServiceFixtures.INDEX, StoreServiceFixtures.index(*second.toTypedArray(), perPage = 1))
+        val before = transport.requests.size
+        sources.refresh(id)
+        assertEquals(listOf("index.json", "catalog/p-1.json"), requested(before))
+        assertEquals("1.1.0", sources.packageEntry(id, "demo.beta").getString("version"))
+
+        // A page that is not what the head pins, a page with another count, an ID on two pages: nothing of such a catalog is taken.
+        val third = second.map { JSONObject(it.toString()) }.also { it[2].put("version", "2.0.0").getJSONObject("archive").put("sha256", "2".repeat(64)) }
+        transport.put(StoreServiceFixtures.INDEX, StoreServiceFixtures.index(*third.toTypedArray(), perPage = 1))
+        transport.put("https://catalog.example/catalog/p-2.json", StoreServiceFixtures.page(third[2].put("summary", "Swapped on the way")))
+        assertThrows(IllegalArgumentException::class.java) { sources.refresh(id) }
+        transport.responses.remove("https://catalog.example/catalog/p-2.json")
+        val twice = JSONObject(String(StoreServiceFixtures.index(*second.toTypedArray(), perPage = 1)))
+        twice.getJSONArray("pages").put(JSONObject(twice.getJSONArray("pages").getJSONObject(0).toString()).put("path", "catalog/p-9.json")); twice.put("packageCount", 4)
+        transport.put(StoreServiceFixtures.INDEX, twice.toString().toByteArray())
+        transport.put("https://catalog.example/catalog/p-9.json", StoreServiceFixtures.page(second[0]))
+        assertThrows(IllegalArgumentException::class.java) { sources.refresh(id) }
+        assertEquals("1.0.0", sources.packageEntry(id, "demo.gamma").getString("version")); assertEquals(3, sources.cached(id).getJSONArray("packages").length())
+        assertTrue(sources.source(id).getString("error").isNotBlank())
+        // The catalog survives a restart from what is on disk, and removing the source removes its pages.
+        assertEquals(3, sources().cached(id).getJSONArray("packages").length())
+        sources.remove(id); assertFalse(File(folder.root, "store/catalogs/$id").exists())
+    }
+
+    @Test fun detailsAndPicturesAreFetchedOnDemandPinnedByHashAndKept() {
+        val svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\"><path d=\"M1 1h6v6H1z\"/></svg>".toByteArray()
+        val details = JSONObject().put("schemaVersion", 1).put("id", "demo.counter").put("version", "1.0.0").put("description", "A **counter**.")
+            .put("changes", JSONArray().put(JSONObject().put("version", "1.0.0").put("notes", "First release."))).toString().toByteArray()
+        fun pinned(path: String, raw: ByteArray) = JSONObject().put("path", path).put("sha256", app.assi.store.StoreFormat.sha256(raw)).put("size", raw.size)
+        val entry = StoreServiceFixtures.entry().put("details", pinned("catalog/details/demo.counter.json", details))
+            .put("icon", pinned("counter/store/icon.svg", svg).put("type", "image/svg+xml"))
+        transport.put(StoreServiceFixtures.INDEX, StoreServiceFixtures.index(entry))
+        transport.put("https://catalog.example/catalog/details/demo.counter.json", details)
+        transport.put("https://catalog.example/counter/store/icon.svg", svg)
+        val sources = sources(); val id = sources.add(StoreServiceFixtures.INDEX).getString("id")
+        val before = transport.requests.size
+        assertEquals("A **counter**.", sources.details(id, "demo.counter").getString("description"))
+        assertArrayEquals(svg, sources.picture(id, entry.getJSONObject("icon")))
+        assertEquals(2, transport.requests.size - before)
+        // Asked again, and after a restart, both come from the files kept by hash.
+        sources.details(id, "demo.counter"); sources().picture(id, entry.getJSONObject("icon"))
+        assertEquals(2, transport.requests.size - before)
+        assertEquals(svg.size, transport.requests.last().limit)
+
+        // What arrives must be exactly what the catalog pinned, and a picture must be the type it is declared to be.
+        val script = "<svg xmlns=\"http://www.w3.org/2000/svg\"><script>steal()</script></svg>".toByteArray()
+        transport.put("https://catalog.example/counter/store/bad.svg", script)
+        assertThrows(IllegalArgumentException::class.java) { sources.picture(id, pinned("counter/store/bad.svg", script).put("type", "image/svg+xml")) }
+        assertThrows(IllegalArgumentException::class.java) { sources.picture(id, pinned("counter/store/bad.svg", script).put("type", "image/png")) }
+        transport.put("https://catalog.example/counter/store/other.svg", svg)
+        assertThrows(IllegalArgumentException::class.java) { sources.picture(id, pinned("counter/store/other.svg", script).put("type", "image/svg+xml")) }
+        val other = JSONObject(String(details)).put("version", "9.9.9").toString().toByteArray()
+        transport.put(StoreServiceFixtures.INDEX, StoreServiceFixtures.index(StoreServiceFixtures.entry().put("details", pinned("catalog/details/demo.counter.json", other))))
+        transport.put("https://catalog.example/catalog/details/demo.counter.json", other)
+        sources.refresh(id)
+        assertThrows(IllegalArgumentException::class.java) { sources.details(id, "demo.counter") }
+        // A package without details still opens: there is simply nothing more to show.
+        transport.put(StoreServiceFixtures.INDEX, StoreServiceFixtures.index(StoreServiceFixtures.entry())); sources.refresh(id)
+        assertFalse(sources.details(id, "demo.counter").has("description"))
     }
 
     @Test fun githubRepoUsesItsActualDefaultBranchAndRootIndex() {

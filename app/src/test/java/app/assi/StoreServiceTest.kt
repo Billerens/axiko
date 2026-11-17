@@ -107,6 +107,42 @@ class StoreServiceTest {
         apply(service, service.prepare(source, "demo.counter")); assertTrue(main.readText().contains("return 2"))
     }
 
+    @Test fun catalogIsServedInPortionsWithSearchTagsAndTheCountOfWhatWaits() {
+        val svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\"><path d=\"M1 1h6v6H1z\"/></svg>".toByteArray()
+        val titles = listOf("demo.clock" to "Часы", "demo.notes" to "Заметки", "demo.atlas" to "Atlas", "demo.counter" to "Счётчик", "demo.zoo" to "Зоопарк")
+        val packages = titles.map { (id, title) -> StoreServiceFixtures.bundle(id).also { it.entry.put("title", title).put("tags", JSONArray().put("demo").put(if (id == "demo.zoo" || id == "demo.atlas") "game" else "tool")) } }
+        packages[3].entry.put("icon", JSONObject().put("path", "counter/store/icon.svg").put("sha256", StoreFormat.sha256(svg)).put("size", svg.size).put("type", "image/svg+xml")).put("updated", "2026-11-17")
+        transport.publish(*packages.toTypedArray()); transport.put("https://catalog.example/counter/store/icon.svg", svg)
+        val service = service(); val source = add(service)
+        fun ids(page: JSONObject) = (0 until page.getJSONArray("items").length()).map { page.getJSONArray("items").getJSONObject(it).getString("id") }
+
+        val first = service.catalogPage(JSONObject().put("limit", 2))
+        assertEquals(5, first.getInt("total")); assertEquals(listOf("demo.atlas", "demo.notes"), ids(first))
+        assertEquals(listOf("demo.zoo", "demo.counter", "demo.clock"), ids(service.catalogPage(JSONObject().put("offset", 2).put("limit", 10))))
+        assertEquals(0, ids(service.catalogPage(JSONObject().put("offset", 99))).size)
+        assertEquals(listOf("demo.counter"), ids(service.catalogPage(JSONObject().put("query", "  СЧЁТ "))))
+        assertEquals(listOf("demo.atlas", "demo.zoo"), ids(service.catalogPage(JSONObject().put("tag", "game"))))
+        assertEquals("demo.counter", ids(service.catalogPage(JSONObject().put("sort", "updated")))[0])
+        assertEquals("demo", first.getJSONArray("tags").getJSONObject(0).getString("tag")); assertEquals(5, first.getJSONArray("tags").getJSONObject(0).getInt("count"))
+        assertEquals(0, first.getJSONObject("counts").getInt("updates")); assertEquals(5, first.getJSONObject("counts").getInt("all"))
+        assertEquals("[{\"kind\":\"module\",\"count\":5}]", first.getJSONArray("kinds").toString())
+
+        // The picture goes to the page as data, taken by the reference of the checked card.
+        assertTrue(service.media(source, "demo.counter", "icon").startsWith("data:image/svg+xml;base64,"))
+        assertThrows(IllegalArgumentException::class.java) { service.media(source, "demo.clock", "icon") }
+        assertThrows(IllegalArgumentException::class.java) { service.media(source, "demo.counter", "../index.json") }
+        assertEquals("demo.clock", service.details(source, "demo.clock").getString("id"))
+
+        // What waits for the owner: a module standing without the store and, after an install, a newer release.
+        File(workspace, "modules/demo.notes").mkdirs()
+        apply(service, service.prepare(source, "demo.clock"))
+        val newer = StoreServiceFixtures.bundle("demo.clock", "1.1.0").also { it.entry.put("title", "Часы") }
+        transport.publish(*(packages.drop(1) + newer).toTypedArray()); service.sources.refresh(source); service.invalidate()
+        val waiting = service.catalogPage(JSONObject().put("only", "updates"))
+        assertEquals(listOf("demo.notes", "demo.clock"), ids(waiting)); assertEquals(2, waiting.getJSONObject("counts").getInt("updates"))
+        assertEquals(listOf("unmanaged", "update"), (0..1).map { waiting.getJSONArray("items").getJSONObject(it).getString("status") })
+    }
+
     @Test fun unchangedUpstreamFileKeepsAgentEditWithoutAConflict() {
         transport.publish(StoreServiceFixtures.bundle())
         val service = service(); val source = add(service); apply(service, service.prepare(source, "demo.counter"))

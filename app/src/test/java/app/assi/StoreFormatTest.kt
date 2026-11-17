@@ -16,6 +16,45 @@ class StoreFormatTest {
         assertEquals("readable", StoreFormat.manifest(example("package")).getString("sourceFormat"))
         reject { StoreFormat.index(JSONObject(String(example("index"))).put("schemaVersion", 2).toString().toByteArray()) }
         reject { StoreFormat.index(JSONObject(String(example("index"))).put("extra", true).toString().toByteArray()) }
+        assertEquals("example.counter", StoreFormat.page(example("page")).getJSONArray("packages").getJSONObject(0).getString("id"))
+        assertEquals(1, StoreFormat.details(example("details")).getJSONArray("screenshots").length())
+    }
+
+    @Test fun headPagesCardsAndDetailsAreCheckedFieldByField() {
+        fun head() = JSONObject(String(example("index")))
+        // The pages must account for every package, each once, and stay inside the folder of the index.
+        reject { StoreFormat.index(head().put("packageCount", 2).toString().toByteArray()) }
+        reject { StoreFormat.index(head().apply { getJSONArray("pages").put(JSONObject(getJSONArray("pages").getJSONObject(0).toString())) }.put("packageCount", 2).toString().toByteArray()) }
+        for (path in listOf("../p.json", "https://evil.example/p.json", "catalog/p-0.txt", "/catalog/p-0.json")) reject { StoreFormat.index(head().apply { getJSONArray("pages").getJSONObject(0).put("path", path) }.toString().toByteArray()) }
+        assertEquals(0, StoreFormat.index(head().put("packageCount", 0).put("pages", JSONArray()).toString().toByteArray()).getJSONArray("pages").length())
+
+        fun card() = JSONObject(String(example("page"))).getJSONArray("packages").getJSONObject(0)
+        StoreFormat.packageEntry(card())
+        reject { StoreFormat.packageEntry(card().put("screenshots", JSONArray())) }
+        reject { StoreFormat.packageEntry(card().put("tags", JSONArray().put("Big"))) }
+        reject { StoreFormat.packageEntry(card().put("updated", "17.11.2026")) }
+        reject { StoreFormat.packageEntry(card().apply { getJSONObject("icon").put("type", "text/html") }) }
+        reject { StoreFormat.packageEntry(card().apply { getJSONObject("icon").put("size", StoreFormat.MAX_ICON + 1) }) }
+        reject { StoreFormat.packageEntry(card().apply { getJSONObject("icon").put("path", "../../icon.svg") }) }
+        reject { StoreFormat.packageEntry(card().apply { getJSONObject("details").put("size", StoreFormat.MAX_DETAILS + 1) }) }
+        val twice = JSONObject(String(example("page"))).apply { getJSONArray("packages").put(card()) }
+        reject { StoreFormat.page(twice.toString().toByteArray()) }
+
+        fun details() = JSONObject(String(example("details")))
+        reject { StoreFormat.details(details().put("html", "<b>").toString().toByteArray()) }
+        reject { StoreFormat.details(details().apply { getJSONArray("screenshots").getJSONObject(0).put("type", "image/svg+xml") }.toString().toByteArray()) }
+        reject { StoreFormat.details(details().apply { getJSONObject("links").put("homepage", "http://example.org/") }.toString().toByteArray()) }
+        reject { StoreFormat.details(details().apply { getJSONArray("changes").put(JSONObject(getJSONArray("changes").getJSONObject(0).toString())) }.toString().toByteArray()) }
+        reject { StoreFormat.details(details().put("description", "x".repeat(20_001)).toString().toByteArray()) }
+    }
+
+    @Test fun pictureIsWhatItsBytesAreAndAnSvgIsOnlyADrawing() {
+        assertEquals("image/png", StoreFormat.pictureType(byteArrayOf(0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0)))
+        assertEquals("image/jpeg", StoreFormat.pictureType(byteArrayOf(0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xe0.toByte())))
+        assertEquals("image/webp", StoreFormat.pictureType("RIFF".toByteArray() + byteArrayOf(1, 0, 0, 0) + "WEBPVP8 ".toByteArray()))
+        assertEquals("image/svg+xml", StoreFormat.pictureType("<?xml version=\"1.0\"?>\n<!-- icon -->\n<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><use href=\"#a\"/><path d=\"M1 1h2\"/></svg>".toByteArray()))
+        for (bad in listOf("<html><svg></svg></html>", "<svg><script>alert(1)</script></svg>", "<svg onload=\"x()\"></svg>", "<svg><a href=\"javascript:x()\">a</a></svg>",
+            "<svg><foreignObject><iframe/></foreignObject></svg>", "<svg><use href=\"https://evil.example/a.svg#x\"/></svg>", "<!DOCTYPE svg [<!ENTITY a \"b\">]><svg/>", "plain text", "")) assertNull(bad, StoreFormat.pictureType(bad.toByteArray()))
     }
 
     @Test fun strictJsonRejectsDuplicateKeysLooseSyntaxAndInvalidUnicode() {
@@ -27,10 +66,10 @@ class StoreFormatTest {
     }
 
     @Test fun limitsAndIdentitiesCannotBeOverriddenByIndex() {
-        val index = StoreFormat.index(example("index"))
-        val entry = index.getJSONArray("packages").getJSONObject(0)
-        index.getJSONArray("packages").put(JSONObject(entry.toString()))
-        reject { StoreFormat.index(index.toString().toByteArray()) }
+        val page = StoreFormat.page(example("page"))
+        val entry = page.getJSONArray("packages").getJSONObject(0)
+        page.getJSONArray("packages").put(JSONObject(entry.toString()))
+        reject { StoreFormat.page(page.toString().toByteArray()) }
         entry.getJSONObject("archive").put("size", StoreFormat.MAX_ARCHIVE + 1)
         reject { StoreFormat.packageEntry(entry) }
         reject { StoreFormat.index(ByteArray(StoreFormat.MAX_METADATA + 1) { 32 }) }

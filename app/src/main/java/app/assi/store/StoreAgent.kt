@@ -162,7 +162,10 @@ object StoreAgent {
         val value: Any? = when (name) {
             "store_sources" -> call("sources")
             "store_add_source" -> call("source.add", args.getString("url"))
-            "store_catalog" -> call("catalog")
+            "store_catalog" -> call("catalog", JSONObject().put("query", args.optString("query")).put("kind", args.optString("kind"))
+                .put("only", args.optString("only")).put("tag", args.optString("tag"))
+                .put("offset", args.optInt("offset", 0)).put("limit", args.optInt("limit", 20).coerceIn(1, 50)))
+            "store_details" -> call("details", args.getString("sourceId"), args.getString("packageId"))
             "store_prepare" -> call("prepare", args.getString("sourceId"), args.getString("packageId"), args.optBoolean("adopt"))
             "store_review_start" -> start(id, args.getBoolean("acceptTrustedCode")).also {
                 // The review runs in a chat of its own; the owner stays in the one where they asked.

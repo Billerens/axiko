@@ -180,7 +180,7 @@ class StoreReviewRulesTest {
         // No agent is given a way to lift a ban or to decide for the owner: not in a review, not in an ordinary chat.
         assertFalse(StoreReviewAccess.TOOLS.any { it.contains("ban") || it.contains("accept") || it.contains("discard") })
         val tools = Regex("tool\\(\"(store_[a-z_]+)\"").findAll(File("src/main/java/app/assi/agent/Tools.kt").readText()).map { it.groupValues[1] }.toSet()
-        assertEquals(setOf("store_sources", "store_add_source", "store_catalog", "store_prepare", "store_review_start", "store_review_status",
+        assertEquals(setOf("store_sources", "store_add_source", "store_catalog", "store_details", "store_prepare", "store_review_start", "store_review_status",
             "store_plan", "store_read", "store_resolve", "store_review", "store_apply"), tools)
     }
 

@@ -21,9 +21,23 @@ internal object StoreServiceFixtures {
             .put("sha256", "0".repeat(64)).put("size", 256).put("unpackedSize", 1024).put("fileCount", 6))
         .put("compatibility", JSONObject().put("minAssiApi", 1))
 
-    fun index(vararg entries: JSONObject, id: String = "demo.catalog"): ByteArray = JSONObject()
-        .put("schemaVersion", 1).put("repository", JSONObject().put("id", id).put("title", "Demo catalog").put("homepage", "https://catalog.example/"))
+    /** Pages of the catalogs made here, by their hash: [Transport] serves them next to the head that names them. */
+    private val pages = HashMap<String, ByteArray>()
+    fun pageBytes(sha256: String): ByteArray? = synchronized(pages) { pages[sha256] }
+    fun page(vararg entries: JSONObject): ByteArray = JSONObject().put("schemaVersion", 1)
         .put("packages", JSONArray().apply { entries.forEach { put(it) } }).toString().toByteArray()
+        .also { synchronized(pages) { pages[StoreFormat.sha256(it)] = it } }
+
+    /** The head of a catalog whose packages, if any, are on [perPage]-sized pages `catalog/p-N.json` next to it. */
+    fun index(vararg entries: JSONObject, id: String = "demo.catalog", perPage: Int = 1000): ByteArray = JSONObject()
+        .put("schemaVersion", 1).put("repository", JSONObject().put("id", id).put("title", "Demo catalog").put("homepage", "https://catalog.example/"))
+        .put("packageCount", entries.size)
+        .put("pages", JSONArray().apply {
+            entries.toList().chunked(perPage).forEachIndexed { number, chunk ->
+                val raw = page(*chunk.toTypedArray())
+                put(JSONObject().put("path", "catalog/p-$number.json").put("sha256", StoreFormat.sha256(raw)).put("size", raw.size).put("count", chunk.size))
+            }
+        }).toString().toByteArray()
 
     data class Package(val entry: JSONObject, val manifest: ByteArray, val zip: ByteArray)
 
@@ -62,10 +76,23 @@ internal object StoreServiceFixtures {
         var hook: ((Request) -> Unit)? = null
         override fun get(url: String, maxBytes: Int, etag: String?, lastModified: String?): StoreFetch {
             val request = Request(url, maxBytes, etag, lastModified); requests += request; hook?.invoke(request)
-            val response = responses[url] ?: throw IOException("Fixture offline")
+            val response = responses[url] ?: beside(url) ?: throw IOException("Fixture offline")
             return if (conditional && etag != null && response.etag == etag) StoreFetch(ByteArray(0), 304, etag, lastModified, url) else response.copy(bytes = response.bytes.copyOf())
         }
         fun put(url: String, bytes: ByteArray, etag: String? = null) { responses[url] = StoreFetch(bytes, 200, etag, null, url) }
+
+        /** A page of a published head: a head made by [index] is published together with its pages. */
+        private fun beside(url: String): StoreFetch? {
+            for ((address, held) in responses) {
+                if (!address.endsWith("/index.json")) continue
+                val listed = runCatching { JSONObject(String(held.bytes)).optJSONArray("pages") }.getOrNull() ?: continue
+                for (i in 0 until listed.length()) {
+                    val page = listed.getJSONObject(i)
+                    if (address.removeSuffix("index.json") + page.getString("path") == url) return pageBytes(page.getString("sha256"))?.let { StoreFetch(it, 200, null, null, url) }
+                }
+            }
+            return null
+        }
         fun publish(vararg packages: Package) {
             put(INDEX, index(*packages.map { it.entry }.toTypedArray()), "\"index-${packages.joinToString { it.entry.getString("version") }}\"")
             packages.forEach { p -> put(p.entry.getString("manifestUrl"), p.manifest); put(p.entry.getJSONObject("archive").getString("url"), p.zip) }

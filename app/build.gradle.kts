@@ -33,6 +33,17 @@ android {
         ndk { abiFilters += if (project.hasProperty("phone")) listOf("arm64-v8a") else listOf("arm64-v8a", "x86_64") }
     }
 
+    signingConfigs {
+        // Android refuses an update signed with another key, and every machine has a debug key of
+        // its own. A machine that builds for the owner's phone gets the key the installed app was
+        // signed with as ~/.android/debug-axiko.keystore (standard debug alias and passwords);
+        // without that file the machine's own debug key is used, as before.
+        getByName("debug") {
+            val shared = File(System.getProperty("user.home"), ".android/debug-axiko.keystore")
+            if (shared.isFile) storeFile = shared
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false

@@ -18,6 +18,15 @@ object StoreFormat {
     const val MAX_UNPACKED = 20_971_520
     const val MAX_FILE = 2_097_152
     const val MAX_FILES = 512
+    const val MAX_PAGES = 256
+    const val MAX_PAGE_PACKAGES = 2000
+    const val MAX_PACKAGES = 20_000
+    const val MAX_DETAILS = 262_144
+    const val MAX_ICON = 131_072
+    const val MAX_SCREENSHOT = 1_048_576
+    private val iconTypes = setOf("image/svg+xml", "image/png", "image/webp", "image/jpeg")
+    private val screenshotTypes = setOf("image/png", "image/webp", "image/jpeg")
+    private val datePattern = Regex("[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])")
     const val ASSI_API = 1
     const val GAMES_ENGINE = 1
     private val idPattern = Regex("[a-z0-9][a-z0-9.-]{0,95}")
@@ -38,13 +47,36 @@ object StoreFormat {
         return StrictJson(utf8(bytes)).parse() as? JSONObject ?: error("Корень JSON должен быть объектом.")
     }
 
+    /**
+     * The head of a catalog: who the repository is and which pages hold its packages. The packages
+     * themselves are in the pages, so a large catalog is never one file (docs/marketplace/catalog-pages.md).
+     */
     fun index(bytes: ByteArray): JSONObject = parse(bytes).also { value ->
-        fields(value, setOf("schemaVersion", "repository", "packages"))
+        fields(value, setOf("schemaVersion", "repository", "packageCount", "pages"))
         require(integer(value, "schemaVersion", 1, 1) == 1L)
         val repository = obj(value, "repository")
-        fields(repository, setOf("id", "title", "homepage"))
+        fields(repository, setOf("id", "title", "homepage"), setOf("description"))
         id(str(repository, "id", 96)); str(repository, "title", 120); https(str(repository, "homepage", 2048))
-        val packages = array(value, "packages", 2000)
+        if (repository.has("description")) str(repository, "description", 600)
+        val total = integer(value, "packageCount", 0, MAX_PACKAGES.toLong())
+        val pages = array(value, "pages", MAX_PAGES)
+        val paths = ArrayList<String>(); var counted = 0L
+        for (i in 0 until pages.length()) {
+            val page = pages.optJSONObject(i) ?: error("pages[$i] должен быть объектом.")
+            fields(page, setOf("path", "sha256", "size", "count"))
+            paths.add(path(str(page, "path", 240)).also { require(it.endsWith(".json")) { "Страница каталога должна быть файлом .json." } })
+            hash(str(page, "sha256", 64)); integer(page, "size", 2, MAX_METADATA.toLong())
+            counted += integer(page, "count", 1, MAX_PAGE_PACKAGES.toLong())
+        }
+        uniquePaths(paths)
+        require(counted == total) { "Число пакетов на страницах не совпадает с packageCount." }
+    }
+
+    /** One page of a catalog: cards of packages. Whether an ID repeats on another page is the reader's to check. */
+    fun page(bytes: ByteArray): JSONObject = parse(bytes).also { value ->
+        fields(value, setOf("schemaVersion", "packages"))
+        require(integer(value, "schemaVersion", 1, 1) == 1L)
+        val packages = array(value, "packages", MAX_PAGE_PACKAGES)
         val ids = HashSet<String>()
         for (i in 0 until packages.length()) {
             val p = packages.optJSONObject(i) ?: error("packages[$i] должен быть объектом.")
@@ -53,8 +85,9 @@ object StoreFormat {
         }
     }
 
+    /** A card: what the list shows and what an installation is decided by. Long texts and screenshots are in [details]. */
     fun packageEntry(value: JSONObject): JSONObject = value.also {
-        fields(it, setOf("id", "kind", "title", "summary", "version", "publisher", "license", "manifestUrl", "archive", "compatibility"), setOf("tags", "screenshots"))
+        fields(it, setOf("id", "kind", "title", "summary", "version", "publisher", "license", "manifestUrl", "archive", "compatibility"), setOf("tags", "icon", "updated", "details"))
         identity(it); str(it, "title", 120); str(it, "summary", 600); https(str(it, "manifestUrl", 2048))
         val archive = obj(it, "archive")
         fields(archive, setOf("url", "sha256", "size", "unpackedSize", "fileCount"))
@@ -64,8 +97,71 @@ object StoreFormat {
         fields(compatibility, setOf("minAssiApi") + if (it.getString("kind") == "game") setOf("gamesEngine") else emptySet(), setOf("gamesEngine"))
         integer(compatibility, "minAssiApi", 1, Int.MAX_VALUE.toLong())
         if (compatibility.has("gamesEngine")) integer(compatibility, "gamesEngine", 1, Int.MAX_VALUE.toLong())
-        if (it.has("tags")) strings(it, "tags", 12, 32)
-        if (it.has("screenshots")) strings(it, "screenshots", 8, 2048).forEach(::https)
+        if (it.has("tags")) strings(it, "tags", 12, 32).forEach { tag -> require(tag == tag.lowercase(Locale.ROOT) && tag.trim() == tag && tag.none { c -> c.code < 32 }) { "Тег должен быть строчным, без пробелов по краям." } }
+        if (it.has("icon")) media(obj(it, "icon"), MAX_ICON, iconTypes)
+        if (it.has("updated")) require(datePattern.matches(str(it, "updated", 10))) { "Дата выпуска должна иметь вид ГГГГ-ММ-ДД." }
+        if (it.has("details")) {
+            val details = obj(it, "details")
+            fields(details, setOf("path", "sha256", "size"))
+            require(path(str(details, "path", 240)).endsWith(".json")) { "Подробности пакета должны быть файлом .json." }
+            hash(str(details, "sha256", 64)); integer(details, "size", 2, MAX_DETAILS.toLong())
+        }
+    }
+
+    /** What is read when a package is opened: its description, screenshots, what changed, where to ask. */
+    fun details(bytes: ByteArray): JSONObject = parse(bytes, MAX_DETAILS).also { value ->
+        fields(value, setOf("schemaVersion", "id", "version"), setOf("description", "screenshots", "changes", "links"))
+        require(integer(value, "schemaVersion", 1, 1) == 1L)
+        id(str(value, "id", 96)); version(str(value, "version", 96))
+        if (value.has("description")) str(value, "description", 20_000)
+        if (value.has("screenshots")) {
+            val shots = array(value, "screenshots", 8); val paths = ArrayList<String>()
+            for (i in 0 until shots.length()) {
+                val shot = shots.optJSONObject(i) ?: error("screenshots[$i] должен быть объектом.")
+                paths.add(media(shot, MAX_SCREENSHOT, screenshotTypes, setOf("width", "height"), setOf("caption")))
+                integer(shot, "width", 1, 10_000); integer(shot, "height", 1, 10_000)
+                if (shot.has("caption")) str(shot, "caption", 200)
+            }
+            uniquePaths(paths)
+        }
+        if (value.has("changes")) {
+            val changes = array(value, "changes", 20); val seen = HashSet<String>()
+            for (i in 0 until changes.length()) {
+                val change = changes.optJSONObject(i) ?: error("changes[$i] должен быть объектом.")
+                fields(change, setOf("version", "notes"), setOf("date"))
+                require(seen.add(version(str(change, "version", 96)))) { "Повторяющаяся версия в списке изменений." }
+                str(change, "notes", 4000)
+                if (change.has("date")) require(datePattern.matches(str(change, "date", 10))) { "Дата должна иметь вид ГГГГ-ММ-ДД." }
+            }
+        }
+        if (value.has("links")) {
+            val links = obj(value, "links")
+            fields(links, emptySet(), setOf("homepage", "source", "support"))
+            links.keys().forEach { https(str(links, it, 2048)) }
+        }
+    }
+
+    /** A picture of the listing: a path next to the index, pinned by size and hash; returns the path. */
+    private fun media(value: JSONObject, max: Int, types: Set<String>, required: Set<String> = emptySet(), optional: Set<String> = emptySet()): String {
+        fields(value, setOf("path", "sha256", "size", "type") + required, optional)
+        hash(str(value, "sha256", 64)); integer(value, "size", 1, max.toLong())
+        require(str(value, "type", 32) in types) { "Неподдерживаемый тип картинки." }
+        return path(str(value, "path", 240))
+    }
+
+    /**
+     * What a downloaded picture really is, by its bytes: the declared type is the source's word only.
+     * An SVG is accepted as a drawing and nothing else: no scripts, handlers or embedded pages.
+     */
+    fun pictureType(bytes: ByteArray): String? {
+        fun at(offset: Int, vararg values: Int) = bytes.size >= offset + values.size && values.indices.all { bytes[offset + it] == values[it].toByte() }
+        if (at(0, 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) return "image/png"
+        if (at(0, 0xff, 0xd8, 0xff)) return "image/jpeg"
+        if (at(0, 0x52, 0x49, 0x46, 0x46) && at(8, 0x57, 0x45, 0x42, 0x50)) return "image/webp"
+        val text = runCatching { utf8(bytes) }.getOrNull() ?: return null
+        if (text.any { it == '\u0000' } || !Regex("^\\uFEFF?\\s*(?:<\\?xml[^>]*>\\s*)?(?:<!--[\\s\\S]*?-->\\s*)*<svg[\\s>]").containsMatchIn(text)) return null
+        if (Regex("(?i)<\\s*(?:script|foreignObject|iframe|object|embed|use\\s[^>]*href\\s*=\\s*[\"'](?!#))|\\son[a-z]+\\s*=|javascript:|<!ENTITY|<!DOCTYPE[^>]*\\[").containsMatchIn(text)) return null
+        return "image/svg+xml"
     }
 
     fun manifest(bytes: ByteArray): JSONObject = parse(bytes).also { value ->

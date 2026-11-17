@@ -12,7 +12,10 @@ import org.junit.rules.TemporaryFolder
 import java.io.File
 import java.net.URI
 
-/** Opt-in release validation: set ASSI_STORE_CATALOG_DIST to a local builder output directory. */
+/**
+ * Opt-in release validation: set ASSI_STORE_CATALOG_DIST to a local builder output directory, and
+ * ASSI_STORE_SOURCE to the store's sources to have the pictures the catalog names checked as well.
+ */
 class StoreCatalogDistributionTest {
     @get:Rule val temp = TemporaryFolder()
 
@@ -24,8 +27,40 @@ class StoreCatalogDistributionTest {
         val validationFile = File(distribution, "catalog-validation.json")
         validationFile.delete()
         val indexBytes = File(distribution, "index.json").readBytes()
+        // The head names the pages; each page must be the file the head pins, and an ID must not repeat across them.
         val index = StoreFormat.index(indexBytes)
-        val entries = index.getJSONArray("packages")
+        val entries = JSONArray(); val ids = HashSet<String>()
+        val pages = index.getJSONArray("pages")
+        for (i in 0 until pages.length()) {
+            val page = pages.getJSONObject(i); val raw = File(distribution, page.getString("path")).readBytes()
+            assertEquals("Page ${page.getString("path")} differs from the head", page.getString("sha256"), StoreFormat.sha256(raw))
+            assertEquals(page.getLong("size"), raw.size.toLong())
+            val cards = StoreFormat.page(raw).getJSONArray("packages")
+            assertEquals(page.getInt("count"), cards.length())
+            for (n in 0 until cards.length()) {
+                val card = cards.getJSONObject(n)
+                assertTrue("Package ${card.getString("id")} is on two pages", ids.add(card.getString("id")))
+                // What a card points at is published next to the head, by its hash: the details here, pictures in the store itself.
+                card.optJSONObject("details")?.let { ref ->
+                    val details = File(distribution, ref.getString("path")).readBytes()
+                    assertEquals(ref.getString("sha256"), StoreFormat.sha256(details)); assertEquals(ref.getLong("size"), details.size.toLong())
+                    val parsed = StoreFormat.details(details)
+                    assertEquals(card.getString("id"), parsed.getString("id")); assertEquals(card.getString("version"), parsed.getString("version"))
+                }
+                System.getenv("ASSI_STORE_SOURCE")?.takeIf { it.isNotBlank() }?.let { source ->
+                    val pictures = listOfNotNull(card.optJSONObject("icon")) + (card.optJSONObject("details")?.let { ref ->
+                        StoreFormat.details(File(distribution, ref.getString("path")).readBytes()).optJSONArray("screenshots")?.let { list -> (0 until list.length()).map { list.getJSONObject(it) } }
+                    } ?: emptyList())
+                    for (picture in pictures) {
+                        val bytes = File(source, picture.getString("path")).readBytes()
+                        assertEquals("Picture ${picture.getString("path")} differs from the catalog", picture.getString("sha256"), StoreFormat.sha256(bytes))
+                        assertEquals(picture.getString("type"), StoreFormat.pictureType(bytes))
+                    }
+                }
+                entries.put(card)
+            }
+        }
+        assertEquals(index.getInt("packageCount"), entries.length())
         assertTrue("Catalog must not be empty", entries.length() > 0)
         val workspace = temp.newFolder("workspace")
         val sentinel = File(workspace, "data/owner-save.json").apply {
@@ -58,7 +93,7 @@ class StoreCatalogDistributionTest {
                 throw AssertionError("Package ${entry.getString("id")} failed actual installer validation: ${error.message}", error)
             }
         }
-        assertTrue("The build has no archive to check", verified.length() > 0)
+        // A build that only changed listings has no new archive; the catalog itself was checked above.
         assertEquals(verified.length(), snapshots)
         assertEquals(verified.length(), installer.installed().length())
         validationFile.writeText(JSONObject().put("ok", true).put("scope", "actual-kotlin-installer")
