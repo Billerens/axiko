@@ -188,10 +188,20 @@
     };
     if (nearScreen) nearScreen.observe(node); else node.storePicture();
   }
+  function stencil(url) {
+    const prefix = 'data:image/svg+xml;base64,';
+    if (String(url).slice(0, prefix.length) !== prefix) return false;
+    try { return /currentColor/i.test(atob(url.slice(prefix.length))); } catch (_) { return false; }
+  }
   function packageIcon(item, installedView) {
     const node = icon(item.kind === 'game' ? 'game' : 'module');
     const reference = installedView ? item.catalogEntry && item.catalogEntry.icon : item.icon;
-    if (reference && reference.sha256 && item.sourceId) picture(node, reference.sha256, () => api('media', item.sourceId, packageId(item), 'icon'), img => { node.classList.add('picture'); node.replaceChildren(img); });
+    if (reference && reference.sha256 && item.sourceId) picture(node, reference.sha256, () => api('media', item.sourceId, packageId(item), 'icon'), img => {
+      // A line icon drawn in "the current colour" has no colour of its own: as a picture it would come out
+      // black on any theme. It is used as a stencil and painted with the colour of the theme instead.
+      if (stencil(img.src)) { node.classList.add('tinted'); node.style.setProperty('--store-stencil', 'url("' + img.src + '")'); node.replaceChildren(h('span', { class: 'store-icon-stencil' })); }
+      else { node.classList.add('picture'); node.replaceChildren(img); }
+    });
     return node;
   }
   function packageCard(item, installedView) {
