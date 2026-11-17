@@ -3,6 +3,18 @@
   "description": "Игры на поездку: идут и без сети, копят, пока вас нет",
   "entry": "ui/index.html",
   "autostart": true,
+  "hosts": [
+    {
+      "kind": "game",
+      "title": "Игры",
+      "item": "Игра",
+      "descriptor": "game.json",
+      "engine": "gamesEngine",
+      "version": 1,
+      "screen": true,
+      "reserved": ["archive", "daily", "engine", "links", "template", "ui"]
+    }
+  ],
   "models": [
     {"id": "games.stock", "title": "Игротека: запас контента"},
     {"id": "games.local", "title": "Игротека: контент без сети"},

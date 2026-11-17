@@ -12,10 +12,12 @@ class StoreService(
     workspace: File,
     private val stateDir: File,
     transport: StoreTransport = StoreHttpTransport(),
+    /** Which kinds of packages there are; declared by the modules that host them, read anew on every question. */
+    val kinds: StoreKinds = StoreKinds.workspace(workspace),
     snapshot: (String) -> String = { "" },
 ) {
     val sources = StoreSources(stateDir, transport)
-    val installer = StoreInstaller(workspace, stateDir, snapshot)
+    val installer = StoreInstaller(workspace, stateDir, snapshot, kinds = kinds)
     private val envelopes = File(stateDir, "subjects")
     private val reviews = File(stateDir, "reviews")
     private val downloads = File(stateDir, "downloads")
@@ -36,6 +38,8 @@ class StoreService(
         val installed = objects(installer.installed())
         val sourceList = sources.list()
         val banned = bans.all()
+        // Declarations of the hosts are read once for the whole list, not once for every package.
+        val known = kinds.all()
         for (index in 0 until sourceList.length()) {
             val source = sourceList.getJSONObject(index)
             if (!source.optBoolean("enabled", true)) continue
@@ -44,7 +48,7 @@ class StoreService(
                 val entry = StoreDisk.copy(entries.getJSONObject(number))
                 val sameId = installed.firstOrNull { it.getString("id") == entry.getString("id") }
                 val own = installed.firstOrNull { it.getString("id") == entry.getString("id") && it.getString("sourceId") == source.getString("id") }
-                var error = compatibility(entry.getJSONObject("compatibility"), false, entry.getString("kind"))
+                var error = compatibility(entry.getJSONObject("compatibility"), false, entry.getString("kind"), known)
                 var status = "available"
                 if (sameId != null && own == null) {
                     error = "Пакет уже установлен из другого источника. Его код и данные не будут заменены."
@@ -65,7 +69,7 @@ class StoreService(
                         error = own.getString("localError")
                         status = "localError"
                     }
-                } else if (installer.standing(entry.getString("kind"), entry.getString("id"))) {
+                } else if (installer.standing(entry.getString("kind"), entry.getString("id"), known[entry.getString("kind")])) {
                     // Put there by hand or by an older installer: the store knows nothing of its version
                     // and offers to take it over instead of calling it absent.
                     status = "unmanaged"
@@ -133,15 +137,31 @@ class StoreService(
         val counted = HashMap<String, Int>()
         all.forEach { entry -> tags(entry).forEach { counted[it] = (counted[it] ?: 0) + 1 } }
         val top = counted.entries.sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key }).take(30)
-        // What the catalog can be narrowed by is what its packages say about themselves, not a list kept here.
-        val kinds = sortedMapOf<String, Int>()
-        all.forEach { entry -> kinds[entry.getString("kind")] = (kinds[entry.getString("kind")] ?: 0) + 1 }
         return JSONObject().put("items", JSONArray(sorted.drop(offset).take(limit).map(StoreDisk::copy)))
             .put("total", sorted.size).put("offset", offset).put("limit", limit)
             .put("counts", JSONObject().put("all", all.size).put("updates", all.count { it.getString("status") in PENDING }))
             .put("tags", JSONArray(top.map { JSONObject().put("tag", it.key).put("count", it.value) }))
-            .put("kinds", JSONArray(kinds.map { JSONObject().put("kind", it.key).put("count", it.value) }))
+            .put("kinds", JSONArray(counted(all)))
     }
+
+    /**
+     * The kinds the catalog's packages are of, with the words their hosts gave them. What the catalog
+     * can be narrowed by is what its packages and the installed hosts say, not a list kept here.
+     */
+    private fun counted(all: List<JSONObject>): List<JSONObject> {
+        val known = kinds.all(); val numbers = sortedMapOf<String, Int>()
+        all.forEach { entry -> numbers[entry.getString("kind")] = (numbers[entry.getString("kind")] ?: 0) + 1 }
+        return numbers.map { (name, count) ->
+            JSONObject().put("kind", name).put("count", count).put("title", known[name]?.title ?: name).put("item", known[name]?.item ?: name)
+                .put("host", known[name]?.host ?: JSONObject.NULL).put("hosted", known.containsKey(name))
+        }
+    }
+
+    /** The kinds of packages this installation can take, as the modules that host them declare. */
+    fun kindList(): JSONArray = JSONArray(kinds.all().values.map {
+        JSONObject().put("kind", it.name).put("host", it.host ?: JSONObject.NULL).put("title", it.title).put("item", it.item)
+            .put("descriptor", it.descriptor).put("engine", it.engine ?: JSONObject.NULL).put("version", it.version)
+    })
 
     /** The description, screenshots and changes of one package; fetched when it is opened and kept by hash. */
     fun details(sourceId: String, packageId: String): JSONObject = StoreDisk.copy(sources.details(sourceId, packageId))
@@ -253,7 +273,9 @@ class StoreService(
 
     fun plans(): JSONArray = synchronized(operationLock) {
         val result = JSONArray()
-        objects(installer.plans()).forEach { item ->
+        // Plans that wait for the owner. One that was applied is history: it is opened by its ID when
+        // its result is shown, and is not checked again every time the list of plans is asked for.
+        objects(installer.plans()).filter { it.optString("status") != "applied" }.forEach { item ->
             if (subjectFile(item.getString("id")).isFile) {
                 runCatching { plan(item.getString("id")) }.onSuccess { result.put(it) }
             }
@@ -570,11 +592,10 @@ class StoreService(
         return result
     }
 
-    private fun compatibility(value: JSONObject, manifest: Boolean, kind: String): String? {
+    private fun compatibility(value: JSONObject, manifest: Boolean, kind: String, known: Map<String, StoreKind> = kinds.all()): String? {
         val required = value.getInt(if (manifest) "assiApi" else "minAssiApi")
         if (required > ASSI_API) return "Пакету нужен API Axiko $required; установлен $ASSI_API."
-        if (kind == "game" && value.getInt("gamesEngine") != GAMES_ENGINE) return "Нужен игровой движок ${value.getInt("gamesEngine")}; установлен $GAMES_ENGINE."
-        return null
+        return kinds.mismatch(kind, value, known)
     }
 
     private fun subject(id: String): JSONObject {
@@ -594,7 +615,6 @@ class StoreService(
 
     companion object {
         const val ASSI_API = 1
-        const val GAMES_ENGINE = 1
         private const val LISTING_TTL_MS = 3000L
         /** What the «Обновления» tab shows: a newer release, or a module to take over. */
         private val PENDING = setOf("update", "unmanaged")
@@ -611,7 +631,15 @@ object Store {
         get() = synchronized(this) {
             val root = Workspace.root.canonicalPath
             if (current == null || currentRoot != root) {
-                current = StoreService(Workspace.root, File(Workspace.state, "store"), StoreHttpTransport()) { label -> Workspace.snapshot(label) }
+                // Kinds of packages are declared by modules; those the application ships with speak for a host
+                // whose own module.json was edited and lost its declaration.
+                val kinds = StoreKinds.workspace(Workspace.root) {
+                    val app = app.assi.App.instance
+                    app.assets.list("factory/modules").orEmpty().mapNotNull { id ->
+                        Workspace.factoryText(app, "modules/$id/module.json")?.let { text -> runCatching { id to JSONObject(text) }.getOrNull() }
+                    }
+                }
+                current = StoreService(Workspace.root, File(Workspace.state, "store"), StoreHttpTransport(), kinds) { label -> Workspace.snapshot(label) }
                 currentRoot = root
             }
             current!!
@@ -654,6 +682,7 @@ object Store {
             "store.source.remove" -> service.sources.remove(args.getString(0))
             "store.source.enable" -> service.sources.enable(args.getString(0), args.getBoolean(1))
             "store.catalog" -> service.catalogPage(args.optJSONObject(0) ?: JSONObject())
+            "store.kinds" -> service.kindList()
             "store.details" -> service.details(args.getString(0), args.getString(1))
             "store.media" -> service.media(args.getString(0), args.getString(1), args.getString(2), args.optInt(3, 0))
             "store.installed" -> service.installed()

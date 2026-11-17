@@ -18,12 +18,13 @@ class StoreInstaller(
     private val stateDir: File,
     private val snapshot: (String) -> String = { "" },
     private val checkpoint: (String) -> Unit = {},
+    /** Which kinds of packages there are and where each lives; declared by the modules that host them. */
+    private val kinds: StoreKinds = StoreKinds.workspace(workspace),
 ) {
     private val plansDir = File(stateDir, "plans")
     private val releases = File(stateDir, "releases")
     private val registryFile = File(stateDir, "installed.json")
     private val journal = File(stateDir, "install-transaction.json")
-    private val reserved = setOf("games", "store", "engine", "daily", "links", "template")
     private val binaries = setOf("apk", "dex", "jar", "aar", "class", "so", "dll", "exe", "wasm", "zip")
 
     /** Releases that broke the rules; the same file the service writes on a reviewer's reject. */
@@ -46,8 +47,9 @@ class StoreInstaller(
     fun prepare(sourceId: String, entry: JSONObject, manifestBytes: ByteArray, archiveFile: File, adopt: Boolean = false): JSONObject = prepareInternal(sourceId, entry, manifestBytes, archiveFile, false, adopt)
 
     /** Whether a folder stands where this package would be installed; who put it there is the registry's to say. */
-    fun standing(kind: String, id: String): Boolean = runCatching {
-        id !in reserved && Files.isDirectory(targetFile(if (kind == "game") "modules/games/$id" else "modules/$id").toPath(), NOFOLLOW_LINKS)
+    fun standing(kind: String, id: String, known: StoreKind? = kinds.find(kind)): Boolean = runCatching {
+        if (known == null) return@runCatching false
+        id !in known.reserved && Files.isDirectory(targetFile(known.target(id)).toPath(), NOFOLLOW_LINKS)
     }.getOrDefault(false)
 
     private fun prepareInternal(sourceId: String, entry: JSONObject, manifestBytes: ByteArray, archiveFile: File, rollback: Boolean, adopt: Boolean = false): JSONObject {
@@ -58,8 +60,11 @@ class StoreInstaller(
         val manifest = StoreFormat.manifest(manifestBytes)
         StoreFormat.compatible(entry, manifest)
         val id = manifest.getString("id"); val kind = manifest.getString("kind")
-        require(id !in reserved && !id.contains("..") && !id.endsWith('.') && !id.endsWith('-')) { "Зарезервированный или неоднозначный ID пакета." }
-        val target = if (kind == "game") "modules/games/$id" else "modules/$id"
+        // Where a package goes is decided by its kind, and a kind by the module that hosts it: never by the package.
+        val known = kinds.require(kind)
+        kinds.mismatch(kind, manifest.getJSONObject("runtime"))?.let { throw IllegalArgumentException(it) }
+        require(id !in known.reserved && !id.contains("..") && !id.endsWith('.') && !id.endsWith('-')) { "Зарезервированный или неоднозначный ID пакета." }
+        val target = known.target(id)
         val live = targetFile(target)
         val key = StoreFormat.sha256((sourceId + "\n" + id).toByteArray())
         val registry = registry(); val old = registry.optJSONObject(key)
@@ -233,7 +238,11 @@ class StoreInstaller(
     @Synchronized fun installed(): JSONArray = JSONArray(registry().let { registry -> registry.keys().asSequence().map { key ->
         val record = JSONObject(registry.getJSONObject(key).toString())
         try {
-            val local = fileHashes(targetFile(record.getString("target"))); val base = fileHashes(baseDirectory(record))
+            // What the list shows, many times a minute: the files as they are now against what the release
+            // recorded. A file that kept its size and time is not read again; nothing is installed by this answer,
+            // and every step that changes files hashes them anew.
+            val local = fileHashes(targetFile(record.getString("target")), quick = true)
+            val base = record.getJSONObject("baseFiles").let { declared -> declared.keys().asSequence().associateWith { declared.getString(it) } }
             val changed = (local.keys + base.keys).filter { local[it] != base[it] }.sorted()
             record.put("localModified", changed.isNotEmpty()).put("modifiedFiles", JSONArray(changed)).put("liveDigest", signature(local)).put("available", local.isNotEmpty())
         } catch (error: Exception) {
@@ -358,21 +367,21 @@ class StoreInstaller(
     }
 
     private fun validateRuntime(payload: File, manifest: JSONObject): String {
-        val game = manifest.getString("kind") == "game"
-        val file = File(payload, if (game) "game.json" else "module.json")
+        val known = kinds.require(manifest.getString("kind"))
+        val file = File(payload, known.descriptor)
         require(file.isFile) { "В пакете отсутствует ${file.name}." }
         val runtime = StoreFormat.parse(file.readBytes())
         require(runtime.optString("id") == manifest.getString("id")) { "ID runtime должен совпадать с ID пакета; существующие данные не переименовываются." }
         val entry = manifest.getString("entry").removePrefix("code/")
         require(File(payload, entry).isFile) { "Нет точки входа пакета." }
-        val ownPrefix = "modules/${if (game) "games/" else ""}${manifest.getString("id")}/"
+        val ownPrefix = known.target(manifest.getString("id")) + "/"
         if (runtime.has("entry")) {
             val screen = runtime.getString("entry").removePrefix(ownPrefix)
             StoreFormat.path(screen)
             require(File(payload, screen).isFile && screen.substringAfterLast('.').lowercase(Locale.ROOT) in setOf("html", "htm")) { "Экран runtime должен быть HTML-файлом своего пакета." }
             return screen
         }
-        require(!game) { "В game.json должен быть указан HTML-экран игры." }
+        require(!known.screen) { "В ${known.descriptor} должен быть указан HTML-экран пакета." }
         return when {
             File(payload, "ui/index.html").isFile -> "ui/index.html"
             entry.substringAfterLast('.').lowercase(Locale.ROOT) in setOf("html", "htm") -> entry
@@ -470,11 +479,18 @@ class StoreInstaller(
     }
     private fun virtualToInstalled(path: String): String? = when { path.startsWith("code/") -> path.removePrefix("code/"); path.startsWith("assets/") -> path; else -> null }
     private fun token(value: String): String { require(Regex("[a-f0-9-]{36}").matches(value)) { "Некорректный ID операции." }; return value }
-    private fun targetFile(path: String): File { require(Regex("modules/(?:games/)?[a-z0-9][a-z0-9.-]{0,95}").matches(path) && !path.contains("..")) { "Недопустимый путь установки." }; val target = File(workspace, path); var parent: File? = target; while (parent != null && parent != workspace.parentFile) { require(!Files.isSymbolicLink(parent.toPath())) { "Ссылки в пути установки запрещены." }; parent = parent.parentFile }; require(target.canonicalFile.toPath().startsWith(workspace.canonicalFile.toPath())) ; return target }
+    private fun targetFile(path: String): File { require(Regex("modules/(?:[a-z0-9][a-z0-9.-]{0,95}/)?[a-z0-9][a-z0-9.-]{0,95}").matches(path) && !path.contains("..")) { "Недопустимый путь установки." }; val target = File(workspace, path); var parent: File? = target; while (parent != null && parent != workspace.parentFile) { require(!Files.isSymbolicLink(parent.toPath())) { "Ссылки в пути установки запрещены." }; parent = parent.parentFile }; require(target.canonicalFile.toPath().startsWith(workspace.canonicalFile.toPath())) ; return target }
     private fun transactionDir(kind: String, token: String): File = File(workspace.parentFile, ".assi-store-$kind-${token(token)}")
     private fun signature(files: Map<String, String>): String = StoreFormat.sha256(files.toSortedMap().entries.joinToString("\n") { "${it.key}\t${it.value}" }.toByteArray())
     private fun sameFiles(a: Map<String, String>, b: Map<String, String>) = a == b
-    private fun fileHashes(root: File): Map<String, String> { if (!Files.exists(root.toPath(), NOFOLLOW_LINKS)) return emptyMap(); require(root.isDirectory && !Files.isSymbolicLink(root.toPath())); val result = sortedMapOf<String, String>(); var total = 0L; root.walkTopDown().forEach { file -> require(!Files.isSymbolicLink(file.toPath())) { "Ссылка в файлах пакета: ${file.name}." }; if (file.isFile) { val path = file.relativeTo(root).invariantSeparatorsPath; StoreFormat.path(path); require(file.length() <= StoreFormat.MAX_FILE && result.size < StoreFormat.MAX_FILES) { "Локальная версия превышает лимит файлов магазина." }; total += file.length(); require(total <= StoreFormat.MAX_UNPACKED) { "Локальная версия превышает лимит размера магазина." }; result[path] = StoreFormat.sha256(file) } else require(file.isDirectory) }; StoreFormat.uniquePaths(result.keys); return result }
+    /** Hashes of files by path, size and time of change, for [fileHashes] asked to be quick. */
+    private val remembered = java.util.concurrent.ConcurrentHashMap<String, Triple<Long, Long, String>>()
+    private fun quickHash(file: File): String {
+        val length = file.length(); val changed = file.lastModified()
+        remembered[file.path]?.takeIf { it.first == length && it.second == changed }?.let { return it.third }
+        return StoreFormat.sha256(file).also { remembered[file.path] = Triple(length, changed, it) }
+    }
+    private fun fileHashes(root: File, quick: Boolean = false): Map<String, String> { if (!Files.exists(root.toPath(), NOFOLLOW_LINKS)) return emptyMap(); require(root.isDirectory && !Files.isSymbolicLink(root.toPath())); val result = sortedMapOf<String, String>(); var total = 0L; root.walkTopDown().forEach { file -> require(!Files.isSymbolicLink(file.toPath())) { "Ссылка в файлах пакета: ${file.name}." }; if (file.isFile) { val path = file.relativeTo(root).invariantSeparatorsPath; StoreFormat.path(path); require(file.length() <= StoreFormat.MAX_FILE && result.size < StoreFormat.MAX_FILES) { "Локальная версия превышает лимит файлов магазина." }; total += file.length(); require(total <= StoreFormat.MAX_UNPACKED) { "Локальная версия превышает лимит размера магазина." }; result[path] = if (quick) quickHash(file) else StoreFormat.sha256(file) } else require(file.isDirectory) }; StoreFormat.uniquePaths(result.keys); return result }
     private fun copyTree(from: File, to: File) { require(!to.exists()); require(to.mkdirs()); fileHashes(from).keys.forEach { copyFile(File(from, it), File(to, it)) } }
     private fun copyFile(from: File, to: File) { require(Files.isRegularFile(from.toPath(), NOFOLLOW_LINKS)) { "Источник не является обычным файлом." }; val parent = requireNotNull(to.parentFile); require(parent.mkdirs() || parent.isDirectory) { "Файл конфликтует с каталогом назначения." }; FileOutputStream(to).use { output -> from.inputStream().use { it.copyTo(output) }; output.fd.sync() } }
     private fun move(from: File, to: File) { try { Files.move(from.toPath(), to.toPath(), ATOMIC_MOVE) } catch (_: java.nio.file.AtomicMoveNotSupportedException) { Files.move(from.toPath(), to.toPath()) } }

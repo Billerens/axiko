@@ -49,7 +49,7 @@
     await assi.native('ui.chat', true, agent);
   }
   function icon(kind) {
-    const paths = kind === 'game' ? '<rect x="3" y="6" width="18" height="12" rx="5"/><path d="M7 12h6m-3-3v6m7-4h.1m2 3h.1"/>' : kind === 'source' ? '<path d="m12 3 9 5v8l-9 5-9-5V8l9-5Zm-9 5 9 5 9-5m-9 5v8"/>' : '<rect x="4" y="4" width="7" height="7" rx="2"/><rect x="14" y="4" width="6" height="7" rx="2"/><rect x="4" y="14" width="7" height="6" rx="2"/><path d="M14 17h7m-3.5-3.5v7"/>';
+    const paths = kind === 'hosted' ? '<path d="M12 3 4 7.5v9L12 21l8-4.5v-9L12 3Z"/><path d="M4 7.5 12 12l8-4.5M12 12v9"/>' : kind === 'source' ? '<path d="m12 3 9 5v8l-9 5-9-5V8l9-5Zm-9 5 9 5 9-5m-9 5v8"/>' : '<rect x="4" y="4" width="7" height="7" rx="2"/><rect x="14" y="4" width="6" height="7" rx="2"/><rect x="4" y="14" width="7" height="6" rx="2"/><path d="M14 17h7m-3.5-3.5v7"/>';
     // All markup below is a local constant. Repository SVG/HTML is never inserted here.
     return h('span', { class: 'store-icon ' + kind, 'aria-hidden': 'true', html: '<svg viewBox="0 0 24 24">' + paths + '</svg>' });
   }
@@ -116,8 +116,12 @@
   function relist() { state.items = []; state.total = 0; state.listing = true; render(); return list(true).catch(error => { state.listing = false; render(); status(errorText(error), true, relist); }); }
 
   // What the catalog can be narrowed by comes from the catalog itself: the kinds and tags its packages
-  // carry. Nothing here is a fixed list; a name for a kind is only a nicer word for what the data says.
-  const KIND_NAMES = { module: 'Модули', game: 'Игры' };
+  // carry. Nothing here is a fixed list: a kind is named by the module that hosts its packages, and
+  // the shell passes those words along with the counts.
+  function kindRow(kind) { return state.kinds.find(row => row.kind === kind) || { kind: kind }; }
+  function kindTitle(kind) { const row = kindRow(kind); return row.title ? tr(row.title) : String(kind || ''); }
+  function kindItem(kind) { const row = kindRow(kind); return row.item ? tr(row.item) : String(kind || ''); }
+  function hosted(kind) { return !!kindRow(kind).host; }
   function fill(select, first, rows, chosen) {
     select.replaceChildren(h('option', { value: first[0] }, first[1]), ...rows.map(row => h('option', { value: row[0] }, raw(row[1]))));
     select.value = rows.some(row => row[0] === chosen) ? chosen : first[0];
@@ -126,7 +130,7 @@
   function facets() {
     state.source = fill($('store-source'), ['all', tr('Все источники')], state.sources.map(source => [source.id, source.title || source.repositoryId]), state.source);
     const kinds = state.tab === 'installed' ? [...new Set(state.installed.map(item => item.kind))].map(kind => ({ kind: kind })) : state.kinds;
-    state.kind = fill($('store-kind'), ['all', tr('Все разделы')], kinds.map(row => [row.kind, (KIND_NAMES[row.kind] ? tr(KIND_NAMES[row.kind]) : row.kind) + (row.count ? ' · ' + row.count : '')]), state.kind);
+    state.kind = fill($('store-kind'), ['all', tr('Все разделы')], kinds.map(row => [row.kind, kindTitle(row.kind) + (row.count ? ' · ' + row.count : '')]), state.kind);
     const tags = $('store-tag'); tags.hidden = !listed() || !state.tags.length && !state.tag;
     const known = state.tags.map(row => [row.tag, row.tag + ' · ' + row.count]);
     if (state.tag && !known.some(row => row[0] === state.tag)) known.unshift([state.tag, state.tag]);
@@ -194,7 +198,7 @@
     try { return /currentColor/i.test(atob(url.slice(prefix.length))); } catch (_) { return false; }
   }
   function packageIcon(item, installedView) {
-    const node = icon(item.kind === 'game' ? 'game' : 'module');
+    const node = icon(hosted(item.kind) ? 'hosted' : 'module');
     const reference = installedView ? item.catalogEntry && item.catalogEntry.icon : item.icon;
     if (reference && reference.sha256 && item.sourceId) picture(node, reference.sha256, () => api('media', item.sourceId, packageId(item), 'icon'), img => {
       // A line icon drawn in "the current colour" has no colour of its own: as a picture it would come out
@@ -208,7 +212,9 @@
     const installed = installedView ? item : installedFor(item);
     const shown = installedView && item.catalogEntry ? Object.assign({}, item.catalogEntry, item) : item;
     const title = shown.title || packageId(item), card = h('article', { class: 'store-card', 'data-package': packageId(item), 'data-source': item.sourceId });
-    card.append(h('div', { class: 'store-card-top' }, packageIcon(item, installedView), h('div', { class: 'grow' }, h('h3', {}, raw(title)), h('div', { class: 'store-meta' }, h('span', {}, KIND_NAMES[item.kind] ? tr(item.kind === 'game' ? 'Игра' : 'Модуль') : raw(item.kind || '')), h('span', {}, raw(item.version || ''))))));
+    // The head of a card is what opens the package: in the grid a card is a tile, and the tile is the way in.
+    card.append(h('button', { class: 'store-card-open', type: 'button', 'data-details': packageId(item), onclick: event => operation('details-' + item.sourceId + ':' + packageId(item), event.currentTarget, () => showPackage(item, installed)) },
+      packageIcon(item, installedView), h('span', { class: 'store-card-name' }, h('span', { class: 'store-card-title' }, raw(title)), h('span', { class: 'store-meta' }, h('span', {}, raw(kindItem(item.kind))), h('span', {}, raw(item.version || ''))))));
     card.append(h('p', { class: 'store-description' }, raw(shown.summary || (installedView ? tr('Установлено через каталог Axiko') : ''))));
     const badges = h('div', { class: 'store-meta store-badges' });
     if (item.status === 'update' || item.updateAvailable) badges.append(h('span', { class: 'store-chip update' }, tr('Есть обновление')));
@@ -224,7 +230,7 @@
     (Array.isArray(shown.tags) ? shown.tags : []).slice(0, 3).forEach(tag => badges.append(h('span', { class: 'store-tag' }, raw('#' + tag))));
     if (item.archive && item.archive.size) badges.append(h('span', { class: 'store-size' }, bytes(item.archive.size)));
     card.append(badges, h('div', { class: 'store-source-line' }, raw(item.sourceTitle || sourceName(item.sourceId))));
-    const actions = h('div', { class: 'store-card-actions' }, button(tr('Подробнее'), event => operation('details-' + item.sourceId + ':' + packageId(item), event.currentTarget, () => showPackage(item, installed)), { 'data-details': packageId(item) }));
+    const actions = h('div', { class: 'store-card-actions' });
     if (installedView && entryPath(item)) actions.append(button(tr('Открыть'), () => openInstalled(item), { class: 'btn primary', 'data-open-package': packageId(item) }));
     else if (!installed || item.status === 'update' || item.updateAvailable) actions.append(button(tr(installed ? 'Обновить' : unmanaged(item) ? 'Принять модуль' : 'Установить'), event => prepare(item, event.currentTarget), { class: 'btn primary', disabled: item.compatible === false || item.status === 'incompatible' || item.status === 'banned', 'data-install': packageId(item) }));
     else if (entryPath(installed)) actions.append(button(tr('Открыть'), () => openInstalled(installed), { class: 'btn primary' }));
@@ -382,10 +388,10 @@
     const banned = display.status === 'banned' || !!display.ban && !installed;
     const compatible = !banned && display.compatible !== false && display.status !== 'incompatible';
     current.body.append(h('p', {}, raw(display.summary || '')), facts([
-      ['Тип', KIND_NAMES[display.kind] ? tr(display.kind === 'game' ? 'Игра' : 'Модуль') : display.kind], ['Версия', display.version], ['Установлена', installed && installed.version], ['Выпуск от', display.updated], ['Автор', display.publisher], ['Лицензия', display.license], ['Источник', display.sourceTitle || sourceName(item.sourceId)], ['Загрузка', display.archive && bytes(display.archive.size)], ['После распаковки', display.archive && bytes(display.archive.unpackedSize)]
+      ['Тип', kindItem(display.kind)], ['Версия', display.version], ['Установлена', installed && installed.version], ['Выпуск от', display.updated], ['Автор', display.publisher], ['Лицензия', display.license], ['Источник', display.sourceTitle || sourceName(item.sourceId)], ['Загрузка', display.archive && bytes(display.archive.size)], ['После распаковки', display.archive && bytes(display.archive.unpackedSize)]
     ]));
     if (Array.isArray(display.tags) && display.tags.length) current.body.append(h('div', { class: 'store-meta', 'data-tags': '' }, display.tags.map(tag => h('span', { class: 'store-tag' }, raw('#' + tag)))));
-    if (display.compatibility) current.body.append(note(tr('API Axiko: от {}', display.compatibility.minAssiApi) + (display.compatibility.gamesEngine ? ' · ' + tr('Движок игр: {}', display.compatibility.gamesEngine) : '')));
+    if (display.compatibility) current.body.append(note(tr('API Axiko: от {}', display.compatibility.minAssiApi) + Object.keys(display.compatibility).filter(key => key !== 'minAssiApi').map(key => ' · ' + kindTitle(display.kind) + ': ' + display.compatibility[key]).join('')));
     if (display.ban) current.body.append(banNotice(display.ban));
     else if (!compatible) current.body.append(h('p', { class: 'store-notice danger' }, raw(display.compatibilityError || tr('Пакет несовместим с установленной версией Axiko.'))));
     (Array.isArray(display.previousBans) ? display.previousBans : []).forEach(ban => current.body.append(banNotice(ban, true)));

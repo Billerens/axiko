@@ -39,10 +39,9 @@
             "pattern": "^[a-z0-9][a-z0-9.-]*$"
           },
           "kind": {
-            "enum": [
-              "module",
-              "game"
-            ]
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,31}$",
+            "description": "`module`, or a kind that some module hosts and declares in its module.json; the schema keeps no list of kinds."
           },
           "title": {
             "type": "string",
@@ -122,20 +121,24 @@
           },
           "compatibility": {
             "type": "object",
-            "additionalProperties": false,
             "required": [
               "minAssiApi"
             ],
+            "maxProperties": 2,
+            "propertyNames": {
+              "pattern": "^[a-z][A-Za-z0-9]{0,31}$"
+            },
             "properties": {
               "minAssiApi": {
                 "type": "integer",
                 "minimum": 1
-              },
-              "gamesEngine": {
-                "type": "integer",
-                "minimum": 1
               }
-            }
+            },
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "description": "Besides minAssiApi, the version of its host's rules under the name the host declares, e.g. gamesEngine for games."
           },
           "tags": {
             "type": "array",
@@ -215,27 +218,7 @@
               }
             }
           }
-        },
-        "allOf": [
-          {
-            "if": {
-              "properties": {
-                "kind": {
-                  "const": "game"
-                }
-              }
-            },
-            "then": {
-              "properties": {
-                "compatibility": {
-                  "required": [
-                    "gamesEngine"
-                  ]
-                }
-              }
-            }
-          }
-        ]
+        }
       }
     }
   }

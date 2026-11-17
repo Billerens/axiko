@@ -67,6 +67,11 @@ class StoreCatalogDistributionTest {
             parentFile.mkdirs(); writeText("{\"ownerProgress\":12345}")
         }
         var snapshots = 0
+        // The kinds of the catalog's packages are declared by the modules the application ships with, as on a device.
+        val factory = listOf(File("src/main/assets/factory/modules"), File("app/src/main/assets/factory/modules")).first { it.isDirectory }
+        factory.listFiles().orEmpty().filter { File(it, "module.json").isFile }.forEach { module ->
+            File(workspace, "modules/${module.name}").mkdirs(); File(module, "module.json").copyTo(File(workspace, "modules/${module.name}/module.json"))
+        }
         val installer = StoreInstaller(workspace, File(temp.root, "state/store"), { snapshots++; "release-check-$snapshots" })
         val verified = JSONArray()
         // A package that did not change keeps its published release: the build has no new archive of it to check.

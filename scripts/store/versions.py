@@ -102,13 +102,14 @@ def check(store: Path, license_raw: bytes, exclude):
     except (builder.BuildError, OSError, ValueError, KeyError) as error:
         result['errors'].append({'id': None, 'error': str(error)})
     seen = set()
+    kinds = builder.load_kinds(store)
     for folder in sorted(path.parent for path in store.glob('*/store.json')):
         identity = builder.load_json(folder / 'store.json').get('id')
         if folder.name in exclude or identity in exclude:
             continue
         seen.add(identity)
         try:
-            prepared = builder.prepare(folder, license_raw)
+            prepared = builder.prepare(folder, license_raw, kinds)
             manifest = released_manifest(store, identity)
             state, changed = verdict(prepared['version'], builder.inventory(prepared['payload']), manifest)
             published = manifest['version'] if manifest else None

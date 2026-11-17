@@ -26,9 +26,10 @@ object StoreFormat {
     const val MAX_SCREENSHOT = 1_048_576
     private val iconTypes = setOf("image/svg+xml", "image/png", "image/webp", "image/jpeg")
     private val screenshotTypes = setOf("image/png", "image/webp", "image/jpeg")
+    private val kindPattern = Regex("[a-z][a-z0-9-]{0,31}")
+    private val enginePattern = Regex("[a-z][A-Za-z0-9]{0,31}")
     private val datePattern = Regex("[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])")
     const val ASSI_API = 1
-    const val GAMES_ENGINE = 1
     private val idPattern = Regex("[a-z0-9][a-z0-9.-]{0,95}")
     private val semver = Regex("(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-((?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?")
     private val digestPattern = Regex("[a-f0-9]{64}")
@@ -94,9 +95,7 @@ object StoreFormat {
         https(str(archive, "url", 2048)); hash(str(archive, "sha256", 64))
         integer(archive, "size", 1, MAX_ARCHIVE.toLong()); integer(archive, "unpackedSize", 1, MAX_UNPACKED.toLong()); integer(archive, "fileCount", 4, MAX_FILES.toLong())
         val compatibility = obj(it, "compatibility")
-        fields(compatibility, setOf("minAssiApi") + if (it.getString("kind") == "game") setOf("gamesEngine") else emptySet(), setOf("gamesEngine"))
-        integer(compatibility, "minAssiApi", 1, Int.MAX_VALUE.toLong())
-        if (compatibility.has("gamesEngine")) integer(compatibility, "gamesEngine", 1, Int.MAX_VALUE.toLong())
+        versions(compatibility, "minAssiApi")
         if (it.has("tags")) strings(it, "tags", 12, 32).forEach { tag -> require(tag == tag.lowercase(Locale.ROOT) && tag.trim() == tag && tag.none { c -> c.code < 32 }) { "Тег должен быть строчным, без пробелов по краям." } }
         if (it.has("icon")) media(obj(it, "icon"), MAX_ICON, iconTypes)
         if (it.has("updated")) require(datePattern.matches(str(it, "updated", 10))) { "Дата выпуска должна иметь вид ГГГГ-ММ-ДД." }
@@ -141,6 +140,18 @@ object StoreFormat {
         }
     }
 
+    /**
+     * Versions a package is written for: the application's API under [api], and at most one more, the
+     * rules of the module that hosts packages of its kind, under the name that host gave them. Which
+     * name and version a kind needs is not known here: [StoreKinds] says.
+     */
+    private fun versions(value: JSONObject, api: String) {
+        require(value.has(api)) { "Отсутствуют обязательные поля: $api." }
+        val extra = value.keys().asSequence().filter { it != api }.toList()
+        require(extra.size <= 1 && extra.all { enginePattern.matches(it) && it != "assiApi" && it != "minAssiApi" }) { "Неизвестные поля метаданных." }
+        (extra + api).forEach { integer(value, it, 1, Int.MAX_VALUE.toLong()) }
+    }
+
     /** A picture of the listing: a path next to the index, pinned by size and hash; returns the path. */
     private fun media(value: JSONObject, max: Int, types: Set<String>, required: Set<String> = emptySet(), optional: Set<String> = emptySet()): String {
         fields(value, setOf("path", "sha256", "size", "type") + required, optional)
@@ -171,9 +182,7 @@ object StoreFormat {
         val entry = path(str(value, "entry", 240))
         require(entry.startsWith("code/")) { "Точка входа должна находиться в code/." }
         val runtime = obj(value, "runtime")
-        fields(runtime, setOf("assiApi") + if (value.getString("kind") == "game") setOf("gamesEngine") else emptySet(), setOf("gamesEngine"))
-        integer(runtime, "assiApi", 1, Int.MAX_VALUE.toLong())
-        if (runtime.has("gamesEngine")) integer(runtime, "gamesEngine", 1, Int.MAX_VALUE.toLong())
+        versions(runtime, "assiApi")
         val dependencies = HashSet<String>()
         for (field in listOf("dependencies", "optionalDependencies")) {
             val list = array(value, field, 64)
@@ -207,9 +216,10 @@ object StoreFormat {
         val expected = entry.getJSONObject("compatibility"); val runtime = manifest.getJSONObject("runtime")
         require(expected.getInt("minAssiApi") == runtime.getInt("assiApi")) { "Требования API не совпадают с индексом." }
         require(runtime.getInt("assiApi") <= ASSI_API) { "Нужна более новая версия API Axiko." }
-        if (manifest.getString("kind") == "game") {
-            require(expected.getInt("gamesEngine") == runtime.getInt("gamesEngine") && runtime.getInt("gamesEngine") == GAMES_ENGINE) { "Несовместимая версия игрового движка." }
-        }
+        // What the card says about the rules of the package's host must be what the package itself says.
+        val asked = expected.keys().asSequence().filter { it != "minAssiApi" }.associateWith { expected.getInt(it) }
+        val named = runtime.keys().asSequence().filter { it != "assiApi" }.associateWith { runtime.getInt(it) }
+        require(asked == named) { "Требования пакета к его хозяину не совпадают с индексом." }
     }
 
     fun id(text: String): String { require(idPattern.matches(text)) { "Некорректный идентификатор." }; return text }
@@ -269,7 +279,7 @@ object StoreFormat {
     }
     fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
     fun sha256(file: File): String { val digest = MessageDigest.getInstance("SHA-256"); file.inputStream().use { input -> val b = ByteArray(16384); while (true) { val n = input.read(b); if (n < 0) break; digest.update(b, 0, n) } }; return digest.digest().joinToString("") { "%02x".format(it) } }
-    private fun identity(value: JSONObject) { id(str(value, "id", 96)); require(str(value, "kind", 16) in setOf("module", "game")) { "Неизвестный тип пакета." }; version(str(value, "version", 96)); id(str(value, "publisher", 96)); str(value, "license", 128) }
+    private fun identity(value: JSONObject) { id(str(value, "id", 96)); require(kindPattern.matches(str(value, "kind", 32))) { "Некорректный вид пакета." }; version(str(value, "version", 96)); id(str(value, "publisher", 96)); str(value, "license", 128) }
     private fun fields(value: JSONObject, required: Set<String>, optional: Set<String> = emptySet()) { require(required.all(value::has)) { "Отсутствуют обязательные поля: ${(required - value.keys().asSequence().toSet()).joinToString()}." }; require(value.keys().asSequence().all { it in required || it in optional }) { "Неизвестные поля метаданных." } }
     private fun str(value: JSONObject, key: String, max: Int): String = (value.opt(key) as? String)?.also { require(it.isNotEmpty() && it.length <= max) { "Недопустимая длина $key." } } ?: error("$key должен быть строкой.")
     private fun integer(value: JSONObject, key: String, min: Long, max: Long): Long { val n = value.opt(key); require(n is Number && n !is Double && n !is Float && n.toLong() in min..max) { "Некорректное целое число $key." }; return n.toLong() }

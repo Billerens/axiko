@@ -140,17 +140,29 @@ class MetadataTests(unittest.TestCase):
         value['entry'] = 'code/missing.js'
         self.invalid(value, path='$.entry')
 
-    def test_game_requires_explicit_engine_compatibility(self):
-        value = copy.deepcopy(self.package)
-        value['kind'] = 'game'
-        self.invalid(value, path='$.runtime')
-        value['runtime']['gamesEngine'] = 1
-        self.assertTrue(self.check(value)['ok'])
-        index = copy.deepcopy(self.page)
-        index['packages'][0]['kind'] = 'game'
-        self.invalid(index, 'page', '$.packages[0].compatibility')
-        index['packages'][0]['compatibility']['gamesEngine'] = 1
-        self.assertTrue(self.check(index, 'page')['ok'])
+    def test_kind_is_a_name_and_a_package_names_one_version_of_its_hosts_rules(self):
+        # The schema keeps no list of kinds: which kinds exist and what they need is for the modules that host them.
+        for kind, extra in [('game', {'gamesEngine': 1}), ('theme', {}), ('module', {})]:
+            value = copy.deepcopy(self.package)
+            value['kind'] = kind
+            value['runtime'].update(extra)
+            self.assertTrue(self.check(value)['ok'], kind)
+            page = copy.deepcopy(self.page)
+            page['packages'][0]['kind'] = kind
+            page['packages'][0]['compatibility'].update(extra)
+            self.assertTrue(self.check(page, 'page')['ok'], kind)
+        for kind in ['Game', 'two words', '', '9lives', 'x' * 33]:
+            value = copy.deepcopy(self.package)
+            value['kind'] = kind
+            self.invalid(value, path='$.kind')
+        for runtime in [{'assiApi': 1, 'gamesEngine': 0}, {'assiApi': 1, 'gamesEngine': '1'}, {'assiApi': 1, 'a': 1, 'b': 1},
+                        {'assiApi': 1, 'Games-Engine': 1}, {'gamesEngine': 1}]:
+            value = copy.deepcopy(self.package)
+            value['runtime'] = runtime
+            self.invalid(value, path='$.runtime')
+            page = copy.deepcopy(self.page)
+            page['packages'][0]['compatibility'] = {('minAssiApi' if key == 'assiApi' else key): number for key, number in runtime.items()}
+            self.invalid(page, 'page', '$.packages[0].compatibility')
 
     def test_limits_include_manifest_and_cannot_be_raised_by_metadata(self):
         for field, limit in [('size', 5242880), ('unpackedSize', 20971520), ('fileCount', 512)]:

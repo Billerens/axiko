@@ -194,18 +194,53 @@ def inventory(payload: dict[str, bytes]) -> dict[str, str]:
     return {path: sha256(raw) for path, raw in payload.items() if path != 'package.json'}
 
 
-def prepare(folder: Path, license_raw: bytes):
+MODULE = {'host': None, 'descriptor': 'module.json'}
+
+
+def load_kinds(store: Path) -> dict:
+    """Kinds of packages this store publishes besides `module`, as the modules that host them declare.
+
+    kinds.json repeats, for the builder, what a host says in `hosts` of its module.json: which module
+    hosts the kind, the file that describes a package to it, and under which name and in which version
+    a package names the host's rules. The client reads the host's own declaration, not this file.
+    """
+    path = store / 'kinds.json'
+    if not path.is_file():
+        return {}
+    kinds = load_json(path)
+    for name, spec in kinds.items():
+        engine = spec.get('engine') if isinstance(spec, dict) else None
+        if (not re.fullmatch(r'[a-z][a-z0-9-]{0,31}', name) or name == 'module' or not isinstance(spec, dict)
+                or not re.fullmatch(r'[a-z0-9][a-z0-9.-]{0,95}', str(spec.get('host', '')))
+                or not re.fullmatch(r'[a-z][a-z0-9-]{0,31}\.json', str(spec.get('descriptor', '')))
+                or set(spec) - {'host', 'descriptor', 'engine', 'version'}
+                or (engine is None) != ('version' not in spec)
+                or engine is not None and (not re.fullmatch(r'[a-z][A-Za-z0-9]{0,31}', str(engine)) or engine in ('assiApi', 'minAssiApi')
+                                           or not isinstance(spec['version'], int) or isinstance(spec['version'], bool) or spec['version'] < 1)):
+            raise BuildError(f'kinds.json: "{name}" needs host, descriptor and, when the host has versions, engine with version')
+    return kinds
+
+
+def kind_target(spec: dict, identity: str) -> str:
+    """Where a package of a kind is installed: in `modules/`, or inside the module that hosts the kind."""
+    return 'modules/' + (spec['host'] + '/' if spec['host'] else '') + identity
+
+
+def prepare(folder: Path, license_raw: bytes, kinds: dict | None = None):
     """All that the sources alone decide about a package: who it is, its version and the exact files of its archive."""
     store = load_json(folder / 'store.json')
     identity = store.get('id', '')
     kind = store.get('kind')
-    if not re.fullmatch(r'[a-z0-9][a-z0-9.-]{0,95}', identity) or kind not in ('module', 'game'):
+    if not re.fullmatch(r'[a-z0-9][a-z0-9.-]{0,95}', identity) or not isinstance(kind, str):
         raise BuildError('store.json requires a valid id and kind')
-    expected_target = ('modules/games/' if kind == 'game' else 'modules/') + identity
+    spec = MODULE if kind == 'module' else (kinds or {}).get(kind)
+    if spec is None:
+        raise BuildError(f'store.json kind "{kind}" is not declared in kinds.json of the store: name the module that hosts such packages there')
+    expected_target = kind_target(spec, identity)
     if store.get('target') != expected_target:
         raise BuildError(f'Legacy target alias is unsupported in v1: expected {expected_target}; existing runtime and save IDs are not renamed')
     payload, excluded, audit = collect_payload(folder, license_raw)
-    descriptor_path = 'code/' + ('game.json' if kind == 'game' else 'module.json')
+    descriptor_path = 'code/' + spec['descriptor']
     if descriptor_path not in payload:
         raise BuildError(f'{descriptor_path} is required')
     descriptor, errors = metadata.parse_metadata(payload[descriptor_path])
@@ -220,7 +255,7 @@ def prepare(folder: Path, license_raw: bytes):
                            'sourceSha256': sha256(original), 'packagedSha256': sha256(payload[descriptor_path])})
     if descriptor.get('id') != identity:
         raise BuildError(f'{descriptor_path}: runtime id differs from store id; refusing to rename saves')
-    return {'store': store, 'id': identity, 'kind': kind, 'target': expected_target, 'version': store.get('version'),
+    return {'store': store, 'id': identity, 'kind': kind, 'spec': spec, 'target': expected_target, 'version': store.get('version'),
             'payload': payload, 'excluded': excluded, 'audit': audit, 'descriptor': descriptor, 'transforms': transforms}
 
 
@@ -235,7 +270,9 @@ def download_base(args, identity: str, version: str) -> str:
 
 
 def package(folder: Path, output: Path, args, license_raw: bytes, ids: dict[str, str], dependency_versions: dict[str, str], published: dict):
-    prepared = prepare(folder, license_raw)
+    prepared = prepare(folder, license_raw, args.kinds)
+    # The rules of the host a package is written for, under the name the host gave them: games name gamesEngine.
+    hosted = {prepared['spec']['engine']: prepared['spec']['version']} if prepared['spec'].get('engine') else {}
     store, identity, kind, payload = prepared['store'], prepared['id'], prepared['kind'], prepared['payload']
     excluded, audit, descriptor, transforms = prepared['excluded'], prepared['audit'], prepared['descriptor'], prepared['transforms']
     expected_target = prepared['target']
@@ -256,8 +293,7 @@ def package(folder: Path, output: Path, args, license_raw: bytes, ids: dict[str,
         'compatibility': {'minAssiApi': 1},
     }
     entry.update(shown)
-    if kind == 'game':
-        entry['compatibility']['gamesEngine'] = 1
+    entry['compatibility'].update(hosted)
     if details is not None:
         # What is read when the package is opened goes to a file of its own, pinned from the card.
         details_raw = json_bytes({'schemaVersion': 1, 'id': identity, 'version': version, **details})
@@ -308,8 +344,7 @@ def package(folder: Path, output: Path, args, license_raw: bytes, ids: dict[str,
         'networkDomains': sorted(domains),
         'files': [{'path': path, 'size': len(raw), 'sha256': sha256(raw)} for path, raw in sorted(payload.items())],
     }
-    if kind == 'game':
-        manifest['runtime']['gamesEngine'] = 1
+    manifest['runtime'].update(hosted)
     stem = identity + '-' + version
     manifest_name = stem + '.package.json'
     manifest_raw = json_bytes(manifest)
@@ -363,6 +398,7 @@ def build(args):
         problem = metadata.check_https(url)
         if problem or urlsplit(url).query:
             raise BuildError('Repository and download URLs must be HTTPS without credentials, query or fragment')
+    args.kinds = load_kinds(store)
     license_raw = args.licensefile.read_bytes()
     if not license_raw.strip():
         raise BuildError('A non-empty license/notice file is required')
@@ -404,9 +440,10 @@ def build(args):
         for folder in folders:
             identity = ids[folder.name]
             if folder.name in args.exclude or identity in args.exclude:
-                target = load_json(folder / 'store.json').get('target', '')
+                described = load_json(folder / 'store.json')
+                spec = MODULE if described.get('kind') == 'module' else args.kinds.get(described.get('kind'))
                 reason = 'Explicitly excluded by author'
-                if target != ('modules/games/' if load_json(folder / 'store.json').get('kind') == 'game' else 'modules/') + str(identity):
+                if spec is None or described.get('target', '') != kind_target(spec, str(identity)):
                     reason += '; legacy runtime target alias is incompatible with v1; existing save IDs are unchanged'
                 report['excluded'].append({'id': identity, 'folder': folder.name, 'reason': reason})
                 continue

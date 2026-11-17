@@ -34,6 +34,8 @@ class CatalogBuildTests(unittest.TestCase):
         self.out = self.base / 'output'
         self.license = self.base / 'LICENSE'
         self.license.write_text('No project-wide open-source license has been selected.\n', encoding='utf-8')
+        # What the games module declares about itself, repeated for the builder.
+        (self.store / 'kinds.json').write_text(json.dumps({'game': {'host': 'games', 'descriptor': 'game.json', 'engine': 'gamesEngine', 'version': 1}}))
         self.args = builder.parser().parse_args([
             '--store', str(self.store), '--out', str(self.out),
             '--base-download-url', 'https://example.test/releases/v0.1.0',
@@ -48,18 +50,18 @@ class CatalogBuildTests(unittest.TestCase):
         path.write_bytes(raw if isinstance(raw, bytes) else raw.encode('utf-8'))
         return path
 
-    def package(self, folder='clock', identity=None, kind='module', target=None, requires=None, version='0.1.0'):
+    def package(self, folder='clock', identity=None, kind='module', target=None, requires=None, version='0.1.0', descriptor_name=None):
         identity = identity or folder
-        target = target or ('modules/games/' if kind == 'game' else 'modules/') + identity
+        target = target or ('modules/' if kind == 'module' else 'modules/' + kind + 's/') + identity
         described = {'id': identity, 'kind': kind, 'title': 'Clock', 'target': target, 'requires': requires or []}
         if version is not None:
             described['version'] = version
         self.write(folder + '/store.json', json.dumps(described))
         self.write(folder + '/README.md', '# Clock\nReadable source.\n')
         descriptor = {'description': 'A local clock.'}
-        if kind == 'game':
+        if kind != 'module':
             descriptor.update(id=identity, saveVersion=7, entry='ui/index.html')
-        self.write(folder + ('/game.json' if kind == 'game' else '/module.json'), json.dumps(descriptor))
+        self.write(folder + ('/module.json' if kind == 'module' else '/' + (descriptor_name or kind + '.json')), json.dumps(descriptor))
         self.write(folder + '/main.js', "exports.start = function () { return 'local'; };\n")
         self.write(folder + '/ui/index.html', '<html><body>Clock</body></html>\n')
 
@@ -320,6 +322,38 @@ class CatalogBuildTests(unittest.TestCase):
         self.build()
         self.assertEqual(['tool-0', 'tool-1', 'tool-2'], [card['id'] for card in self.cards()])
         self.assertEqual(1, len(json.loads((self.out / 'index.json').read_bytes())['pages']))
+
+    def test_kinds_are_declared_by_host_modules_not_by_the_builder(self):
+        self.package('orbit', kind='game')
+        self.package('sunset', kind='theme', descriptor_name='look.json')
+        # Nobody declared themes for this store: the builder does not know where such a package lives.
+        blocked = self.build(False)['blocked']
+        self.assertEqual(['sunset'], [item['id'] for item in blocked])
+        self.assertIn('not declared in kinds.json', blocked[0]['error'])
+        kinds = json.loads((self.store / 'kinds.json').read_text())
+        kinds['theme'] = {'host': 'themes', 'descriptor': 'look.json'}
+        (self.store / 'kinds.json').write_text(json.dumps(kinds))
+        self.build()
+        cards = {card['id']: card for card in self.cards()}
+        self.assertEqual({'minAssiApi': 1, 'gamesEngine': 1}, cards['orbit']['compatibility'])
+        self.assertEqual({'minAssiApi': 1}, cards['sunset']['compatibility'])
+        self.assertEqual('theme', cards['sunset']['kind'])
+        with zipfile.ZipFile(self.out / 'sunset-0.1.0.zip') as archive:
+            self.assertIn('code/look.json', archive.namelist())
+            self.assertEqual({'assiApi': 1}, json.loads(archive.read('package.json'))['runtime'])
+        with zipfile.ZipFile(self.out / 'orbit-0.1.0.zip') as archive:
+            self.assertEqual({'assiApi': 1, 'gamesEngine': 1}, json.loads(archive.read('package.json'))['runtime'])
+        # A package lives inside its host and nowhere else.
+        described = json.loads((self.store / 'sunset/store.json').read_text())
+        described['target'] = 'modules/sunset'
+        self.write('sunset/store.json', json.dumps(described))
+        self.assertIn('expected modules/themes/sunset', self.build(False)['blocked'][0]['error'])
+        for bad in [{'module': {'host': 'x', 'descriptor': 'x.json'}}, {'theme': {'host': '../x', 'descriptor': 'x.json'}},
+                    {'theme': {'host': 'themes', 'descriptor': '../x.json'}}, {'theme': {'host': 'themes', 'descriptor': 'x.json', 'engine': 'assiApi', 'version': 1}},
+                    {'theme': {'host': 'themes', 'descriptor': 'x.json', 'engine': 'themesEngine'}}, {'theme': {'host': 'themes', 'descriptor': 'x.json', 'root': '/'}}]:
+            (self.store / 'kinds.json').write_text(json.dumps(bad))
+            with self.assertRaises(builder.BuildError):
+                builder.build(self.args)
 
     def test_https_only_output_outside_store_and_unknown_exclusion(self):
         self.package()

@@ -42,7 +42,10 @@ class StoreServiceTest {
         assertEquals(plan.getString("digest"), read.getString("planDigest")); assertEquals(15, read.getString("content").length)
         assertThrows(IllegalArgumentException::class.java) { service.apply(plan.getString("id"), plan.getString("digest"), false) }
         assertEquals(0, snapshots)
+        // A plan waits in the list until it is applied; after that it is history, opened by its ID only.
+        assertEquals(1, service.plans().length())
         val result = apply(service, plan)
+        assertEquals(0, service.plans().length()); assertEquals("applied", service.plan(plan.getString("id")).getString("status"))
         assertTrue(result.getBoolean("dataPreserved")); assertFalse(result.getBoolean("packageCodeStarted")); assertEquals(1, snapshots)
         assertEquals("owner-progress", data.readText())
         assertTrue(File(workspace, "modules/demo.counter/ui/index.html").isFile)
@@ -125,7 +128,8 @@ class StoreServiceTest {
         assertEquals("demo.counter", ids(service.catalogPage(JSONObject().put("sort", "updated")))[0])
         assertEquals("demo", first.getJSONArray("tags").getJSONObject(0).getString("tag")); assertEquals(5, first.getJSONArray("tags").getJSONObject(0).getInt("count"))
         assertEquals(0, first.getJSONObject("counts").getInt("updates")); assertEquals(5, first.getJSONObject("counts").getInt("all"))
-        assertEquals("[{\"kind\":\"module\",\"count\":5}]", first.getJSONArray("kinds").toString())
+        assertEquals(1, first.getJSONArray("kinds").length())
+        first.getJSONArray("kinds").getJSONObject(0).let { assertEquals(listOf("module", 5, "Модули", "Модуль"), listOf(it.getString("kind"), it.getInt("count"), it.getString("title"), it.getString("item"))) }
 
         // The picture goes to the page as data, taken by the reference of the checked card.
         assertTrue(service.media(source, "demo.counter", "icon").startsWith("data:image/svg+xml;base64,"))
@@ -141,6 +145,86 @@ class StoreServiceTest {
         val waiting = service.catalogPage(JSONObject().put("only", "updates"))
         assertEquals(listOf("demo.notes", "demo.clock"), ids(waiting)); assertEquals(2, waiting.getJSONObject("counts").getInt("updates"))
         assertEquals(listOf("unmanaged", "update"), (0..1).map { waiting.getJSONArray("items").getJSONObject(it).getString("status") })
+    }
+
+    /** A package of a kind some module hosts: the descriptor and the version of the host's rules are the host's to name. */
+    private fun hosted(id: String, kind: String, descriptor: String, engine: Pair<String, Int>?): StoreServiceFixtures.Package {
+        val files = linkedMapOf(
+            "README.md" to "# Theme\n".toByteArray(), "LICENSE" to "MIT\n".toByteArray(),
+            "code/$descriptor" to JSONObject().put("id", id).put("title", "Sunset").put("entry", "ui/index.html").toString().toByteArray(),
+            "code/ui/index.html" to "<!doctype html>\n<p>Sunset</p>\n".toByteArray(),
+        )
+        val runtime = JSONObject().put("assiApi", 1).apply { engine?.let { put(it.first, it.second) } }
+        val manifest = JSONObject().put("schemaVersion", 1).put("id", id).put("kind", kind).put("version", "1.0.0").put("publisher", "demo").put("license", "MIT")
+            .put("sourceFormat", "readable").put("entry", "code/ui/index.html").put("runtime", runtime).put("capabilities", JSONArray().put("storage.own"))
+            .put("dependencies", JSONArray()).put("optionalDependencies", JSONArray())
+            .put("files", JSONArray().apply { files.forEach { (path, bytes) -> put(JSONObject().put("path", path).put("size", bytes.size).put("sha256", StoreFormat.sha256(bytes))) } })
+            .toString().toByteArray()
+        val all = linkedMapOf("package.json" to manifest).apply { putAll(files) }
+        val out = java.io.ByteArrayOutputStream()
+        java.util.zip.ZipOutputStream(out).use { zip -> all.forEach { (path, bytes) -> zip.putNextEntry(java.util.zip.ZipEntry(path).apply { time = 0 }); zip.write(bytes); zip.closeEntry() } }
+        val archive = out.toByteArray()
+        val entry = StoreServiceFixtures.entry(id).put("kind", kind)
+        entry.getJSONObject("compatibility").apply { engine?.let { put(it.first, it.second) } }
+        entry.getJSONObject("archive").put("sha256", StoreFormat.sha256(archive)).put("size", archive.size).put("unpackedSize", all.values.sumOf { it.size }).put("fileCount", all.size)
+        return StoreServiceFixtures.Package(entry, manifest, archive)
+    }
+    private fun host(id: String, vararg hosts: JSONObject) = File(workspace, "modules/$id").apply { mkdirs() }
+        .let { File(it, "module.json").writeText(JSONObject().put("title", "Host").put("hosts", JSONArray(hosts.toList())).toString()) }
+
+    @Test fun kindsOfPackagesAreWhatInstalledModulesHostAndLiveInsideTheirHost() {
+        val theme = hosted("sunset", "theme", "theme.json", "themesEngine" to 2)
+        val future = hosted("dawn", "theme", "theme.json", "themesEngine" to 3)
+        val unknown = hosted("orbit", "planet", "planet.json", null)
+        transport.publish(theme, future, unknown, StoreServiceFixtures.bundle())
+        val service = service(); val source = add(service)
+        fun status(id: String) = (0 until service.catalog().length()).map { service.catalog().getJSONObject(it) }.first { it.getString("id") == id }
+        // Nobody hosts themes yet: the shell itself knows only modules.
+        assertEquals("incompatible", status("sunset").getString("status")); assertTrue(status("sunset").getString("compatibilityError").contains("нет модуля-хозяина"))
+        assertEquals("available", status("demo.counter").getString("status"))
+        assertThrows(IllegalArgumentException::class.java) { service.prepare(source, "sunset") }
+
+        host("themes", JSONObject().put("kind", "theme").put("descriptor", "theme.json").put("engine", "themesEngine").put("version", 2)
+            .put("screen", true).put("reserved", JSONArray().put("engine")).put("title", "Темы").put("item", "Тема"))
+        assertEquals("available", status("sunset").getString("status"))
+        assertTrue(status("dawn").getString("compatibilityError").contains("версии 3"))
+        assertEquals("incompatible", status("orbit").getString("status"))
+        val kinds = service.catalogPage().getJSONArray("kinds")
+        assertEquals(listOf("module|Модули|true", "planet|planet|false", "theme|Темы|true"),
+            (0 until kinds.length()).map { kinds.getJSONObject(it) }.map { it.getString("kind") + "|" + it.getString("title") + "|" + it.getBoolean("hosted") })
+        val plan = service.prepare(source, "sunset")
+        assertEquals("modules/themes/sunset", plan.getString("target")); assertEquals("modules/themes/sunset/ui/index.html", plan.getString("entryPath"))
+        apply(service, plan)
+        assertTrue(File(workspace, "modules/themes/sunset/theme.json").isFile); assertFalse(File(workspace, "modules/sunset").exists())
+        assertEquals("installed", status("sunset").getString("status"))
+        // A package cannot take a folder of its host, nor the place of a module that hosts others.
+        transport.publish(hosted("engine", "theme", "theme.json", "themesEngine" to 2), StoreServiceFixtures.bundle("themes")); service.sources.refresh(source)
+        assertThrows(IllegalArgumentException::class.java) { service.prepare(source, "engine") }
+        assertThrows(IllegalArgumentException::class.java) { service.prepare(source, "themes") }
+    }
+
+    @Test fun aDeclarationCannotClaimModulesAnotherPlaceOrAKindThatIsTaken() {
+        host("alpha", JSONObject().put("kind", "skin").put("descriptor", "skin.json").put("title", "Скины"))
+        host("beta", JSONObject().put("kind", "skin").put("descriptor", "other.json"),
+            JSONObject().put("kind", "module").put("descriptor", "evil.json"),
+            JSONObject().put("kind", "escape").put("descriptor", "../../state/store/installed.json"),
+            JSONObject().put("kind", "Bad Kind").put("descriptor", "x.json"),
+            JSONObject().put("kind", "versioned").put("descriptor", "v.json").put("engine", "assiApi").put("version", 1))
+        val kinds = service().kinds.all()
+        assertEquals(setOf("module", "skin"), kinds.keys)
+        assertEquals("alpha", kinds.getValue("skin").host); assertEquals("modules/alpha/night", kinds.getValue("skin").target("night"))
+        assertEquals("module.json", kinds.getValue("module").descriptor); assertEquals("modules/night", kinds.getValue("module").target("night"))
+        // A package may not take the place of a module that hosts others, nor of the store; any other name is free.
+        assertEquals(setOf("alpha", "store", "template"), kinds.getValue("module").reserved)
+        // A host whose module.json lost its declaration still hosts what the application shipped it with.
+        File(workspace, "modules/alpha/module.json").writeText("{\"title\":\"Edited\"}")
+        val shipped = app.assi.store.StoreKinds.workspace(workspace) { listOf("alpha" to JSONObject().put("hosts", JSONArray().put(JSONObject().put("kind", "skin").put("descriptor", "skin.json")))) }
+        assertEquals("alpha", shipped.find("skin")?.host)
+        // A host that is gone hosts nothing: the kind goes to whoever else declares it, or to nobody.
+        File(workspace, "modules/alpha").deleteRecursively()
+        assertEquals("beta", shipped.find("skin")?.host)
+        File(workspace, "modules/beta").deleteRecursively()
+        assertNull(shipped.find("skin"))
     }
 
     @Test fun unchangedUpstreamFileKeepsAgentEditWithoutAConflict() {

@@ -22,9 +22,11 @@
 .store-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
 .store-card { min-width: 0; display: flex; flex-direction: column; gap: 11px; padding: 16px; border: 1px solid var(--line); border-radius: 17px; background: var(--surface); }
 .store-card-top { display: flex; align-items: center; gap: 11px; }
-.store-card h3 { font-size: 17px; line-height: 1.3; }
+.store-card-open { display: flex; align-items: center; gap: 11px; width: 100%; min-width: 0; padding: 0; border: 0; border-radius: 12px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.store-card-name { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.store-card-title { font-size: 17px; font-weight: 650; line-height: 1.3; overflow-wrap: anywhere; }
 .store-icon { width: 44px; height: 44px; display: grid; place-items: center; flex: none; border: 1px solid var(--line); border-radius: 13px; background: var(--surface-2); color: var(--accent); }
-.store-icon.game { color: #d6bb83; }
+.store-icon.hosted { color: #d6bb83; }
 .store-icon svg { width: 25px; height: 25px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .store-description { color: var(--ink-2); font-size: 14px; line-height: 1.5; flex: 1; }
 .store-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; color: var(--ink-2); font-size: 13px; }
@@ -234,7 +236,7 @@
 .store-grid[data-view="list"], .store-grid[data-view="compact"] { grid-template-columns: minmax(0,1fr); gap: 8px; }
 .store-grid[data-view="list"] .store-card { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.5fr) auto; grid-template-areas: "top text actions" "badges badges actions"; align-items: center; gap: 8px 16px; padding: 12px 14px; }
 .store-grid[data-view="compact"] .store-card { display: grid; grid-template-columns: minmax(0,1fr) auto; grid-template-areas: "top actions" "badges actions"; align-items: center; gap: 4px 14px; padding: 9px 12px; border-radius: 13px; }
-.store-grid:not([data-view="grid"]) .store-card-top { grid-area: top; min-width: 0; }
+.store-grid:not([data-view="grid"]) .store-card-open { grid-area: top; }
 .store-grid:not([data-view="grid"]) .store-badges { grid-area: badges; }
 .store-grid:not([data-view="grid"]) .store-card-actions { grid-area: actions; flex-wrap: nowrap; }
 .store-grid:not([data-view="grid"]) .store-card-actions > .btn { flex: 0 0 auto; width: auto; }
@@ -243,6 +245,24 @@
 .store-grid[data-view="compact"] .store-description, .store-grid[data-view="compact"] .store-size { display: none; }
 .store-grid[data-view="compact"] .store-icon { width: 36px; height: 36px; border-radius: 10px; }
 .store-grid[data-view="compact"] .store-card h3 { font-size: 15px; }
+/* The grid is a grid at any width: a card is a tile with the icon on top, as many in a row as fit. */
+.store-grid[data-view="grid"] { grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); }
+.store-grid[data-view="grid"] .store-card { padding: 16px 12px 12px; gap: 9px; text-align: center; }
+.store-grid[data-view="grid"] .store-card-open { flex-direction: column; gap: 9px; text-align: center; }
+.store-grid[data-view="grid"] .store-card-name { align-items: center; }
+.store-grid[data-view="grid"] .store-icon { width: 60px; height: 60px; border-radius: 17px; }
+.store-grid[data-view="grid"] .store-card-title { font-size: 15px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.store-grid[data-view="grid"] .store-card-name .store-meta { justify-content: center; font-size: 12px; }
+.store-grid[data-view="grid"] .store-description { font-size: 13px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.store-grid[data-view="grid"] .store-badges { justify-content: center; }
+.store-grid[data-view="grid"] .store-chip { text-align: center; }
+.store-grid[data-view="grid"] .store-tag, .store-grid[data-view="grid"] .store-size, .store-grid[data-view="grid"] .store-source-line { display: none; }
+.store-grid[data-view="grid"] .store-card-actions { margin-top: auto; }
+.store-grid[data-view="grid"] .store-card-actions > .btn { flex: 1 1 100%; padding: 8px 6px; font-size: 14px; }
+@media (max-width: 700px) {
+  .store-grid[data-view="grid"] { grid-template-columns: repeat(auto-fill, minmax(136px, 1fr)); gap: 9px; }
+  .store-grid[data-view="grid"] .store-description { display: none; }
+}
 /* A package opened: what its author shows and says. */
 .store-about { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .store-about:empty { display: none; }
