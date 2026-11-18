@@ -9,3 +9,4 @@ local.properties
 captures/
 .DS_Store
 app/libs/*.aar
+docs/promo/out/
