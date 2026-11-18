@@ -11,11 +11,38 @@ class StoreFormatTest {
     private fun example(name: String): ByteArray = listOf(File("../docs/marketplace/examples/$name.json"), File("docs/marketplace/examples/$name.json")).first { it.isFile }.readBytes()
     private fun reject(action: () -> Unit) { assertThrows(RuntimeException::class.java, action) }
 
+    @Test fun aCatalogThatSaysMoreThanThisVersionReadsStillOpensButAPackageMayHoldNothingUnknown() {
+        fun head() = JSONObject(String(example("index")))
+        fun page() = JSONObject(String(example("page")))
+        fun details() = JSONObject(String(example("details")))
+        // The head, a page reference, a page, a card and its parts, a listing: each may carry what a later format adds.
+        StoreFormat.index(head().put("mirrors", JSONArray().put("https://example.org")).apply {
+            getJSONObject("repository").put("languages", JSONArray().put("ru")); getJSONArray("pages").getJSONObject(0).put("from", "a")
+        }.toString().toByteArray())
+        val card = page().getJSONArray("packages").getJSONObject(0).put("rating", 4.5).put("badges", JSONArray().put("new"))
+        card.getJSONObject("archive").put("mirror", "https://example.org/a.zip")
+        card.optJSONObject("icon")?.put("dominant", "#102030"); card.optJSONObject("details")?.put("language", "en")
+        StoreFormat.packageEntry(card)
+        StoreFormat.page(page().put("generatedAt", "2026-11-18").apply { getJSONArray("packages").put(0, card) }.toString().toByteArray())
+        StoreFormat.details(details().put("video", JSONObject().put("path", "v.webm")).apply {
+            optJSONArray("screenshots")?.optJSONObject(0)?.put("device", "phone"); optJSONArray("changes")?.optJSONObject(0)?.put("breaking", false)
+        }.toString().toByteArray())
+        // What this version does read is checked as before, whatever stands beside it.
+        reject { StoreFormat.packageEntry(JSONObject(card.toString()).put("version", "one")) }
+        reject { StoreFormat.packageEntry(JSONObject(card.toString()).apply { remove("archive") }) }
+        reject { StoreFormat.packageEntry(JSONObject(card.toString()).apply { getJSONObject("archive").put("sha256", "short") }) }
+        reject { StoreFormat.index(head().put("extra", true).put("schemaVersion", 2).toString().toByteArray()) }
+        // A package is another matter: its manifest names everything it is made of, and nothing unknown passes.
+        reject { StoreFormat.manifest(JSONObject(String(example("package"))).put("postInstall", "run.js").toString().toByteArray()) }
+        reject { StoreFormat.manifest(JSONObject(String(example("package"))).apply { getJSONArray("files").getJSONObject(0).put("mode", "755") }.toString().toByteArray()) }
+    }
+
     @Test fun publishedExamplesAndSchemaVersions() {
         assertEquals(1, StoreFormat.index(example("index")).getInt("schemaVersion"))
         assertEquals("readable", StoreFormat.manifest(example("package")).getString("sourceFormat"))
         reject { StoreFormat.index(JSONObject(String(example("index"))).put("schemaVersion", 2).toString().toByteArray()) }
-        reject { StoreFormat.index(JSONObject(String(example("index"))).put("extra", true).toString().toByteArray()) }
+        // A field this version does not know is left alone: a newer catalog still opens in an older app.
+        assertEquals(1, StoreFormat.index(JSONObject(String(example("index"))).put("extra", true).toString().toByteArray()).getInt("schemaVersion"))
         assertEquals("example.counter", StoreFormat.page(example("page")).getJSONArray("packages").getJSONObject(0).getString("id"))
         assertEquals(1, StoreFormat.details(example("details")).getJSONArray("screenshots").length())
     }
@@ -30,7 +57,7 @@ class StoreFormatTest {
 
         fun card() = JSONObject(String(example("page"))).getJSONArray("packages").getJSONObject(0)
         StoreFormat.packageEntry(card())
-        reject { StoreFormat.packageEntry(card().put("screenshots", JSONArray())) }
+        StoreFormat.packageEntry(card().put("screenshots", JSONArray()))
         reject { StoreFormat.packageEntry(card().put("tags", JSONArray().put("Big"))) }
         reject { StoreFormat.packageEntry(card().put("updated", "17.11.2026")) }
         reject { StoreFormat.packageEntry(card().apply { getJSONObject("icon").put("type", "text/html") }) }
@@ -41,14 +68,15 @@ class StoreFormatTest {
         reject { StoreFormat.page(twice.toString().toByteArray()) }
 
         fun details() = JSONObject(String(example("details")))
-        reject { StoreFormat.details(details().put("html", "<b>").toString().toByteArray()) }
+        // A field this version does not know is neither refused nor shown: it is simply not read.
+        StoreFormat.details(details().put("html", "<b>").toString().toByteArray())
         reject { StoreFormat.details(details().apply { getJSONArray("screenshots").getJSONObject(0).put("type", "image/svg+xml") }.toString().toByteArray()) }
         reject { StoreFormat.details(details().apply { getJSONObject("links").put("homepage", "http://example.org/") }.toString().toByteArray()) }
         reject { StoreFormat.details(details().apply { getJSONArray("changes").put(JSONObject(getJSONArray("changes").getJSONObject(0).toString())) }.toString().toByteArray()) }
         reject { StoreFormat.details(details().put("description", "x".repeat(20_001)).toString().toByteArray()) }
     }
 
-    @Test fun cardsAndDetailsMayGiveTheirTextsInOtherLanguagesAndNothingElse() {
+    @Test fun cardsAndDetailsMayGiveTheirTextsInOtherLanguagesAndEachIsChecked() {
         fun card() = JSONObject(String(example("page"))).getJSONArray("packages").getJSONObject(0)
         fun details() = JSONObject(String(example("details")))
         assertEquals(listOf("ru"), card().getJSONObject("locales").keys().asSequence().toList())
@@ -58,7 +86,7 @@ class StoreFormatTest {
         reject { StoreFormat.packageEntry(card().apply { getJSONObject("locales").put("en", JSONObject().put("title", "Counter")) }) }
         for (code in listOf("RU", "russian", "r", "ru_RU", "ru-")) reject { StoreFormat.packageEntry(card().apply { put("locales", JSONObject().put(code, JSONObject().put("title", "x"))) }) }
         reject { StoreFormat.packageEntry(card().apply { getJSONObject("locales").put("ru", JSONObject()) }) }
-        reject { StoreFormat.packageEntry(card().apply { getJSONObject("locales").getJSONObject("ru").put("description", "x") }) }
+        StoreFormat.packageEntry(card().apply { getJSONObject("locales").getJSONObject("ru").put("description", "x") })
         reject { StoreFormat.packageEntry(card().apply { getJSONObject("locales").getJSONObject("ru").put("title", "x".repeat(121)) }) }
         reject { StoreFormat.packageEntry(card().apply { getJSONObject("locales").getJSONObject("ru").put("summary", "x".repeat(601)) }) }
         reject { StoreFormat.packageEntry(card().apply { getJSONObject("locales").getJSONObject("ru").put("tags", JSONArray().put("пример")) }) }
@@ -75,7 +103,7 @@ class StoreFormatTest {
         reject { StoreFormat.details(details().apply { getJSONArray("screenshots").getJSONObject(0).remove("caption") }.toString().toByteArray()) }
         reject { StoreFormat.details(details().apply { remove("description") }.toString().toByteArray()) }
         reject { StoreFormat.details(details().apply { getJSONObject("locales").getJSONObject("ru").put("description", "x".repeat(20_001)) }.toString().toByteArray()) }
-        reject { StoreFormat.details(details().apply { getJSONObject("locales").getJSONObject("ru").put("links", JSONObject()) }.toString().toByteArray()) }
+        StoreFormat.details(details().apply { getJSONObject("locales").getJSONObject("ru").put("links", JSONObject()) }.toString().toByteArray())
         reject { StoreFormat.details(details().apply { getJSONObject("locales").put("en", JSONObject().put("description", "x")) }.toString().toByteArray()) }
         reject { StoreFormat.details(details().apply { getJSONObject("locales").put("ru", JSONObject()) }.toString().toByteArray()) }
     }
