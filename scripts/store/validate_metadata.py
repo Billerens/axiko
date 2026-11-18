@@ -151,8 +151,25 @@ def check_listing_path(path: str) -> str | None:
     return None
 
 
+def locale_errors(locales: dict, path: tuple):
+    """English is the base text of a listing and has no locale of its own."""
+    return [issue(path + ('locales', code), "English is the base text: write it in the base fields, not in a locale")
+            for code in locales if code == 'en']
+
+
 def card_errors(package: dict, path: tuple):
-    errors = []
+    errors = locale_errors(package.get('locales', {}), path)
+    tags = package.get('tags', [])
+    for code, shown in package.get('locales', {}).items():
+        words = shown.get('tags')
+        if words is None:
+            continue
+        # A tag is its base text, which is counted and filtered by; a locale gives the words to show for the same tags.
+        if len(words) != len(tags):
+            errors.append(issue(path + ('locales', code, 'tags'), f"One text for every tag of the card ({len(tags)}), in the same order"))
+        for number, word in enumerate(words):
+            if word != word.strip() or any(ord(ch) < 32 or ord(ch) == 127 for ch in word):
+                errors.append(issue(path + ('locales', code, 'tags', number), "No spaces around the text and no control characters"))
     for where, url in [(path + ('manifestUrl',), package['manifestUrl']), (path + ('archive', 'url'), package['archive']['url'])]:
         problem = check_https(url)
         if problem:
@@ -208,6 +225,20 @@ def semantic_errors(value: dict, kind: str, byte_count: int):
         versions = [change['version'] for change in value.get('changes', [])]
         if len(set(versions)) != len(versions):
             errors.append(issue(('changes',), "A version is listed twice"))
+        errors.extend(locale_errors(value.get('locales', {}), ()))
+        shots = value.get('screenshots', [])
+        for code, shown in value.get('locales', {}).items():
+            if 'description' in shown and 'description' not in value:
+                errors.append(issue(('locales', code, 'description'), "A translated description needs the English one"))
+            for version in shown.get('changes', {}):
+                if version not in versions:
+                    errors.append(issue(('locales', code, 'changes', version), "A version that is not in changes"))
+            captions = shown.get('captions', [])
+            if len(captions) > len(shots):
+                errors.append(issue(('locales', code, 'captions'), f"More captions than screenshots ({len(shots)})"))
+            for number, caption in enumerate(captions):
+                if caption is not None and (number >= len(shots) or 'caption' not in shots[number]):
+                    errors.append(issue(('locales', code, 'captions', number), "A translated caption needs the English caption"))
         for key, url in value.get('links', {}).items():
             problem = check_https(url)
             if problem:

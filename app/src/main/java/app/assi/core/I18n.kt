@@ -15,6 +15,11 @@ import java.util.Locale
  *
  * The dictionary rides on `ui/kit/kit.js` as it is served, and the kit translates what it draws.
  * Being a workspace file, a dictionary can be written by the agent: a new language is one file.
+ *
+ * Modules and games are written in English or in Russian and must be usable in English (see
+ * docs/modules.md). A module written in English has no Russian screens, so for the source
+ * language too the kit gets the words of the modules: a dictionary built only from their
+ * `i18n-ru.json` (English text to Russian), none when no module has one, and nothing in safe mode.
  */
 object I18n {
     const val SOURCE = "ru"
@@ -53,7 +58,8 @@ object I18n {
     /**
      * Modules and games bring their own words: `modules/<id>/i18n-<code>.json` and
      * `modules/games/<id>/i18n-<code>.json`, flat like the main dictionary. The main one wins
-     * where both have a text, so a module cannot change how the app itself reads.
+     * where both have a text, so a module cannot change how the app itself reads. (For the source
+     * language there is no main dictionary, and the modules' words stand alone: see [script].)
      */
     private fun addModules(into: JSONObject, code: String) {
         val modules = File(Workspace.root, "modules")
@@ -85,10 +91,16 @@ object I18n {
         Pages.broadcast("lang", JSONObject.quote(language))
     }
 
+    /** The words of the modules alone, for the source language; null when no module has any. */
+    private fun sourceModules(): JSONObject? {
+        if (Workspace.safeMode) return null
+        return JSONObject().also { addModules(it, SOURCE) }.takeIf { it.length() > 0 }
+    }
+
     /** What is added to the kit's script: the language and its dictionary. */
     fun script(): String {
         val code = language
-        val words = if (code == SOURCE) null else read(code)
+        val words = if (code == SOURCE) sourceModules() else read(code)
         return "\n;window.__lang=${JSONObject.quote(code)};window.__i18n=${words?.toString() ?: "null"};\n"
     }
 

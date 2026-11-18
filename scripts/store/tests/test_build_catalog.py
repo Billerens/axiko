@@ -267,7 +267,9 @@ class CatalogBuildTests(unittest.TestCase):
                          [(shot['path'], shot['width'], shot['height'], shot.get('caption')) for shot in details['screenshots']])
         self.assertEqual([{'version': '0.1.0', 'date': '2026-11-17', 'notes': '- First release.'}, {'version': '0.0.9', 'notes': 'A preview.'}], details['changes'])
         self.assertEqual({'homepage': 'https://example.test/clock'}, details['links'])
-        self.assertEqual({'icon': True, 'tags': 2, 'description': True, 'screenshots': 2, 'changes': 2, 'notes': []}, report['packages'][0]['listing'])
+        self.assertEqual({'icon': True, 'tags': 2, 'description': True, 'screenshots': 2, 'changes': 2, 'notes': [], 'languages': []}, report['packages'][0]['listing'])
+        self.assertNotIn('locales', card)
+        self.assertNotIn('locales', details)
         # The listing is what the store shows, not what gets installed: nothing of store/ is in the archive.
         with zipfile.ZipFile(self.out / 'clock-0.1.0.zip') as archive:
             self.assertFalse(any('store/' in name for name in archive.namelist()))
@@ -279,6 +281,89 @@ class CatalogBuildTests(unittest.TestCase):
         self.assertEqual(([], 'unchanged'), (again['toPublish'], again['packages'][0]['release']))
         self.assertNotEqual(card['details']['sha256'], self.cards()[0]['details']['sha256'])
         self.assertEqual(card['archive'], self.cards()[0]['archive'])
+
+    def test_a_listing_is_given_in_english_and_in_other_languages(self):
+        self.package('clock', kind='game')
+        self.write('clock/store/shots/1.png', png(1080, 2340))
+        self.write('clock/store/shots/2.png', png(720, 1280))
+        self.write('clock/store/description.md', 'Shows the **time**.\n')
+        self.write('clock/store/description.ru.md', 'Показывает **время**.\r\n')
+        self.write('clock/store/changelog.md', '## 0.1.0 — 2026-11-17\n\n- First release.\n\n## 0.0.9\n\nA preview.\n')
+        self.write('clock/store/changelog.ru.md', '## 0.1.0\n\n- Первый выпуск.\n')
+        described = json.loads((self.store / 'clock/store.json').read_text())
+        described.update(
+            title='Clock', summary='A clock for the home screen.', tags=['time', 'clock'],
+            locales={'ru': {'title': 'Часы', 'summary': 'Часы для главного экрана.', 'tags': ['время', 'часы']}, 'de': {'title': 'Uhr'}},
+            screenshots=[{'file': 'store/shots/1.png', 'caption': 'Night'},
+                         {'file': 'store/shots/2.png', 'caption': 'Day', 'locales': {'ru': {'caption': 'День'}}}])
+        self.write('clock/store.json', json.dumps(described, ensure_ascii=False))
+        report = self.build()
+        card = self.cards()[0]
+        # The base fields are English: that is what an old reader and a language without a locale see.
+        self.assertEqual(('Clock', 'A clock for the home screen.', ['time', 'clock']), (card['title'], card['summary'], card['tags']))
+        self.assertEqual({'ru': {'title': 'Часы', 'summary': 'Часы для главного экрана.', 'tags': ['время', 'часы']}, 'de': {'title': 'Uhr'}}, card['locales'])
+        details = json.loads((self.out / card['details']['path']).read_bytes())
+        self.assertEqual('Shows the **time**.', details['description'])
+        self.assertEqual({'ru': {'description': 'Показывает **время**.', 'changes': {'0.1.0': '- Первый выпуск.'}, 'captions': [None, 'День']}}, details['locales'])
+        self.assertEqual(['de', 'ru'], report['packages'][0]['listing']['languages'])
+        self.assertEqual(report['packages'][0]['language']['listing'], {'english': True, 'notEnglish': [], 'languages': ['de', 'ru']})
+        # The catalog the builder writes is a valid catalog.
+        for name in [page['path'] for page in json.loads((self.out / 'index.json').read_bytes())['pages']]:
+            self.assertTrue(builder.metadata.validate_path(self.out / name, 'page')['ok'])
+        self.assertTrue(builder.metadata.validate_path(self.out / card['details']['path'], 'details')['ok'])
+        # Translating does not make a new release of the package, and it never reaches the archive.
+        self.publish()
+        self.write('clock/store/description.ru.md', 'Другой текст.')
+        again = self.build()
+        self.assertEqual(([], 'unchanged'), (again['toPublish'], again['packages'][0]['release']))
+        with zipfile.ZipFile(self.out / 'clock-0.1.0.zip') as archive:
+            self.assertFalse(any('store/' in name for name in archive.namelist()))
+
+    def test_a_listing_that_is_not_in_english_is_reported_and_still_builds(self):
+        self.package('clock', kind='game')
+        described = json.loads((self.store / 'clock/store.json').read_text())
+        described.update(title='Часы', summary='Часы для главного экрана.', tags=['часы'])
+        self.write('clock/store.json', json.dumps(described, ensure_ascii=False))
+        self.write('clock/store/description.md', 'Показывает время.')
+        report = self.build()
+        shown = report['packages'][0]['language']['listing']
+        self.assertEqual((False, ['store.json title', 'summary', 'store.json tags', 'store/description.md'], []), (shown['english'], shown['notEnglish'], shown['languages']))
+        self.assertTrue(any('listing is not in English' in warning for warning in report['packages'][0]['language']['warnings']))
+
+    def test_listing_in_other_languages_is_checked(self):
+        cases = [
+            ({'locales': {'en': {'title': 'Clock'}}}, [], 'not a locale'),
+            ({'locales': {'RU': {'title': 'Часы'}}}, [], 'language code'),
+            ({'locales': {'ru': {}}}, [], 'at least one'),
+            ({'locales': {'ru': {'name': 'Часы'}}}, [], 'at least one'),
+            ({'locales': {'ru': {'title': 'x' * 121}}}, [], 'a text of 1 to 120'),
+            ({'locales': {'ru': {'summary': ''}}}, [], 'a text of 1 to 600'),
+            ({'tags': ['time'], 'locales': {'ru': {'tags': ['время', 'часы']}}}, [], 'one text for every tag'),
+            ({'locales': {'ru': {'tags': ['время']}}}, [], 'one text for every tag'),
+            ({'tags': ['time', 'clock'], 'locales': {'ru': {'tags': ['часы', 'часы']}}}, [], 'different texts'),
+            ({'locales': {'l%02d' % number: {'title': 'x'} for number in range(17)}}, [], 'up to 16 languages'),
+            ({'screenshots': [{'file': 'store/shots/1.png', 'locales': {'ru': {'caption': 'День'}}}]}, [], 'needs the English caption'),
+            ({'screenshots': [{'file': 'store/shots/1.png', 'caption': 'Day', 'locales': {'ru': {'text': 'День'}}}]}, [], 'locales.ru'),
+            ({'screenshots': [{'file': 'store/shots/1.png', 'caption': 'Day', 'note': 'x'}]}, [], 'only file, caption and locales'),
+            ({}, [('store/description.ru.md', 'Текст')], 'write the English store/description.md first'),
+            ({}, [('store/changelog.ru.md', '## 0.1.0\n\nТекст\n')], 'write the English store/changelog.md first'),
+            ({}, [('store/description.md', 'Text'), ('store/description.EN.md', 'Text')], 'language code'),
+            ({}, [('store/description.md', 'Text'), ('store/description.en.md', 'Text')], 'not a locale'),
+            ({}, [('store/changelog.md', '## 0.1.0\n\nText\n'), ('store/changelog.ru.md', '## 0.2.0\n\nТекст\n')], 'not in the English'),
+            ({}, [('store/changelog.md', '## 0.1.0\n\nText\n'), ('store/changelog.ru.md', '## 0.1.0\n\n')], 'characters of notes'),
+            ({}, [('store/description.md', 'Text'), ('store/description.ru.md', ' ')], 'store/description.ru.md must have'),
+        ]
+        for extra, files, reason in cases:
+            with self.subTest(reason=reason, extra=list(extra), files=[name for name, _ in files]):
+                shutil.rmtree(self.store / 'clock', ignore_errors=True)
+                self.package(kind='game')
+                self.write('clock/store/shots/1.png', png(1080, 2340))
+                described = json.loads((self.store / 'clock/store.json').read_text())
+                described.update(extra)
+                self.write('clock/store.json', json.dumps(described, ensure_ascii=False))
+                for name, raw in files:
+                    self.write('clock/' + name, raw)
+                self.assertIn(reason, self.build(False)['blocked'][0]['error'])
 
     def test_listing_material_is_checked_by_content_and_limits(self):
         cases = [

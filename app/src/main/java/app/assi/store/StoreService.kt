@@ -1,5 +1,6 @@
 package app.assi.store
 
+import app.assi.core.I18n
 import app.assi.core.Workspace
 import org.json.JSONArray
 import org.json.JSONObject
@@ -16,6 +17,13 @@ class StoreService(
     val kinds: StoreKinds = StoreKinds.workspace(workspace),
     snapshot: (String) -> String = { "" },
 ) {
+    /**
+     * The language the listing is shown in: the interface's. A package's texts are English and may be given
+     * again in other languages (see [StoreLocale]); empty shows them as they are, in English.
+     */
+    @Volatile var language: () -> String = { "" }
+    private fun shownLanguage(): String = runCatching { language() }.getOrDefault("")
+
     val sources = StoreSources(stateDir, transport)
     val installer = StoreInstaller(workspace, stateDir, snapshot, kinds = kinds)
     private val envelopes = File(stateDir, "subjects")
@@ -152,30 +160,42 @@ class StoreService(
         val tag = options.optString("tag").trim().lowercase(Locale.ROOT); val only = options.optString("only")
         // The mods of one package: what its card shows under «Доработки».
         val extends = options.optString("extends")
-        fun tags(entry: JSONObject) = entry.optJSONArray("tags")?.let { list -> (0 until list.length()).map { list.getString(it) } } ?: emptyList()
+        // A tag is its English text, what the catalog counts and filters by; the words shown for it follow the language.
+        val language = shownLanguage()
+        val views = java.util.IdentityHashMap<JSONObject, StoreLocale.View>().also { map -> all.forEach { map[it] = StoreLocale.view(it, language) } }
         val matched = all.filter { entry ->
+            val view = views.getValue(entry)
             (kind.isEmpty() || kind == "all" || entry.getString("kind") == kind) &&
                 (sourceId.isEmpty() || sourceId == "all" || entry.getString("sourceId") == sourceId) &&
-                (tag.isEmpty() || tag in tags(entry)) &&
+                (tag.isEmpty() || tag in view.ids || view.tags.any { it.lowercase(Locale.ROOT) == tag }) &&
                 (extends.isEmpty() || entry.optString("extends") == extends) &&
                 (only != "updates" || entry.getString("status") in PENDING) &&
-                (query.isEmpty() || (listOf(entry.getString("title"), entry.getString("summary"), entry.getString("id"), entry.getString("publisher")) + tags(entry))
+                (query.isEmpty() || (listOf(entry.getString("title"), entry.getString("summary"), view.title, view.summary, entry.getString("id"), entry.getString("publisher")) + view.ids + view.tags)
                     .any { it.lowercase(Locale.ROOT).contains(query) })
         }
         val collator = java.text.Collator.getInstance()
-        val byTitle = Comparator<JSONObject> { a, b -> collator.compare(a.getString("title"), b.getString("title")) }.thenBy { it.getString("id") }
+        val byTitle = Comparator<JSONObject> { a, b -> collator.compare(views.getValue(a).title, views.getValue(b).title) }.thenBy { it.getString("id") }
         val sorted = when (options.optString("sort")) {
             "updated" -> matched.sortedWith(compareByDescending<JSONObject> { it.optString("updated") }.then(byTitle))
             else -> matched.sortedWith(byTitle)
         }
         val offset = options.optInt("offset", 0).coerceIn(0, sorted.size); val limit = options.optInt("limit", 40).coerceIn(1, 200)
-        val counted = HashMap<String, Int>()
-        all.forEach { entry -> tags(entry).forEach { counted[it] = (counted[it] ?: 0) + 1 } }
+        val counted = HashMap<String, Int>(); val labels = HashMap<String, String>()
+        all.forEach { entry ->
+            val view = views.getValue(entry)
+            view.ids.forEachIndexed { index, id -> counted[id] = (counted[id] ?: 0) + 1; labels.putIfAbsent(id, view.tags[index]) }
+        }
         val top = counted.entries.sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key }).take(30)
-        return JSONObject().put("items", JSONArray(sorted.drop(offset).take(limit).map(StoreDisk::copy)))
+        val portion = sorted.drop(offset).take(limit).map { StoreLocale.card(StoreDisk.copy(it), language) }
+        // A mod names the package it changes by the title that package has in this language.
+        if (portion.any { it.has("targetTitle") }) {
+            val installed = objects(installer.installed()).associateBy { it.getString("id") }
+            portion.forEach { item -> installed[item.optString("extends")]?.let { target -> item.put("targetTitle", titleOf(target, language)) } }
+        }
+        return JSONObject().put("items", JSONArray(portion))
             .put("total", sorted.size).put("offset", offset).put("limit", limit)
             .put("counts", JSONObject().put("all", all.size).put("updates", all.count { it.getString("status") in PENDING }))
-            .put("tags", JSONArray(top.map { JSONObject().put("tag", it.key).put("count", it.value) }))
+            .put("tags", JSONArray(top.map { JSONObject().put("tag", it.key).put("label", labels[it.key] ?: it.key).put("count", it.value) }))
             .put("kinds", JSONArray(counted(all)))
     }
 
@@ -201,8 +221,12 @@ class StoreService(
             .put("descriptor", it.descriptor).put("engine", it.engine ?: JSONObject.NULL).put("version", it.version)
     })
 
-    /** The description, screenshots and changes of one package; fetched when it is opened and kept by hash. */
-    fun details(sourceId: String, packageId: String): JSONObject = StoreDisk.copy(sources.details(sourceId, packageId))
+    /** The title of an installed package in a language: its record keeps the English one, the card it was installed from may have more. */
+    private fun titleOf(record: JSONObject, language: String): String =
+        record.optJSONObject("catalogEntry")?.let { StoreLocale.view(it, language).title.takeIf { shown -> shown.isNotEmpty() } } ?: record.optString("title")
+
+    /** The description, screenshots and changes of one package, in the interface's language; fetched when it is opened and kept by hash. */
+    fun details(sourceId: String, packageId: String): JSONObject = StoreLocale.details(StoreDisk.copy(sources.details(sourceId, packageId)), shownLanguage())
 
     /**
      * A picture of a listing as a `data:` address for the page. Which file it is comes from the
@@ -221,8 +245,15 @@ class StoreService(
         val result = installer.installed()
         val known = objects(sources.list()).associateBy { it.getString("id") }
         val banned = bans.all()
+        val language = shownLanguage()
         for (i in 0 until result.length()) {
             val record = result.getJSONObject(i)
+            // The card the package was installed from speaks the interface's language as the catalog does.
+            record.optJSONObject("catalogEntry")?.let { entry ->
+                val before = record.optString("title")
+                if (before == entry.optString("title")) record.put("title", titleOf(record, language))
+                StoreLocale.card(entry, language)
+            }
             val source = known[record.getString("sourceId")]
             banned.firstOrNull { it.getString("artifactSha256") == record.optString("artifactSha256") }?.let { record.put("ban", StoreBans.brief(it)) }
             runCatching { receiptFile(record.getString("key"), record.getString("artifactSha256")).takeIf { it.isFile }?.let(StoreDisk::read) }
@@ -736,6 +767,7 @@ object Store {
                     }
                 }
                 current = StoreService(Workspace.root, File(Workspace.state, "store"), StoreHttpTransport(), kinds) { label -> Workspace.snapshot(label) }
+                    .also { it.language = { runCatching { I18n.language }.getOrDefault("") } }
                 currentRoot = root
             }
             current!!

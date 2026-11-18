@@ -132,7 +132,8 @@
     const kinds = state.tab === 'installed' ? [...new Set(state.installed.map(item => item.kind))].map(kind => ({ kind: kind })) : state.kinds;
     state.kind = fill($('store-kind'), ['all', tr('Все разделы')], kinds.map(row => [row.kind, kindTitle(row.kind) + (row.count ? ' · ' + row.count : '')]), state.kind);
     const tags = $('store-tag'); tags.hidden = !listed() || !state.tags.length && !state.tag;
-    const known = state.tags.map(row => [row.tag, row.tag + ' · ' + row.count]);
+    // A tag is its catalog text, which the shell counts and filters by; `label` is the word to show for it in this language.
+    const known = state.tags.map(row => [row.tag, (row.label || row.tag) + ' · ' + row.count]);
     if (state.tag && !known.some(row => row[0] === state.tag)) known.unshift([state.tag, state.tag]);
     state.tag = fill(tags, ['', tr('Все теги')], known, state.tag);
     $('store-sort').hidden = !listed(); $('store-sort').value = state.sort;

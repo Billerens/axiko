@@ -28,6 +28,9 @@ object StoreFormat {
     private val screenshotTypes = setOf("image/png", "image/webp", "image/jpeg")
     /** A change to another package, carried over to the owner's version of it; the shell's own kind, like `module`. */
     const val MOD = "mod"
+    /** The languages one listing may be given in besides English. */
+    const val MAX_LOCALES = 16
+    private val languagePattern = Regex("[a-z]{2,3}(?:-[A-Za-z]{2,4})?")
     private val kindPattern = Regex("[a-z][a-z0-9-]{0,31}")
     private val enginePattern = Regex("[a-z][A-Za-z0-9]{0,31}")
     private val datePattern = Regex("[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])")
@@ -90,7 +93,7 @@ object StoreFormat {
 
     /** A card: what the list shows and what an installation is decided by. Long texts and screenshots are in [details]. */
     fun packageEntry(value: JSONObject): JSONObject = value.also {
-        fields(it, setOf("id", "kind", "title", "summary", "version", "publisher", "license", "manifestUrl", "archive", "compatibility"), setOf("tags", "icon", "updated", "details", "extends"))
+        fields(it, setOf("id", "kind", "title", "summary", "version", "publisher", "license", "manifestUrl", "archive", "compatibility"), setOf("tags", "locales", "icon", "updated", "details", "extends"))
         // A mod is a change to another package and names it; nothing else may.
         require(it.has("extends") == (it.optString("kind") == MOD)) { "Поле extends есть у мода и только у него." }
         if (it.has("extends")) require(id(str(it, "extends", 96)) != it.optString("id")) { "Мод не может менять сам себя." }
@@ -102,6 +105,7 @@ object StoreFormat {
         val compatibility = obj(it, "compatibility")
         versions(compatibility, "minAssiApi")
         if (it.has("tags")) strings(it, "tags", 12, 32).forEach { tag -> require(tag == tag.lowercase(Locale.ROOT) && tag.trim() == tag && tag.none { c -> c.code < 32 }) { "Тег должен быть строчным, без пробелов по краям." } }
+        if (it.has("locales")) cardLocales(obj(it, "locales"), it.optJSONArray("tags")?.length() ?: 0)
         if (it.has("icon")) media(obj(it, "icon"), MAX_ICON, iconTypes)
         if (it.has("updated")) require(datePattern.matches(str(it, "updated", 10))) { "Дата выпуска должна иметь вид ГГГГ-ММ-ДД." }
         if (it.has("details")) {
@@ -112,9 +116,67 @@ object StoreFormat {
         }
     }
 
+    /** The languages a listing is also given in: codes like `ru` or `pt-BR`; English is the base text and is not one of them. */
+    private fun languages(locales: JSONObject) {
+        require(locales.length() <= MAX_LOCALES) { "Слишком много языков описания: не больше $MAX_LOCALES." }
+        locales.keys().forEach { code -> require(languagePattern.matches(code) && code != "en") { "Некорректный код языка описания: $code. Английский — основной текст, его языком не называют." } }
+    }
+
+    /**
+     * A card's texts in other languages: only what a language translates. Its tags are the words to
+     * show for the card's own tags, one for each in the same order: the tags stay what is counted and filtered by.
+     */
+    private fun cardLocales(locales: JSONObject, tagCount: Int) {
+        languages(locales)
+        locales.keys().forEach { code ->
+            val shown = obj(locales, code)
+            fields(shown, emptySet(), setOf("title", "summary", "tags"))
+            require(shown.length() > 0) { "Язык $code не содержит ни одного текста." }
+            if (shown.has("title")) str(shown, "title", 120)
+            if (shown.has("summary")) str(shown, "summary", 600)
+            if (shown.has("tags")) strings(shown, "tags", 12, 32).also { words ->
+                require(words.size == tagCount) { "Теги языка $code: по одному слову на каждый тег карточки." }
+                words.forEach { word -> require(word.trim() == word && word.none { c -> c.code < 32 || c.code == 127 }) { "Тег должен быть без пробелов по краям." } }
+            }
+        }
+    }
+
+    /** The description, the notes of versions and the captions of screenshots in other languages: each is a translation of something the details have in English. */
+    private fun detailsLocales(locales: JSONObject, details: JSONObject) {
+        languages(locales)
+        val versions = details.optJSONArray("changes")?.let { list -> (0 until list.length()).map { list.getJSONObject(it).getString("version") } } ?: emptyList()
+        val shots = details.optJSONArray("screenshots")
+        locales.keys().forEach { code ->
+            val shown = obj(locales, code)
+            fields(shown, emptySet(), setOf("description", "changes", "captions"))
+            require(shown.length() > 0) { "Язык $code не содержит ни одного текста." }
+            if (shown.has("description")) {
+                str(shown, "description", 20_000)
+                require(details.has("description")) { "Перевод описания без английского описания." }
+            }
+            if (shown.has("changes")) {
+                val notes = obj(shown, "changes")
+                require(notes.length() <= 20) { "Слишком много элементов changes." }
+                notes.keys().forEach { name ->
+                    require(version(name) in versions) { "Перевод изменений версии, которой нет в списке изменений: $name." }
+                    str(notes, name, 4000)
+                }
+            }
+            if (shown.has("captions")) {
+                val captions = array(shown, "captions", 8)
+                require(captions.length() <= (shots?.length() ?: 0)) { "Подписей больше, чем снимков экрана." }
+                for (i in 0 until captions.length()) {
+                    if (captions.isNull(i)) continue
+                    require(captions.opt(i) is String && captions.getString(i).length in 1..200) { "Подпись снимка: от 1 до 200 знаков или null." }
+                    require(shots!!.getJSONObject(i).has("caption")) { "Перевод подписи без английской подписи." }
+                }
+            }
+        }
+    }
+
     /** What is read when a package is opened: its description, screenshots, what changed, where to ask. */
     fun details(bytes: ByteArray): JSONObject = parse(bytes, MAX_DETAILS).also { value ->
-        fields(value, setOf("schemaVersion", "id", "version"), setOf("description", "screenshots", "changes", "links"))
+        fields(value, setOf("schemaVersion", "id", "version"), setOf("description", "screenshots", "changes", "locales", "links"))
         require(integer(value, "schemaVersion", 1, 1) == 1L)
         id(str(value, "id", 96)); version(str(value, "version", 96))
         if (value.has("description")) str(value, "description", 20_000)
@@ -138,6 +200,7 @@ object StoreFormat {
                 if (change.has("date")) require(datePattern.matches(str(change, "date", 10))) { "Дата должна иметь вид ГГГГ-ММ-ДД." }
             }
         }
+        if (value.has("locales")) detailsLocales(obj(value, "locales"), value)
         if (value.has("links")) {
             val links = obj(value, "links")
             fields(links, emptySet(), setOf("homepage", "source", "support"))

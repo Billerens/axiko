@@ -20,6 +20,7 @@ import zipfile
 from pathlib import Path
 from urllib.parse import urlsplit
 
+import language
 import listing
 import validate_metadata as metadata
 import versions as versioning
@@ -395,7 +396,13 @@ def package(folder: Path, output: Path, args, license_raw: bytes, ids: dict[str,
         entry['details'] = {'path': details_path, 'sha256': sha256(details_raw), 'size': len(details_raw)}
     shown_report = {'icon': 'icon' in entry, 'tags': len(entry.get('tags', [])), 'description': bool(details and 'description' in details),
                     'screenshots': len(details.get('screenshots', [])) if details else 0,
-                    'changes': len(details.get('changes', [])) if details else 0, 'notes': listing_notes}
+                    'changes': len(details.get('changes', [])) if details else 0, 'notes': listing_notes,
+                    'languages': sorted(set(entry.get('locales', {})) | set((details or {}).get('locales', {})))}
+    # Whether the package can be used in English. A report for the author, never a reason to stop.
+    language_report = None if mod else language.check(folder)
+    if language_report:
+        language_report['listing'] = language.listing(folder, entry['summary'])
+        language_report['warnings'] = language.warnings(language_report)
     listed = published.get(identity)
     if state == 'unchanged':
         if not listed or listed.get('version') != version:
@@ -406,7 +413,7 @@ def package(folder: Path, output: Path, args, license_raw: bytes, ids: dict[str,
         entry['manifestUrl'], entry['archive'] = listed['manifestUrl'], listed['archive']
         return entry, {'id': identity, 'folder': folder.name, 'version': version, 'release': 'unchanged',
                        'archiveSha256': listed['archive']['sha256'], 'listing': shown_report,
-                       'excludedSourcePaths': excluded, 'audit': audit}
+                       'language': language_report, 'excludedSourcePaths': excluded, 'audit': audit}
     declared_entry = descriptor.get('entry')
     runtime_entry = declared_entry or ('ui/index.html' if 'code/ui/index.html' in payload else 'main.js')
     if not mod and runtime_entry.startswith(expected_target + '/'):
@@ -464,7 +471,7 @@ def package(folder: Path, output: Path, args, license_raw: bytes, ids: dict[str,
                    'changedFiles': len(changed), 'archive': archive_name, 'downloadBase': base,
                    'archiveSha256': entry['archive']['sha256'], 'archiveBytes': len(archive_raw),
                    'unpackedBytes': entry['archive']['unpackedSize'], 'fileCount': len(payload),
-                   'listing': shown_report, 'transforms': transforms, 'excludedSourcePaths': excluded, 'audit': audit,
+                   'listing': shown_report, 'language': language_report, 'transforms': transforms, 'excludedSourcePaths': excluded, 'audit': audit,
                    'networkSourcePaths': sorted(network_files), 'literalNetworkHosts': sorted(domains)}
 
 

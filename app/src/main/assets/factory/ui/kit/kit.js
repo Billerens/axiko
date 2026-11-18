@@ -6,12 +6,20 @@
   // every text that appears on the page is shown in that language — however it got there: the
   // static markup, ui.h, textContent. A key with {} matches a text with something put in:
   // "Удалить тему «{}»?" matches "Удалить тему «Закат»?".
+  // In Russian the dictionary comes only from modules written in English (their i18n-ru.json:
+  // English text -> Russian), so there the kit looks at texts without Cyrillic.
   // What is not the interface's own words — a message, an answer, a file — is kept as written:
   // put it in with ui.raw(text), or mark its container with the attribute data-raw.
   var CYRILLIC = /[А-Яа-яЁё]/;
+  var LATIN = /[A-Za-z]/;
   var READ = ['placeholder', 'aria-label', 'title', 'alt'];
   var patterns = null;
   var missed = window.__i18nMissed = {};
+
+  /** Whether the text can be a key of the dictionary: Russian for any other language, English for Russian. */
+  function readable(text) {
+    return window.__lang === 'ru' ? LATIN.test(text) && !CYRILLIC.test(text) : CYRILLIC.test(text);
+  }
 
   function compile(dict) {
     return Object.keys(dict).filter(function (key) { return key.indexOf('{}') >= 0 && dict[key]; })
@@ -33,7 +41,7 @@
   /** The text as the interface's language has it; the text itself when there is no translation. */
   function tr(text, inner) {
     var dict = window.__i18n;
-    if (!dict || typeof text !== 'string' || !CYRILLIC.test(text)) return text;
+    if (!dict || typeof text !== 'string' || !readable(text)) return text;
     var core = text.trim();
     var hit = dict[core];
     if (typeof hit === 'string' && hit) return text.replace(core, function () { return hit; });
@@ -78,7 +86,7 @@
 
   function word(node) {
     var text = node.nodeValue;
-    if (node.__raw || !CYRILLIC.test(text) || kept(node.parentNode)) return;
+    if (node.__raw || !readable(text) || kept(node.parentNode)) return;
     var made = tr(text);
     // Markup wraps long texts over lines; the dictionary knows them in one line.
     if (made === text && /\s\s|\n/.test(text)) made = tr(text.replace(/\s+/g, ' '));
@@ -87,7 +95,7 @@
 
   function attribute(element, name) {
     var value = element.getAttribute(name);
-    if (!value || !CYRILLIC.test(value) || (element.closest && element.closest('[data-raw]'))) return;
+    if (!value || !readable(value) || (element.closest && element.closest('[data-raw]'))) return;
     var made = tr(value);
     if (made !== value) element.setAttribute(name, made);
   }

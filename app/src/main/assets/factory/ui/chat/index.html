@@ -909,7 +909,7 @@
     statusRow.hidden = !text;
     clearInterval(statusTimer);
     if (!text) return;
-    document.getElementById('status-text').textContent = text + (step > 1 ? ' · шаг ' + step : '');
+    document.getElementById('status-text').textContent = ui.t(text) + (step > 1 ? ' ' + ui.t('· шаг {}', step) : '');
     lights();
     statusSince = Date.now();
     const tick = () => {

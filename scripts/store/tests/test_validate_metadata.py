@@ -187,7 +187,7 @@ class MetadataTests(unittest.TestCase):
         item = value['packages'][0]
         item['title'] = item['summary'] = item['license'] = item['publisher'] = 'x'
         item['manifestUrl'] = item['archive']['url'] = 'https://e/a'
-        for key in ('tags', 'icon', 'updated', 'details'):
+        for key in ('tags', 'locales', 'icon', 'updated', 'details'):
             item.pop(key)
         value['packages'] = [dict(item, id=f'p{i}') for i in range(2001)]
         raw = json.dumps(value, separators=(',', ':')).encode()
@@ -251,6 +251,77 @@ class MetadataTests(unittest.TestCase):
         self.invalid(value, 'details', '$.description')
         minimal = {key: self.details[key] for key in ('schemaVersion', 'id', 'version')}
         self.assertTrue(self.check(minimal, 'details')['ok'])
+
+    def test_a_card_gives_its_texts_in_other_languages_and_tags_stay_what_is_counted(self):
+        self.assertEqual(['ru'], list(self.page['packages'][0]['locales']))
+        for field, bad in [('title', ''), ('summary', 'x' * 601), ('title', 'x' * 121), ('tags', ['one', 'one'])]:
+            value = copy.deepcopy(self.page)
+            value['packages'][0]['locales']['ru'][field] = bad
+            self.invalid(value, 'page', '$.packages[0].locales.ru.' + field)
+        for bad in ['RU', 'russian', 'r', 'ru_RU', 'ru-', '']:
+            value = copy.deepcopy(self.page)
+            value['packages'][0]['locales'] = {bad: {'title': 'Счётчик'}}
+            self.invalid(value, 'page', '$.packages[0].locales')
+        value = copy.deepcopy(self.page)
+        value['packages'][0]['locales'] = {'pt-BR': {'title': 'Contador'}, 'zh-Hans': {'summary': '计数器'}, 'de': {'title': 'Zähler'}}
+        self.assertTrue(self.check(value, 'page')['ok'])
+        # Only what a language translates; an empty locale and an unknown field say nothing or something unread.
+        for bad in [{}, {'description': 'x'}]:
+            value = copy.deepcopy(self.page)
+            value['packages'][0]['locales']['ru'] = bad
+            self.invalid(value, 'page', '$.packages[0].locales.ru')
+        value = copy.deepcopy(self.page)
+        value['packages'][0]['locales'] = {'en': {'title': 'Counter'}}
+        self.invalid(value, 'page', '$.packages[0].locales.en')
+        value = copy.deepcopy(self.page)
+        value['packages'][0]['locales'] = {'l%02d' % number: {'title': 'x'} for number in range(17)}
+        self.invalid(value, 'page', '$.packages[0].locales')
+        # The words of a language go with the base tags one to one: the base tag is the identity.
+        value = copy.deepcopy(self.page)
+        value['packages'][0]['locales']['ru']['tags'] = ['пример']
+        self.invalid(value, 'page', '$.packages[0].locales.ru.tags')
+        value = copy.deepcopy(self.page)
+        value['packages'][0]['locales']['ru']['tags'] = ['пример', ' счётчик']
+        self.invalid(value, 'page', '$.packages[0].locales.ru.tags[1]')
+        value = copy.deepcopy(self.page)
+        del value['packages'][0]['tags']
+        self.invalid(value, 'page', '$.packages[0].locales.ru.tags')
+        # Words are text, not identities: capitals are fine in a locale, and a locale may leave the tags in English.
+        value = copy.deepcopy(self.page)
+        value['packages'][0]['locales']['ru']['tags'] = ['Пример', 'Счётчик']
+        self.assertTrue(self.check(value, 'page')['ok'])
+        del value['packages'][0]['locales']['ru']['tags']
+        self.assertTrue(self.check(value, 'page')['ok'])
+
+    def test_details_give_description_changes_and_captions_in_other_languages(self):
+        self.assertEqual(['ru'], list(self.details['locales']))
+        value = copy.deepcopy(self.details)
+        value['locales']['ru']['changes']['2.0.0'] = 'Нет такой версии.'
+        self.invalid(value, 'details', '$.locales.ru.changes')
+        value = copy.deepcopy(self.details)
+        value['locales']['ru']['captions'] = ['Один', 'Два']
+        self.invalid(value, 'details', '$.locales.ru.captions')
+        value = copy.deepcopy(self.details)
+        del value['screenshots'][0]['caption']
+        self.invalid(value, 'details', '$.locales.ru.captions[0]')
+        value = copy.deepcopy(self.details)
+        del value['description']
+        self.invalid(value, 'details', '$.locales.ru.description')
+        value = copy.deepcopy(self.details)
+        value['locales']['ru']['captions'] = [None]
+        value['locales']['ru']['changes'] = {}
+        self.assertTrue(self.check(value, 'details')['ok'])
+        for field, bad in [('description', ''), ('description', 'x' * 20001), ('captions', ['x' * 201]), ('changes', {'1.0.0': 'x' * 4001}),
+                           ('changes', {'one': 'Первый.'}), ('unknown', 'x')]:
+            value = copy.deepcopy(self.details)
+            value['locales']['ru'][field] = bad
+            self.invalid(value, 'details', '$.locales.ru')
+        value = copy.deepcopy(self.details)
+        value['locales'] = {'en': {'description': 'x'}}
+        self.invalid(value, 'details', '$.locales.en')
+        value = copy.deepcopy(self.details)
+        value['locales'] = {'ru': {}}
+        self.invalid(value, 'details', '$.locales.ru')
 
     def mod(self):
         """The manifest of a mod: no entry, the package it changes, and what its sample was made on."""

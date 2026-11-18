@@ -21,6 +21,17 @@
       "notes": "- First release."
     }
   ],
+  "locales": {
+    "ru": {
+      "description": "# Пример счётчика\n\nСчитает ваши нажатия. **Только пример текста.**\n\n- одна кнопка\n- одно число",
+      "changes": {
+        "1.0.0": "- Первый выпуск."
+      },
+      "captions": [
+        "Счётчик"
+      ]
+    }
+  },
   "links": {
     "homepage": "https://example.org/assi-catalog/",
     "source": "https://example.org/assi-catalog/source"

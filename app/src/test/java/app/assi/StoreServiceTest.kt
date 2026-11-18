@@ -53,6 +53,77 @@ class StoreServiceTest {
         assertEquals(1, service.installed().length())
     }
 
+    @Test fun theListingSpeaksTheInterfaceLanguageAndATagStaysWhatIsCountedAndFilteredBy() {
+        fun locale(title: String?, summary: String?, vararg tags: String) = JSONObject().apply {
+            if (title != null) put("title", title); if (summary != null) put("summary", summary); if (tags.isNotEmpty()) put("tags", JSONArray(tags.toList()))
+        }
+        val details = JSONObject().put("schemaVersion", 1).put("id", "demo.clock").put("version", "1.0.0").put("description", "Shows the **time**.")
+            .put("screenshots", JSONArray().put(JSONObject().put("path", "clock/store/1.png").put("sha256", "1".repeat(64)).put("size", 10).put("type", "image/png").put("width", 8).put("height", 8).put("caption", "Night")))
+            .put("changes", JSONArray().put(JSONObject().put("version", "1.0.0").put("notes", "First release.")).put(JSONObject().put("version", "0.9.0").put("notes", "A preview.")))
+            .put("locales", JSONObject().put("ru", JSONObject().put("description", "Показывает **время**.").put("changes", JSONObject().put("1.0.0", "Первый выпуск.")).put("captions", JSONArray().put("Ночь"))))
+            .toString().toByteArray()
+        val clock = StoreServiceFixtures.bundle("demo.clock").also {
+            it.entry.put("title", "Clock").put("summary", "A clock for the home screen.").put("tags", JSONArray().put("time").put("clock"))
+                .put("locales", JSONObject().put("ru", locale("Часы", "Часы для главного экрана.", "время", "часы")).put("de", locale("Uhr", null)))
+                .put("details", JSONObject().put("path", "catalog/details/demo.clock.json").put("sha256", StoreFormat.sha256(details)).put("size", details.size))
+        }
+        val notes = StoreServiceFixtures.bundle("demo.notes").also { it.entry.put("title", "Notes").put("summary", "Plain notes.").put("tags", JSONArray().put("time").put("text")) }
+        val plain = StoreServiceFixtures.bundle("demo.plain").also { it.entry.put("title", "Atlas").put("summary", "An atlas.") }
+        transport.publish(clock, notes, plain); transport.put("https://catalog.example/catalog/details/demo.clock.json", details)
+        val service = service(); val source = add(service)
+        fun items(page: JSONObject) = (0 until page.getJSONArray("items").length()).associate { page.getJSONArray("items").getJSONObject(it).let { item -> item.getString("id") to item } }
+        fun tagRows(page: JSONObject) = (0 until page.getJSONArray("tags").length()).associate { page.getJSONArray("tags").getJSONObject(it).let { row -> row.getString("tag") to (row.getString("label") to row.getInt("count")) } }
+
+        // English, or no language at all: the base text, and no locales left over for the page to pick from.
+        for (language in listOf("", "en", "fr")) {
+            service.language = { language }
+            val page = service.catalogPage(); val shown = items(page).getValue("demo.clock")
+            assertEquals(listOf("Clock", "A clock for the home screen.", "time,clock"), listOf(shown.getString("title"), shown.getString("summary"), shown.getJSONArray("tags").join(",").replace("\"", "")))
+            assertFalse(shown.has("locales"))
+            assertEquals(mapOf("time" to ("time" to 2), "clock" to ("clock" to 1), "text" to ("text" to 1)), tagRows(page))
+        }
+        // Russian: the locale's words, tags by position; what the locale does not give stays English.
+        service.language = { "ru" }
+        val russian = service.catalogPage(); val shown = items(russian).getValue("demo.clock")
+        assertEquals(listOf("Часы", "Часы для главного экрана.", "время,часы"), listOf(shown.getString("title"), shown.getString("summary"), shown.getJSONArray("tags").join(",").replace("\"", "")))
+        assertEquals("Notes", items(russian).getValue("demo.notes").getString("title"))
+        // Tags are counted by what they are, and shown by the words of the language, English where it has none.
+        assertEquals(mapOf("time" to ("время" to 2), "clock" to ("часы" to 1), "text" to ("text" to 1)), tagRows(russian))
+        // Filtered by the tag itself, and by the word shown for it; found by either language.
+        assertEquals(setOf("demo.clock", "demo.notes"), items(service.catalogPage(JSONObject().put("tag", "time"))).keys)
+        assertEquals(setOf("demo.clock"), items(service.catalogPage(JSONObject().put("tag", "часы"))).keys)
+        assertEquals(setOf("demo.clock"), items(service.catalogPage(JSONObject().put("query", "ЧАСЫ"))).keys)
+        assertEquals(setOf("demo.clock"), items(service.catalogPage(JSONObject().put("query", "clock for the"))).keys)
+        // The order is the order of the titles as shown: Atlas, Notes, Часы here, and Atlas, Clock, Notes in English.
+        fun order(page: JSONObject) = (0 until page.getJSONArray("items").length()).map { page.getJSONArray("items").getJSONObject(it).getString("id") }
+        assertEquals(listOf("demo.plain", "demo.notes", "demo.clock"), order(russian))
+        service.language = { "en" }; assertEquals(listOf("demo.plain", "demo.clock", "demo.notes"), order(service.catalogPage())); service.language = { "ru" }
+        // Another language of the package; a region falls back to the language, a language to a variant of it.
+        service.language = { "de" }; assertEquals("Uhr", items(service.catalogPage()).getValue("demo.clock").getString("title"))
+        assertEquals("A clock for the home screen.", items(service.catalogPage()).getValue("demo.clock").getString("summary"))
+        service.language = { "ru-RU" }; assertEquals("Часы", items(service.catalogPage()).getValue("demo.clock").getString("title"))
+
+        // The details: description, notes of the versions and captions, where the language has them.
+        service.language = { "ru" }
+        val ru = service.details(source, "demo.clock")
+        assertEquals("Показывает **время**.", ru.getString("description")); assertFalse(ru.has("locales"))
+        assertEquals(listOf("Первый выпуск.", "A preview."), (0 until 2).map { ru.getJSONArray("changes").getJSONObject(it).getString("notes") })
+        assertEquals("Ночь", ru.getJSONArray("screenshots").getJSONObject(0).getString("caption"))
+        service.language = { "en" }
+        val en = service.details(source, "demo.clock")
+        assertEquals(listOf("Shows the **time**.", "First release.", "Night"), listOf(en.getString("description"), en.getJSONArray("changes").getJSONObject(0).getString("notes"), en.getJSONArray("screenshots").getJSONObject(0).getString("caption")))
+
+        // An installed package is called by the title it has in the interface's language, from the card it was installed from.
+        apply(service, service.prepare(source, "demo.clock"))
+        service.language = { "ru" }
+        val record = service.installed().getJSONObject(0)
+        assertEquals(listOf("Часы", "Часы"), listOf(record.getString("title"), record.getJSONObject("catalogEntry").getString("title")))
+        service.language = { "en" }
+        assertEquals("Clock", service.installed().getJSONObject(0).getString("title"))
+        // What the installer keeps, and what a plan is decided by, is the card as the source published it.
+        assertEquals("Clock", service.installer.installed().getJSONObject(0).getString("title"))
+    }
+
     @Test fun updateConflictMustBeResolvedAndKeepsLocalEditsAndDataThroughRollback() {
         val v1 = StoreServiceFixtures.bundle(); transport.publish(v1)
         val service = service(); val source = add(service); apply(service, service.prepare(source, "demo.counter"))

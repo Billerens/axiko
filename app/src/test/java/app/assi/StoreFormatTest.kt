@@ -48,6 +48,38 @@ class StoreFormatTest {
         reject { StoreFormat.details(details().put("description", "x".repeat(20_001)).toString().toByteArray()) }
     }
 
+    @Test fun cardsAndDetailsMayGiveTheirTextsInOtherLanguagesAndNothingElse() {
+        fun card() = JSONObject(String(example("page"))).getJSONArray("packages").getJSONObject(0)
+        fun details() = JSONObject(String(example("details")))
+        assertEquals(listOf("ru"), card().getJSONObject("locales").keys().asSequence().toList())
+        assertEquals(listOf("ru"), StoreFormat.details(example("details")).getJSONObject("locales").keys().asSequence().toList())
+        // A card: only title, summary and tags; the tags are the words for the card's own, one each, in the same order.
+        StoreFormat.packageEntry(card().apply { put("locales", JSONObject().put("pt-BR", JSONObject().put("title", "Contador")).put("zh-Hans", JSONObject().put("summary", "计数器"))) })
+        reject { StoreFormat.packageEntry(card().apply { getJSONObject("locales").put("en", JSONObject().put("title", "Counter")) }) }
+        for (code in listOf("RU", "russian", "r", "ru_RU", "ru-")) reject { StoreFormat.packageEntry(card().apply { put("locales", JSONObject().put(code, JSONObject().put("title", "x"))) }) }
+        reject { StoreFormat.packageEntry(card().apply { getJSONObject("locales").put("ru", JSONObject()) }) }
+        reject { StoreFormat.packageEntry(card().apply { getJSONObject("locales").getJSONObject("ru").put("description", "x") }) }
+        reject { StoreFormat.packageEntry(card().apply { getJSONObject("locales").getJSONObject("ru").put("title", "x".repeat(121)) }) }
+        reject { StoreFormat.packageEntry(card().apply { getJSONObject("locales").getJSONObject("ru").put("summary", "x".repeat(601)) }) }
+        reject { StoreFormat.packageEntry(card().apply { getJSONObject("locales").getJSONObject("ru").put("tags", JSONArray().put("пример")) }) }
+        reject { StoreFormat.packageEntry(card().apply { getJSONObject("locales").getJSONObject("ru").put("tags", JSONArray().put("пример").put("пример")) }) }
+        reject { StoreFormat.packageEntry(card().apply { getJSONObject("locales").getJSONObject("ru").put("tags", JSONArray().put("пример").put(" счётчик")) }) }
+        reject { StoreFormat.packageEntry(card().apply { remove("tags") }) }
+        reject { StoreFormat.packageEntry(card().apply { put("locales", JSONObject((0..16).associate { "l%02d".format(it) to JSONObject().put("title", "x") })) }) }
+        StoreFormat.packageEntry(card().apply { getJSONObject("locales").getJSONObject("ru").put("tags", JSONArray().put("Пример").put("Счётчик")) })
+        // Details: a translation of what the details have in English.
+        StoreFormat.details(details().apply { getJSONObject("locales").getJSONObject("ru").put("captions", JSONArray().put(JSONObject.NULL)).put("changes", JSONObject()) }.toString().toByteArray())
+        reject { StoreFormat.details(details().apply { getJSONObject("locales").getJSONObject("ru").getJSONObject("changes").put("2.0.0", "Нет такой версии.") }.toString().toByteArray()) }
+        reject { StoreFormat.details(details().apply { getJSONObject("locales").getJSONObject("ru").getJSONObject("changes").put("first", "Не версия.") }.toString().toByteArray()) }
+        reject { StoreFormat.details(details().apply { getJSONObject("locales").getJSONObject("ru").put("captions", JSONArray().put("Один").put("Два")) }.toString().toByteArray()) }
+        reject { StoreFormat.details(details().apply { getJSONArray("screenshots").getJSONObject(0).remove("caption") }.toString().toByteArray()) }
+        reject { StoreFormat.details(details().apply { remove("description") }.toString().toByteArray()) }
+        reject { StoreFormat.details(details().apply { getJSONObject("locales").getJSONObject("ru").put("description", "x".repeat(20_001)) }.toString().toByteArray()) }
+        reject { StoreFormat.details(details().apply { getJSONObject("locales").getJSONObject("ru").put("links", JSONObject()) }.toString().toByteArray()) }
+        reject { StoreFormat.details(details().apply { getJSONObject("locales").put("en", JSONObject().put("description", "x")) }.toString().toByteArray()) }
+        reject { StoreFormat.details(details().apply { getJSONObject("locales").put("ru", JSONObject()) }.toString().toByteArray()) }
+    }
+
     @Test fun modNamesItsTargetAndItsReferenceMustBeWhatItsFilesAre() {
         fun file(path: String) = JSONObject().put("path", path).put("sha256", "1".repeat(64)).put("size", 1)
         fun mod() = JSONObject().put("schemaVersion", 1).put("id", "demo.night").put("kind", "mod").put("version", "1.0.0").put("publisher", "demo").put("license", "MIT")

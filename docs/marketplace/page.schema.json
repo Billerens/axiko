@@ -151,6 +151,42 @@
             },
             "description": "Lowercase; additional semantic validation applies."
           },
+          "locales": {
+            "type": "object",
+            "maxProperties": 16,
+            "propertyNames": {
+              "pattern": "^[a-z]{2,3}(-[A-Za-z]{2,4})?$"
+            },
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "minProperties": 1,
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120
+                },
+                "summary": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 600
+                },
+                "tags": {
+                  "type": "array",
+                  "maxItems": 12,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 32
+                  },
+                  "description": "The words to show for the card's tags, one for each in the same order; the tags themselves stay what is counted and filtered by. Additional semantic validation applies."
+                }
+              }
+            },
+            "description": "The card's texts in other languages by language code; title, summary and tags are the English text. A language gives only what it translates; the rest is English. English itself is not listed."
+          },
           "icon": {
             "type": "object",
             "additionalProperties": false,
