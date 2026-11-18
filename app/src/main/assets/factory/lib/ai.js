@@ -45,7 +45,7 @@ exports.complete = function (role, body) {
 };
 
 /**
- * Gives a task to an agent (agents/<id>/, or 'assi') in a fresh conversation, with its tools,
+ * Gives a task to an agent (agents/<id>/, or 'axiko') in a fresh conversation, with its tools,
  * and waits for the final answer. The agent knows nothing but the task: put everything in it.
  */
 exports.run = function (agent, task) {

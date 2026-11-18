@@ -7,7 +7,7 @@
 <body>
 <main class="page">
   <header class="topbar">
-    <button class="icon-btn" onclick="assi.back()" aria-label="Назад" data-icon="back"></button>
+    <button class="icon-btn" onclick="axiko.back()" aria-label="Назад" data-icon="back"></button>
     <h1>История изменений</h1>
   </header>
   <p class="muted">Перед каждым запросом, который что-то изменил, приложение сохраняет прежнее состояние. К любому из них можно вернуться — данные модулей при этом не трогаются.</p>
@@ -18,7 +18,7 @@
   const h = ui.h;
 
   async function render() {
-    const snapshots = await assi.native('snap.list');
+    const snapshots = await axiko.native('snap.list');
     const list = document.getElementById('list');
     if (!snapshots.length) {
       list.replaceChildren(h('div', { class: 'empty' }, 'Изменений пока не было.'));
@@ -36,7 +36,7 @@
     const sure = await ui.confirm('Вернуть приложение к состоянию «до: ' + (snapshot.label || 'изменение') +
       '»? Текущее состояние тоже сохранится в истории.', 'Вернуть');
     if (!sure) return;
-    await assi.native('snap.restore', snapshot.id);
+    await axiko.native('snap.restore', snapshot.id);
   }
 
   render().then(() => ui.tour.offer('history', [

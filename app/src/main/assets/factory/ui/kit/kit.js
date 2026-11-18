@@ -413,22 +413,22 @@
 
   // The owner or the agent changed the theme: the kit's stylesheet is taken anew.
   // The language changed: the screen is drawn again in it.
-  if (window.assi) {
-    window.assi.on('lang', function () { location.reload(); });
+  if (window.axiko) {
+    window.axiko.on('lang', function () { location.reload(); });
     // A change that came while this screen was still loading went unheard: ask once.
-    window.assi.native('lang.status').then(function (now) {
+    window.axiko.native('lang.status').then(function (now) {
       var mine = window.__lang || 'ru';
       var tried = null;
-      try { tried = sessionStorage.getItem('assi.lang.tried'); } catch (error) { /* private mode */ }
+      try { tried = sessionStorage.getItem('axiko.lang.tried'); } catch (error) { /* private mode */ }
       if (!now || !now.language || now.language === mine || tried === now.language) return;
-      try { sessionStorage.setItem('assi.lang.tried', now.language); } catch (error) { /* private mode */ }
+      try { sessionStorage.setItem('axiko.lang.tried', now.language); } catch (error) { /* private mode */ }
       location.reload();
     }).catch(function () {});
     // The mascot was recoloured, replaced or turned off: what is drawn of it on this screen follows.
-    window.assi.on('mascot', function () {
+    window.axiko.on('mascot', function () {
       mascotReady(true).then(function () { document.querySelectorAll('.mascot').forEach(mascotDraw); });
     });
-    window.assi.on('theme', function () {
+    window.axiko.on('theme', function () {
       document.querySelectorAll('link[rel="stylesheet"]').forEach(function (link) {
         if (link.href.indexOf('/ui/kit/kit.css') >= 0) link.href = '/ui/kit/kit.css?' + Date.now();
       });
@@ -453,9 +453,9 @@
   /** Whether a guide exists at path (asked from the engine, so a missing file makes no 404). */
   function guideExists(path) {
     path = path || (moduleDir() ? moduleDir() + '/guide.md' : null);
-    if (!path || !window.assi || typeof window.assi.eval !== 'function') return Promise.resolve(false);
+    if (!path || !window.axiko || typeof window.axiko.eval !== 'function') return Promise.resolve(false);
     if (guideKnown[path] !== undefined) return Promise.resolve(guideKnown[path]);
-    return window.assi.eval('require("lib/assi").files.exists(' + JSON.stringify(path.replace(/^\//, '')) + ')')
+    return window.axiko.eval('require("lib/axiko").files.exists(' + JSON.stringify(path.replace(/^\//, '')) + ')')
       .then(function (yes) { guideKnown[path] = yes === true || yes === 'true'; return guideKnown[path]; })
       .catch(function () { return false; });
   }
@@ -718,7 +718,7 @@
     // A step about something that is not on the screen now (a hidden section, an empty list) is
     // left out; so is a step about the phone's own parts (phone: true — the chat button, the
     // menu bar) when the screen is shown in the hub on a computer.
-    var web = Boolean(window.assi && window.assi.platform === 'web');
+    var web = Boolean(window.axiko && window.axiko.platform === 'web');
     steps = steps.filter(function (step) {
       if (step.phone && web) return false;
       if (typeof step.target !== 'string') return true;
@@ -819,7 +819,7 @@
   }
 
   function toursDone() {
-    return window.assi.native('pref.get', TOURS_DONE, '').then(function (done) { return String(done || '').split(',').filter(Boolean); });
+    return window.axiko.native('pref.get', TOURS_DONE, '').then(function (done) { return String(done || '').split(',').filter(Boolean); });
   }
 
   /**
@@ -832,13 +832,13 @@
     options = options || {};
     // Not for a page framed in another — a card of the home screen. The hub on a computer frames
     // screens too, but there they are the screen itself: its own two frames do get their tours.
-    var web = Boolean(window.assi && window.assi.platform === 'web');
+    var web = Boolean(window.axiko && window.axiko.platform === 'web');
     var framed = window.top !== window;
     var inHub = false;
-    try { inHub = framed && web && window.parent === window.top && Boolean(window.top.__assiTransportRoot); } catch (error) { /* another origin */ }
-    if (!window.assi || (framed && !inHub)) return Promise.resolve(false);
+    try { inHub = framed && web && window.parent === window.top && Boolean(window.top.__axikoTransportRoot); } catch (error) { /* another origin */ }
+    if (!window.axiko || (framed && !inHub)) return Promise.resolve(false);
     // Nor on the agent's own screen: a tour is for the owner, and it would cover what the agent checks.
-    if (window.assiProbe) return Promise.resolve(false);
+    if (window.axikoProbe) return Promise.resolve(false);
     // One tour at a time: a screen inside the hub waits until the hub has finished its own.
     var turn = !inHub ? Promise.resolve() : new Promise(function (resolve) {
       (function wait() {
@@ -860,13 +860,13 @@
         return toursDone().then(function (now) {
           var list = reached ? now.concat(key) : ['*'];
           if (!reached) toast('Обучение можно пройти заново в настройках');
-          return window.assi.native('pref.set', TOURS_DONE, list.join(','));
+          return window.axiko.native('pref.set', TOURS_DONE, list.join(','));
         }).then(function () { return reached; });
       });
     }).catch(function () { return false; });
   };
   /** Every screen offers its tour again. */
-  tour.reset = function () { return window.assi.native('pref.set', TOURS_DONE, ''); };
+  tour.reset = function () { return window.axiko.native('pref.set', TOURS_DONE, ''); };
   tour.chatButton = CHAT_BUTTON;
 
   window.ui = {

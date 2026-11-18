@@ -1,4 +1,4 @@
-.assi-editor {
+.axiko-editor {
   display: grid;
   grid-template-columns: 210px minmax(0, 1fr);
   height: 100%;
@@ -160,7 +160,7 @@
   opacity: .4;
   cursor: default;
 }
-.assi-editor button:focus-visible, .ae-filter:focus-visible, .ae-compare button:focus-visible {
+.axiko-editor button:focus-visible, .ae-filter:focus-visible, .ae-compare button:focus-visible {
   outline: 2px solid var(--accent, #8b7cff);
   outline-offset: -2px;
 }
@@ -302,11 +302,11 @@
   white-space: pre;
   font: 12px/1.5 ui-monospace, Consolas, monospace;
 }
-.assi-editor [hidden], .ae-compare [hidden] {
+.axiko-editor [hidden], .ae-compare [hidden] {
   display: none !important;
 }
 @media (max-width: 700px) {
-  .assi-editor {
+  .axiko-editor {
     grid-template-columns: minmax(0, 1fr);
     position: relative;
   }

@@ -155,13 +155,13 @@ class MetadataTests(unittest.TestCase):
             value = copy.deepcopy(self.package)
             value['kind'] = kind
             self.invalid(value, path='$.kind')
-        for runtime in [{'assiApi': 1, 'gamesEngine': 0}, {'assiApi': 1, 'gamesEngine': '1'}, {'assiApi': 1, 'a': 1, 'b': 1},
-                        {'assiApi': 1, 'Games-Engine': 1}, {'gamesEngine': 1}]:
+        for runtime in [{'axikoApi': 1, 'gamesEngine': 0}, {'axikoApi': 1, 'gamesEngine': '1'}, {'axikoApi': 1, 'a': 1, 'b': 1},
+                        {'axikoApi': 1, 'Games-Engine': 1}, {'gamesEngine': 1}]:
             value = copy.deepcopy(self.package)
             value['runtime'] = runtime
             self.invalid(value, path='$.runtime')
             page = copy.deepcopy(self.page)
-            page['packages'][0]['compatibility'] = {('minAssiApi' if key == 'assiApi' else key): number for key, number in runtime.items()}
+            page['packages'][0]['compatibility'] = {('minAxikoApi' if key == 'axikoApi' else key): number for key, number in runtime.items()}
             self.invalid(page, 'page', '$.packages[0].compatibility')
 
     def test_limits_include_manifest_and_cannot_be_raised_by_metadata(self):

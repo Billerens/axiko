@@ -4,7 +4,7 @@
     python scripts/brand/preview.py OUT_DIR
 
 Serves the factory copy of the workspace as the app does (the theme appended to kit.css), gives
-the pages a stand-in for `window.assi` and takes screenshots at a phone's size: the tours, the
+the pages a stand-in for `window.axiko` and takes screenshots at a phone's size: the tours, the
 chat button with the mascot climbing over the menu bar, the home screen in several themes, the
 mascot off and replaced, the chat at work, the mascot's own screen. The shell's own parts — the
 menu bar and the chat button's page — are drawn separately and laid over the screen the way the
@@ -51,7 +51,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
-        if self.path.startswith('/__assi/rpc'):      # the hub's link to the phone
+        if self.path.startswith('/__axiko/rpc'):      # the hub's link to the phone
             answer = json.dumps({'result': json.dumps(phone(body), ensure_ascii=False)}).encode('utf-8')
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
@@ -64,7 +64,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split('?')[0].lstrip('/')
-        if path == '__assi/events':                  # the phone's events, sent by hand: emit()
+        if path == '__axiko/events':                  # the phone's events, sent by hand: emit()
             self.send_response(200)
             self.send_header('Content-Type', 'text/event-stream')
             self.end_headers()
@@ -74,7 +74,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == '':
             path = 'ui/desk/index.html'
-        if path == '__assi/client.js':
+        if path == '__axiko/client.js':
             path = 'ui/desk/client.js'
         if path in state['files']:
             data = state['files'][path]
@@ -87,9 +87,9 @@ class Handler(BaseHTTPRequestHandler):
             data = file.read_bytes()
         if path == 'ui/kit/kit.css':
             data += theme_css().encode('utf-8')
-        # In the hub every page gets the browser's stand-in for window.assi, as the phone's server gives it.
+        # In the hub every page gets the browser's stand-in for window.axiko, as the phone's server gives it.
         if state['shell'].get('hub') and path.endswith('.html'):
-            data = data.replace(b'<!doctype html>', b'<!doctype html><script src="/__assi/client.js"></script>', 1)
+            data = data.replace(b'<!doctype html>', b'<!doctype html><script src="/__axiko/client.js"></script>', 1)
         self.send_response(200)
         self.send_header('Content-Type', MIMES.get(Path(path).suffix, 'application/octet-stream') + '; charset=utf-8')
         self.send_header('Cache-Control', 'no-store')
@@ -111,7 +111,7 @@ def phone(request):
         return ('' if shell.get('tours') else '*') if args[0] == 'tours.done' else (args[1] if len(args) > 1 else '')
     answers = {
         'sys.info': {'safeMode': False, 'version': '0.1', 'device': 'Preview', 'android': '16'}, 'modules.list': shell.get('modules', []),
-        'agent.list': [{'id': 'assi', 'title': 'Axiko', 'icon': 'spark', 'description': ''}], 'models.roles': {'main': {'model': 'demo'}},
+        'agent.list': [{'id': 'axiko', 'title': 'Axiko', 'icon': 'spark', 'description': ''}], 'models.roles': {'main': {'model': 'demo'}},
         'models.providers': [{'id': 'p', 'name': 'Demo'}], 'lang.status': {'language': 'ru', 'setting': 'auto', 'languages': []},
         'agent.history': [], 'agent.busy': False, 'ui.where': {}, 'agent.threads': [], 'theme.list': [], 'snap.list': [], 'tasks.list': [],
         'agent.thread': 't1', 'speech.status': {'tts': False},
@@ -136,11 +136,11 @@ STUB = r'''
 window.__shell = __SHELL__;
 window.__heard = {};
 window.__emit = function (name, data) { (window.__heard[name] || []).forEach(function (fn) { fn(data); }); };
-window.assi = {
+window.axiko = {
   native: function (op, key, fallback) {
     var answers = {
       'sys.info': { safeMode: __shell.safe, version: '0.1', device: 'Preview', android: '16' },
-      'modules.list': __shell.modules, 'agent.list': [{ id: 'assi', title: 'Axiko', icon: 'spark', description: '' }],
+      'modules.list': __shell.modules, 'agent.list': [{ id: 'axiko', title: 'Axiko', icon: 'spark', description: '' }],
       'models.roles': __shell.model ? { main: { model: 'demo' } } : {}, 'models.providers': __shell.model ? [{ id: 'p', name: 'Demo' }] : [],
       'lang.status': { language: 'ru', setting: 'auto', languages: [] }, 'launcher.icon': 'mascot', 'button.face': { bar: __shell.bar },
       'agent.history': [], 'agent.busy': false, 'ui.where': {}, 'agent.threads': [], 'theme.list': [], 'snap.list': [],
@@ -224,12 +224,12 @@ def main():
             return lambda page: [page.get_by_text('Далее', exact=True).click() or page.wait_for_timeout(450) for _ in range(count)]
 
         def agent(*events):
-            sent = ''.join("__emit('agent', Object.assign({ agent: 'assi', thread: threadId }, %s));" % json.dumps(event, ensure_ascii=False) for event in events)
+            sent = ''.join("__emit('agent', Object.assign({ agent: 'axiko', thread: threadId }, %s));" % json.dumps(event, ensure_ascii=False) for event in events)
             return lambda page: page.evaluate(sent)
 
         called = lambda page: page.evaluate("__emit('chat.visible', true)")
         three = lambda page: page.evaluate(
-            "['экран', 'логика', 'проверки'].forEach(function (name) { __emit('agent', { agent: 'assi', thread: 't', type: 'part', name: name, state: 'run' }); })")
+            "['экран', 'логика', 'проверки'].forEach(function (name) { __emit('agent', { agent: 'axiko', thread: 't', type: 'part', name: name, state: 'run' }); })")
 
         # The first meeting and its tour.
         first = {'model': False, 'modules': [], 'tours': True}
@@ -279,7 +279,7 @@ def main():
 
         desk('25-hub')
         desk('26-hub-tour', shell={'tours': True})
-        desk('27-hub-agent-searching', theme='emerald', act=lambda page: emit('agent', {'agent': 'assi', 'thread': 't1', 'type': 'tool', 'id': 't', 'name': 'web_search', 'status': 'run'}))
+        desk('27-hub-agent-searching', theme='emerald', act=lambda page: emit('agent', {'agent': 'axiko', 'thread': 't1', 'type': 'tool', 'id': 't', 'name': 'web_search', 'status': 'run'}))
         # The mascot's own screen.
         shot('23-mascot-screen', 'ui/mascot/index.html', height=1240)
         shot('24-mascot-own-colours', 'ui/mascot/index.html', height=1240, act=lambda page: page.get_by_text('Свой', exact=True).click())

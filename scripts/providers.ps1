@@ -34,11 +34,11 @@ wanted.forEach(function (provider) {
 native('models.setProviders', all);
 all.map(function (item) { return item.name + ' (' + item.baseUrl + ')' + (item.key ? ', ключ задан' : ', без ключа'); }).join('\n');
 "@
-$file = Join-Path ([IO.Path]::GetTempPath()) ("assi-providers-" + [guid]::NewGuid().ToString('N') + '.js')
+$file = Join-Path ([IO.Path]::GetTempPath()) ("axiko-providers-" + [guid]::NewGuid().ToString('N') + '.js')
 [IO.File]::WriteAllText($file, $code, [Text.UTF8Encoding]::new($false))
 try {
     & (Join-Path $PSScriptRoot 'eval.ps1') $file -Serial $Serial -WaitSeconds 25
 } finally {
     Remove-Item $file -Force
-    & $adb -s $Serial shell rm -f /data/local/tmp/assi-eval.js
+    & $adb -s $Serial shell rm -f /data/local/tmp/axiko-eval.js
 }

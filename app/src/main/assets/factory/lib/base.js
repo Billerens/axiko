@@ -13,8 +13,8 @@
 // singular; look at kinds() before inventing a new one), at (when it happened, ms), title,
 // amount and unit (when it is a quantity), tags, data (anything else, an object), source (the
 // module that recorded it).
-var assi = require('lib/assi');
-var db = assi.db('base');
+var axiko = require('lib/axiko');
+var db = axiko.db('base');
 
 db.exec('create table if not exists records (id integer primary key autoincrement, kind text not null, at integer not null, ' +
   'title text, amount real, unit text, tags text, data text, source text, created integer not null)');

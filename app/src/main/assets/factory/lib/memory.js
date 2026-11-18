@@ -2,9 +2,9 @@
 // agent/memory.md holds the few things every conversation needs; everything else goes here
 // and is found by search when it matters. Search is by words; when the owner assigns a model
 // to the role "embed" in Settings, it is also by meaning.
-var assi = require('lib/assi');
+var axiko = require('lib/axiko');
 
-var db = assi.db('memory');
+var db = axiko.db('memory');
 db.exec('create virtual table if not exists notes using fts4(text, tags, agent, time, tokenize=unicode61)');
 db.exec('create table if not exists vectors (id integer primary key, vector text)');
 

@@ -7,17 +7,15 @@ param(
 )
 
 $adb = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
-# The app is installed as app.axiko, or as app.assi where an old installation was upgraded in place (-PlegacyAssi).
-$installed = & $adb -s $Serial shell pm list packages --user 0
-$package = if ($installed -contains 'package:app.axiko') { 'app.axiko' } elseif ($installed -contains 'package:app.assi') { 'app.assi' } else { throw 'Axiko is not installed on this device' }
-& $adb -s $Serial push $File /data/local/tmp/assi-eval.js | Out-Null
+$package = 'app.axiko'
+& $adb -s $Serial push $File /data/local/tmp/axiko-eval.js | Out-Null
 & $adb -s $Serial logcat -c
-$loader = "(0,eval)(String(new java.lang.String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get('/data/local/tmp/assi-eval.js')),'UTF-8')))"
-& $adb -s $Serial shell am start --user 0 -n "$package/app.assi.MainActivity" --ei evalTimeout $WaitSeconds --es eval "`"$loader`"" | Out-Null
+$loader = "(0,eval)(String(new java.lang.String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get('/data/local/tmp/axiko-eval.js')),'UTF-8')))"
+& $adb -s $Serial shell am start --user 0 -n "$package/app.axiko.MainActivity" --ei evalTimeout $WaitSeconds --es eval "`"$loader`"" | Out-Null
 
 $deadline = (Get-Date).AddSeconds($WaitSeconds)
 do {
     Start-Sleep -Milliseconds 700
-    $lines = & $adb -s $Serial logcat -d -v raw -s AssiEval:*
+    $lines = & $adb -s $Serial logcat -d -v raw -s AxikoEval:*
 } until (($lines -match '<<end>>') -or (Get-Date) -gt $deadline)
 $lines | Where-Object { $_ -and $_ -notmatch '^-+ beginning' -and $_ -ne '<<end>>' }

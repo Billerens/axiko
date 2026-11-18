@@ -4,7 +4,7 @@
 //
 // Written for the engine (Rhino): no classes, no async, no arrow-heavy tricks.
 
-var P = Packages.app.assi;
+var P = Packages.app.axiko;
 var J = Packages.org.json;
 var lines = [];
 var counts = { pass: 0, fail: 0, skip: 0 };
@@ -49,7 +49,7 @@ function waitFor(condition, ms) {
   return condition();
 }
 
-/** A notification in the shade by its tag (the id assi.notify gave it), of this app or of [pkg]. */
+/** A notification in the shade by its tag (the id axiko.notify gave it), of this app or of [pkg]. */
 function shownNotification(tag, pkg) {
   var all = pkg ? P.sense.NoticeService.Companion.getInstance().getActiveNotifications() : context.getSystemService('notification').getActiveNotifications();
   for (var i = 0; i < all.length; i++) {
@@ -77,12 +77,12 @@ function failure(fn) {
 
 check('engine: Android from JavaScript', function () {
   var name = String(context.getPackageName());
-  expect(name === 'app.axiko' || name === 'app.assi', 'нет контекста приложения: ' + name);
+  expect(name === 'app.axiko', 'нет контекста приложения: ' + name);
   return 'SDK ' + Packages.android.os.Build.VERSION.SDK_INT;
 });
 
 check('workspace: factory files', function () {
-  var files = require('lib/assi').files;
+  var files = require('lib/axiko').files;
   ['agent/system.md', 'agent/handbook.md', 'agent/api.md', 'ui/nav.json', 'ui/nav/index.html', 'ui/kit/kit.css',
     'themes/emerald.json', 'ui/settings/index.html'].forEach(function (path) {
     expect(files.exists(path), 'нет файла ' + path);
@@ -90,7 +90,7 @@ check('workspace: factory files', function () {
 });
 
 check('engine: a module asked for from two threads at once loads whole for both', function () {
-  var files = require('lib/assi').files;
+  var files = require('lib/axiko').files;
   files.write('modules/zz-race/main.js', 'sleep(400); exports.answer = function () { return 42; };');
   try {
     var seen = [];
@@ -113,8 +113,8 @@ check('engine: a module asked for from two threads at once loads whole for both'
 
 check('prompt: template and parts', function () {
   var name = String(P.agent.Agent.INSTANCE.getName());
-  var spec = P.agent.Agent.INSTANCE.spec('assi');
-  var chat = P.agent.Agent.INSTANCE.chat('assi', '');
+  var spec = P.agent.Agent.INSTANCE.spec('axiko');
+  var chat = P.agent.Agent.INSTANCE.chat('axiko', '');
   var full = String(chat.systemPrompt(spec, false));
   var compact = String(chat.systemPrompt(spec, true));
   expect(full.indexOf('{{name}}') < 0, 'в промпте остался {{name}}');
@@ -130,7 +130,7 @@ check('prompt: the name is the owner\'s', function () {
   var before = native('wake.status').name;
   try {
     native('wake.name', 'Марфа');
-    var prompt = String(native('agent.prompt', 'assi'));
+    var prompt = String(native('agent.prompt', 'axiko'));
     expect(prompt.indexOf('Вы — Марфа') >= 0, 'имя не подставилось');
     expect(native('agent.list')[0].title === 'Марфа', 'имя не дошло до списка агентов');
   } finally {
@@ -158,7 +158,7 @@ check('theme: rides on the kit stylesheet', function () {
 check('menu: items', function () {
   var items = JSON.parse(served('ui/nav.json')).items;
   expect(items.length > 0, 'меню пустое');
-  var files = require('lib/assi').files;
+  var files = require('lib/axiko').files;
   items.forEach(function (item) {
     expect(item.title && (item.open || item.chat), 'пункт без названия или цели');
     if (item.open) expect(files.exists(item.open.replace(/[?#].*$/, '')), 'нет экрана ' + item.open);
@@ -168,7 +168,7 @@ check('menu: items', function () {
 
 check('ui_eval: waits for a promise and for the screen', function () {
   needScreen();
-  var chat = P.agent.Agent.INSTANCE.chat('assi', '');
+  var chat = P.agent.Agent.INSTANCE.chat('axiko', '');
   var run = function (code) { return String(P.agent.Tools.INSTANCE.run('ui_eval', JSON.stringify({ code: code }), chat, new java.util.ArrayList()).getText()); };
   expect(run('1 + 2') === '3', 'простое выражение: ' + run('1 + 2'));
   var later = run('new Promise(function (resolve) { setTimeout(function () { resolve("позже"); }, 300); })');
@@ -179,11 +179,11 @@ check('ui_eval: waits for a promise and for the screen', function () {
 });
 
 check('own screen: a check in one step, at a width asked for, the owner\'s screen untouched', function () {
-  var chat = P.agent.Agent.INSTANCE.chat('assi', '');
+  var chat = P.agent.Agent.INSTANCE.chat('axiko', '');
   var was = String(native('ui.where').path);
   var pictures = new java.util.ArrayList();
   var report = String(P.agent.Tools.INSTANCE.run('ui_check', JSON.stringify({
-    path: 'ui/settings/index.html', width: 344, code: 'innerWidth + " " + document.visibilityState + " " + Boolean(window.assiProbe)',
+    path: 'ui/settings/index.html', width: 344, code: 'innerWidth + " " + document.visibilityState + " " + Boolean(window.axikoProbe)',
   }), chat, pictures).getText());
   expect(report.indexOf('Экран открыт, ширина 344.') === 0, 'экран не открылся: ' + report);
   expect(report.indexOf('Код: "344 visible true"') > 0, 'страница не та, что просили: ' + report);
@@ -248,8 +248,8 @@ check('stage: a screen gets the whole display and gives it back', function () {
   needScreen();
   var activity = P.MainActivity.Companion.getCurrent();
   var page = activity.getPage();
-  var files = require('lib/assi').files;
-  files.write('data/check-stage.html', '<!doctype html><meta name="viewport" content="width=device-width"><body style="margin:0;background:#123"><script>assi.stage(true)</script>');
+  var files = require('lib/axiko').files;
+  files.write('data/check-stage.html', '<!doctype html><meta name="viewport" content="width=device-width"><body style="margin:0;background:#123"><script>axiko.stage(true)</script>');
   try {
     page.openAndWait('data/check-stage.html', 8000);
     sleep(900);
@@ -272,7 +272,7 @@ check('language: the interface follows the setting', function () {
     expect(served('ui/kit/kit.js').indexOf('window.__lang="en"') > 0, 'словарь не доехал до экранов');
     expect(String(P.core.I18n.INSTANCE.t('Безопасный режим')) === 'Safe mode', 'оболочка не перевела своё');
     expect(String(P.core.I18n.INSTANCE.t('Перед удалением модуля notes')).indexOf('notes') > 0, 'шаблон с подстановкой не сработал');
-    expect(String(native('agent.prompt', 'assi')).indexOf('(en)') > 0, 'агент не знает язык интерфейса');
+    expect(String(native('agent.prompt', 'axiko')).indexOf('(en)') > 0, 'агент не знает язык интерфейса');
     native('lang.set', 'ru');
     expect(served('ui/kit/kit.js').indexOf('window.__i18n=null') > 0, 'русский не вернулся');
   } finally {
@@ -284,7 +284,7 @@ check('language: the interface follows the setting', function () {
 check('ask_owner: a form is shown, the answer comes back to the agent', function () {
   var tools = JSON.parse(String(P.agent.Tools.INSTANCE.schemas(null, false, true, false)));
   expect(tools.some(function (tool) { return tool.function.name === 'ask_owner'; }), 'инструмента нет в списке');
-  var chat = P.agent.Agent.INSTANCE.chat('assi', '');
+  var chat = P.agent.Agent.INSTANCE.chat('axiko', '');
   var got = [null];
   spawn(function () {
     got[0] = String(chat.ask(new J.JSONObject(JSON.stringify({ title: 'Проверка', questions: [{ question: 'Цвет?', options: ['Красный', 'Синий'], recommended: 'Синий' }] }))));
@@ -300,7 +300,7 @@ check('ask_owner: a form is shown, the answer comes back to the agent', function
 });
 
 check('plan: shown to the owner, approved, steps marked', function () {
-  var chat = P.agent.Agent.INSTANCE.chat('assi', '');
+  var chat = P.agent.Agent.INSTANCE.chat('axiko', '');
   // The check draws its plan in the owner's current chat: whatever plan was there is put back.
   var before = chat.plan();
   before = before ? new J.JSONObject(String(before)) : null;
@@ -323,18 +323,18 @@ function planCheck(chat) {
   expect(got[0] && got[0].indexOf('План принят') === 0, 'агент не узнал, что план принят: ' + got[0]);
   // One mark per step is enough: the next step becomes the one in hand by itself.
   chat.planStep(new J.JSONObject('{"step": 1, "status": "done"}'));
-  var plan = native('agent.plan', 'assi');
+  var plan = native('agent.plan', 'axiko');
   expect(plan.state === 'approved' && plan.steps[0].status === 'done' && plan.steps[1].status === 'doing', 'после сделанного шага следующий не стал текущим');
   // A model that forgot a mark and went on: what came before the marked step is done.
   chat.planStep(new J.JSONObject('{"step": 3, "status": "done"}'));
-  plan = native('agent.plan', 'assi');
+  plan = native('agent.plan', 'axiko');
   expect(plan.steps[1].status === 'done' && plan.steps[2].status === 'done', 'шаги до отмеченного остались открытыми');
 }
 
 check('tasks: what runs and what ran', function () {
   var T = P.agent.Tasks.INSTANCE;
-  var task = T.begin('assi', 'check-thread', 'Проверочная задача', null);
-  var part = T.begin('assi', '', 'Её часть', task);
+  var task = T.begin('axiko', 'check-thread', 'Проверочная задача', null);
+  var part = T.begin('axiko', '', 'Её часть', task);
   T.progress(task, 2, 'fs_write x');
   var list = JSON.parse(String(T.list()));
   var mine = list.filter(function (item) { return item.key === String(task.getKey()); })[0];
@@ -353,29 +353,29 @@ check('chat model: one chat runs on a model and an effort of its own', function 
   if (!roles.main || !roles.main.model) skip('основная модель не выбрана');
   var id = 'check' + Date.now().toString(36);
   try {
-    var usual = native('agent.model', 'assi', id);
+    var usual = native('agent.model', 'axiko', id);
     expect(!usual.own && usual.model === roles.main.model, 'чат без своего выбора не на основной модели');
-    var harder = native('agent.setModel', 'assi', id, { effort: 'low' });
+    var harder = native('agent.setModel', 'axiko', id, { effort: 'low' });
     expect(harder.own && harder.model === usual.model && harder.effort === 'low', 'усилие чата не применилось: ' + JSON.stringify(harder));
-    var other = native('agent.setModel', 'assi', id, { provider: usual.provider, model: 'another-model', vision: false });
+    var other = native('agent.setModel', 'axiko', id, { provider: usual.provider, model: 'another-model', vision: false });
     expect(other.model === 'another-model' && other.vision === false && other.effort === '', 'другая модель чата не применилась: ' + JSON.stringify(other));
-    var kept = JSON.parse(text(new java.io.FileInputStream(P.agent.Threads.INSTANCE.file('assi', id))));
+    var kept = JSON.parse(text(new java.io.FileInputStream(P.agent.Threads.INSTANCE.file('axiko', id))));
     expect(kept.model && kept.model.model === 'another-model', 'выбор чата не записан вместе с ним');
     expect(String(target('main').getModel()) === usual.model, 'выбор одного чата поменял основную модель');
-    expect(!native('agent.threads', 'assi').some(function (thread) { return thread.id === id; }), 'пустой чат попал в список чатов');
-    var back = native('agent.setModel', 'assi', id, null);
+    expect(!native('agent.threads', 'axiko').some(function (thread) { return thread.id === id; }), 'пустой чат попал в список чатов');
+    var back = native('agent.setModel', 'axiko', id, null);
     expect(!back.own && back.model === usual.model && back.effort === usual.effort, 'чат не вернулся к обычной модели');
     return usual.model + ' → another-model → обратно';
   } finally {
-    native('agent.deleteThread', 'assi', id);
+    native('agent.deleteThread', 'axiko', id);
   }
 });
 
 check('queue: what is said while the agent works joins the work or waits for its end', function () {
   var main = target('main');
   if (String(main.getBaseUrl()).indexOf('10.0.2.2') < 0) skip('нужна подставная модель: настоящая стоит денег и времени');
-  var open = native('agent.thread', 'assi');
-  var thread = native('agent.newThread', 'assi');
+  var open = native('agent.thread', 'axiko');
+  var thread = native('agent.newThread', 'axiko');
   var id = String(thread.id || thread);
   var wait = function (what, ms) {
     var until = Date.now() + ms;
@@ -385,19 +385,19 @@ check('queue: what is said while the agent works joins the work or waits for its
     }
     return false;
   };
-  var shown = function () { return native('agent.history', 'assi', id); };
+  var shown = function () { return native('agent.history', 'axiko', id); };
   try {
-    native('agent.send', 'assi', 'проверка очереди', id);
+    native('agent.send', 'axiko', 'проверка очереди', id);
     expect(wait(function () { return shown().some(function (item) { return item.type === 'tool'; }); }, 90000), 'агент не взялся за работу');
-    native('agent.send', 'assi', 'сделай иначе', id, false, 'steer');
-    native('agent.send', 'assi', 'проверка очереди: а это потом', id, false, 'after');
-    native('agent.send', 'assi', 'это лишнее', id, false, 'steer');
-    var queued = native('agent.queue', 'assi', id);
+    native('agent.send', 'axiko', 'сделай иначе', id, false, 'steer');
+    native('agent.send', 'axiko', 'проверка очереди: а это потом', id, false, 'after');
+    native('agent.send', 'axiko', 'это лишнее', id, false, 'steer');
+    var queued = native('agent.queue', 'axiko', id);
     expect(queued.length === 3 && queued[0].steer && !queued[1].steer, 'сообщения не ждут как сказано: ' + JSON.stringify(queued));
-    var taken = native('agent.unqueue', 'assi', id, queued[2].id);
-    expect(taken && taken.text === 'это лишнее' && native('agent.queue', 'assi', id).length === 2, 'сообщение не забрано из очереди');
-    expect(wait(function () { return !native('agent.busy', 'assi', id); }, 120000), 'работа не закончилась');
-    expect(native('agent.queue', 'assi', id).length === 0, 'в очереди что-то осталось');
+    var taken = native('agent.unqueue', 'axiko', id, queued[2].id);
+    expect(taken && taken.text === 'это лишнее' && native('agent.queue', 'axiko', id).length === 2, 'сообщение не забрано из очереди');
+    expect(wait(function () { return !native('agent.busy', 'axiko', id); }, 120000), 'работа не закончилась');
+    expect(native('agent.queue', 'axiko', id).length === 0, 'в очереди что-то осталось');
     var words = shown().filter(function (item) { return item.type === 'user' || item.type === 'assistant'; }).map(function (item) { return item.type + ': ' + item.text; });
     var joined = words.indexOf('user: сделай иначе');
     var later = words.indexOf('user: проверка очереди: а это потом');
@@ -406,9 +406,9 @@ check('queue: what is said while the agent works joins the work or waits for its
       'сказанное посреди работы не дошло до модели в этой же работе: ' + words.join(' | '));
     return 'вмешательство дошло между шагами, отложенное — после ответа';
   } finally {
-    native('agent.stop', 'assi', id);
-    native('agent.deleteThread', 'assi', id);
-    native('agent.openThread', 'assi', open);
+    native('agent.stop', 'axiko', id);
+    native('agent.deleteThread', 'axiko', id);
+    native('agent.openThread', 'axiko', open);
   }
 });
 
@@ -416,7 +416,7 @@ check('steps: at the limit the work stops, says where it stands and waits for th
   var main = target('main');
   if (String(main.getBaseUrl()).indexOf('10.0.2.2') < 0) skip('нужна подставная модель: настоящая стоит денег и времени');
   var was = native('pref.get', 'agent.steps');
-  var thread = native('agent.newThread', 'assi');
+  var thread = native('agent.newThread', 'axiko');
   var id = String(thread.id || thread);
   // Waits until the work on the latest request has stopped at the limit; tells what it saw on the way.
   // Only what follows the owner's latest message is counted: between two requests a long
@@ -425,45 +425,45 @@ check('steps: at the limit the work stops, says where it stands and waits for th
     var seen = [];
     var started = Date.now();
     while (Date.now() < started + ms) {
-      var items = native('agent.history', 'assi', id);
+      var items = native('agent.history', 'axiko', id);
       var from = 0;
       items.forEach(function (item, index) { if (item.type === 'user') from = index; });
       var since = items.slice(from);
       var count = function (type) { return since.filter(function (item) { return item.type === type; }).length; };
       var said = since.filter(function (item) { return item.type === 'assistant'; }).pop();
-      var now = { limits: count('limit'), tools: count('tool'), busy: Boolean(native('agent.busy', 'assi', id)), said: said ? String(said.text) : '' };
+      var now = { limits: count('limit'), tools: count('tool'), busy: Boolean(native('agent.busy', 'axiko', id)), said: said ? String(said.text) : '' };
       var brief = now.limits + '/' + now.tools + '/' + now.busy;
       if (seen[seen.length - 1] !== brief) seen.push(brief);
       if (now.limits > 0 && !now.busy) return now;
       if (!now.busy && Date.now() - started > 5000) break;
       sleep(500);
     }
-    var tail = native('agent.history', 'assi', id).slice(-3).map(function (item) { return JSON.stringify(item).slice(0, 260); }).join(' ## ');
+    var tail = native('agent.history', 'axiko', id).slice(-3).map(function (item) { return JSON.stringify(item).slice(0, 260); }).join(' ## ');
     throw new Error('работа не остановилась на пределе за ' + Math.round((Date.now() - started) / 1000) + ' с (пределов/шагов/занят): ' + seen.slice(-10).join(' ') + ' ПОСЛЕДНЕЕ ' + tail + ' ЖУРНАЛ ' + String(native('log.engine', 12)));
   };
   try {
     native('pref.set', 'agent.steps', '20');
-    native('agent.send', 'assi', 'проверка предела шагов', id);
+    native('agent.send', 'axiko', 'проверка предела шагов', id);
     var first = stopped(300000);
     expect(first.tools === 20, 'шагов с инструментом ' + first.tools + ', а не 20');
     expect(first.said.indexOf('Остановился на пределе') === 0, 'итога нет: ' + first.said);
     // "Go on" is a new request: the count starts over.
-    native('agent.send', 'assi', 'Продолжай: проверка предела шагов', id);
+    native('agent.send', 'axiko', 'Продолжай: проверка предела шагов', id);
     var second = stopped(300000);
     expect(second.tools === 20, 'после продолжения шагов ' + second.tools + ', а не 20');
     expect(second.said.indexOf('Остановился на пределе') === 0, 'второго итога нет: ' + second.said);
     return '20 шагов, итог, ещё 20 после «Продолжай»';
   } finally {
-    native('agent.stop', 'assi', id);
+    native('agent.stop', 'axiko', id);
     native('pref.set', 'agent.steps', was === undefined || was === null ? null : String(was));
-    native('agent.deleteThread', 'assi', id);
+    native('agent.deleteThread', 'axiko', id);
   }
 });
 
 check('subtasks: pieces of work run side by side', function () {
   var main = target('main');
   if (String(main.getBaseUrl()).indexOf('10.0.2.2') < 0) skip('нужна подставная модель: настоящая стоит денег и времени');
-  var chat = P.agent.Agent.INSTANCE.chat('assi', '');
+  var chat = P.agent.Agent.INSTANCE.chat('axiko', '');
   var started = Date.now();
   var out = String(chat.parts(new J.JSONObject(JSON.stringify({ tasks: [{ title: 'Первая', task: 'Скажи привет' }, { title: 'Вторая', task: 'Скажи привет' }] }))));
   expect(out.indexOf('## Первая') >= 0 && out.indexOf('## Вторая') >= 0, 'нет отчётов обеих частей: ' + out.slice(0, 120));
@@ -472,7 +472,7 @@ check('subtasks: pieces of work run side by side', function () {
 
 check('module checks: a module tests itself', function () {
   needScreen();
-  var files = require('lib/assi').files;
+  var files = require('lib/axiko').files;
   files.write('modules/zz-check/module.json', JSON.stringify({ title: 'Проверка проверок', description: '' }));
   files.write('modules/zz-check/main.js', 'var n = 0; exports.add = function () { return ++n; };');
   files.write('modules/zz-check/ui/index.html', '<!doctype html><meta charset="utf-8"><body><button id="b" onclick="this.textContent=\'нажато\'">жми</button></body>');
@@ -482,7 +482,7 @@ check('module checks: a module tests itself', function () {
     "exports['заведомо не проходит'] = function (t) { t.equal(1, 2, 'числа'); };",
   ].join('\n'));
   try {
-    var report = String(P.agent.Tools.INSTANCE.run('module_check', JSON.stringify({ module: 'zz-check' }), P.agent.Agent.INSTANCE.chat('assi', ''), new java.util.ArrayList()).getText());
+    var report = String(P.agent.Tools.INSTANCE.run('module_check', JSON.stringify({ module: 'zz-check' }), P.agent.Agent.INSTANCE.chat('axiko', ''), new java.util.ArrayList()).getText());
     expect(report.indexOf('прошло 2 из 3') > 0, 'итог не тот: ' + report.split('\n')[0]);
     expect(report.indexOf('прошло: экран отвечает на нажатие') > 0, 'проверка экрана не прошла: ' + report);
     expect(report.indexOf('НЕ ПРОШЛО: заведомо не проходит — числа') > 0, 'провал не показан');
@@ -509,7 +509,7 @@ check('base: personal facts across modules', function () {
     var thrown = false;
     try { base.sql('delete from records'); } catch (error) { thrown = true; }
     expect(thrown, 'база дала выполнить не select');
-    var tool = String(P.agent.Tools.INSTANCE.run('base_find', JSON.stringify({ kind: 'zz-water', by: 'day' }), P.agent.Agent.INSTANCE.chat('assi', ''), new java.util.ArrayList()).getText());
+    var tool = String(P.agent.Tools.INSTANCE.run('base_find', JSON.stringify({ kind: 'zz-water', by: 'day' }), P.agent.Agent.INSTANCE.chat('axiko', ''), new java.util.ArrayList()).getText());
     expect(tool.indexOf('сумма') > 0, 'инструмент агента не ответил: ' + tool);
   } finally {
     ids.forEach(function (id) { base.remove(id); });
@@ -526,7 +526,7 @@ check('routines: set, armed, removed', function () {
     var bad = false;
     try { routines.set({ title: 'x', when: { kind: 'every', minutes: 1 }, do: 'y' }); } catch (error) { bad = true; }
     expect(bad, 'принят интервал чаще пяти минут');
-    var listed = String(P.agent.Tools.INSTANCE.run('routine_list', '{}', P.agent.Agent.INSTANCE.chat('assi', ''), new java.util.ArrayList()).getText());
+    var listed = String(P.agent.Tools.INSTANCE.run('routine_list', '{}', P.agent.Agent.INSTANCE.chat('axiko', ''), new java.util.ArrayList()).getText());
     expect(listed.indexOf('Проверочная') >= 0, 'инструмент не показал рутину');
   } finally {
     routines.remove(made.id);
@@ -536,12 +536,12 @@ check('routines: set, armed, removed', function () {
 
 check('drafts: a rework stays apart until taken', function () {
   var D = P.core.Drafts.INSTANCE;
-  var files = require('lib/assi').files;
-  var chat = P.agent.Agent.INSTANCE.chat('assi', '');
+  var files = require('lib/axiko').files;
+  var chat = P.agent.Agent.INSTANCE.chat('axiko', '');
   var tool = function (name, args) { return String(P.agent.Tools.INSTANCE.run(name, JSON.stringify(args), chat, new java.util.ArrayList()).getText()); };
   files.write('modules/zz-draft/main.js', 'exports.say = function () { return "прежнее"; };');
   files.write('modules/zz-draft/old.txt', 'удалят');
-  var id = String(D.create('Проверка черновика', 'assi', 'zz-none', ''));
+  var id = String(D.create('Проверка черновика', 'axiko', 'zz-none', ''));
   try {
     var inDraft = function (fn) { return D.within(id, new Packages.kotlin.jvm.functions.Function0({ invoke: fn })); };
     inDraft(function () {
@@ -587,14 +587,14 @@ function Engine_eval(code) { return P.core.Engine.INSTANCE.eval(code, 'check', 0
 check('mcp: the phone serves its tools to agents elsewhere', function () {
   var lan = native('lan.status');
   if (!lan.running) skip('доступ с компьютера выключен');
-  var http = require('lib/assi').http;
+  var http = require('lib/axiko').http;
   var url = 'http://127.0.0.1:' + lan.port + '/mcp';
   var call = function (body, headers) { return http.request({ url: url, method: 'POST', json: body, headers: headers || { Authorization: 'Bearer ' + lan.code } }); };
   expect(call({ jsonrpc: '2.0', id: 1, method: 'tools/list' }, {}).status === 401, 'без кода пустило');
   var hello = call({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'check', version: '1' } } }).json();
-  expect(hello.result && hello.result.serverInfo.name === 'assi-phone', 'нет приветствия');
+  expect(hello.result && hello.result.serverInfo.name === 'axiko-phone', 'нет приветствия');
   var tools = call({ jsonrpc: '2.0', id: 2, method: 'tools/list' }).json().result.tools.map(function (tool) { return tool.name; });
-  expect(tools.indexOf('assi_ask') >= 0 && tools.indexOf('fs_read') >= 0 && tools.indexOf('phone_notifications') >= 0, 'нет ожидаемых инструментов');
+  expect(tools.indexOf('axiko_ask') >= 0 && tools.indexOf('fs_read') >= 0 && tools.indexOf('phone_notifications') >= 0, 'нет ожидаемых инструментов');
   expect(tools.indexOf('ask_owner') < 0 && tools.indexOf('subtasks') < 0, 'наружу отданы инструменты, которым нужен владелец в чате');
   var read = call({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'fs_read', arguments: { path: 'ui/nav.json' } } }).json().result;
   expect(!read.isError && read.content[0].text.indexOf('items') >= 0, 'вызов инструмента не сработал');
@@ -610,7 +610,7 @@ check('lan: the phone answers to its name, the owner\'s own key lets in', functi
   expect(native('lan.status').name === lan.name, 'негодное имя всё же записано');
 
   // The key: the owner's own lets in, the one before it no longer does.
-  var http = require('lib/assi').http;
+  var http = require('lib/axiko').http;
   var list = function (key) {
     return http.request({ url: 'http://127.0.0.1:' + lan.port + '/mcp', method: 'POST', json: { jsonrpc: '2.0', id: 1, method: 'tools/list' }, headers: { Authorization: 'Bearer ' + key } }).status;
   };
@@ -740,8 +740,8 @@ check('local model: answers a greeting', function () {
 check('local model: the main agent\'s real prompt and tools', function () {
   var models = localModels();
   if (!models.length) skip('нет скачанных моделей');
-  var spec = P.agent.Agent.INSTANCE.spec('assi');
-  var chat = P.agent.Agent.INSTANCE.chat('assi', '');
+  var spec = P.agent.Agent.INSTANCE.spec('axiko');
+  var chat = P.agent.Agent.INSTANCE.chat('axiko', '');
   var as = new P.agent.Models.Target('local', 'local:', '', models[0].id, new J.JSONObject());
   var lean = chat.lean(spec, as);
   var prompt = String(chat.systemPrompt(spec, lean));
@@ -831,13 +831,13 @@ check('folding: a conversation that outgrows the window is summarized', function
   var main = target('main');
   if (String(main.getBaseUrl()).indexOf('10.0.2.2') < 0 && !main.getOnPhone()) skip('тратить деньги облачной модели на проверку не стоит: нужна подставная или локальная');
   var before = JSON.stringify(roles);
-  var open = native('agent.thread', 'assi');
-  var thread = native('agent.newThread', 'assi');
+  var open = native('agent.thread', 'axiko');
+  var thread = native('agent.newThread', 'axiko');
   var id = String(thread.id || thread);
   try {
     roles.main.context = 3000;
     native('models.setRoles', roles);
-    var chat = P.agent.Agent.INSTANCE.chat('assi', id);
+    var chat = P.agent.Agent.INSTANCE.chat('axiko', id);
     var filler = new Array(60).join('Подробности, которые занимают место в окне. ');
     var history = [];
     for (var i = 0; i < 8; i++) {
@@ -854,8 +854,8 @@ check('folding: a conversation that outgrows the window is summarized', function
     return was + ' сообщений → ' + now;
   } finally {
     native('models.setRoles', JSON.parse(before));
-    native('agent.deleteThread', 'assi', id);
-    native('agent.openThread', 'assi', open);
+    native('agent.deleteThread', 'axiko', id);
+    native('agent.openThread', 'axiko', open);
   }
 });
 
@@ -872,16 +872,16 @@ check('shell.features: what this shell can do', function () {
 
 check('notify: buttons call a module, a reply brings its text, cancel takes it away', function () {
   if (!context.getSystemService('notification').areNotificationsEnabled()) skip('уведомления Axiko выключены');
-  var assi = require('lib/assi');
+  var axiko = require('lib/axiko');
   var path = 'modules/zz-check-notify/main.js';
-  assi.files.write(path, 'exports.got = []; exports.press = function () { exports.got.push(Array.prototype.slice.call(arguments)); };');
+  axiko.files.write(path, 'exports.got = []; exports.press = function () { exports.got.push(Array.prototype.slice.call(arguments)); };');
   var got = require(path).got;
   var buttons = [
     { title: 'Да', call: path, fn: 'press', args: { n: 1 } },
     { title: 'Ответить', call: path, fn: 'press', args: 'r', reply: true },
   ];
   try {
-    var id = assi.notify({ id: 'check-notify', title: 'Проверка', text: 'Кнопки', ongoing: true, progress: { max: 0 }, actions: buttons });
+    var id = axiko.notify({ id: 'check-notify', title: 'Проверка', text: 'Кнопки', ongoing: true, progress: { max: 0 }, actions: buttons });
     expect(id === 'check-notify', 'id не тот: ' + id);
     var shown = postedNotification(id);
     expect(shown && shown.getNotification().actions.length === 2, 'уведомления с двумя кнопками нет в шторке');
@@ -900,26 +900,26 @@ check('notify: buttons call a module, a reply brings its text, cancel takes it a
     expect(JSON.stringify(got[1]) === '["r","привет"]', 'ответ пришёл не так: ' + JSON.stringify(got[1]));
     expect(postedNotification(id), 'отвеченное постоянное уведомление не вернулось');
 
-    assi.notify({ id: 'check-notify-once', text: 'Одна кнопка', actions: [buttons[0]] });
+    axiko.notify({ id: 'check-notify-once', text: 'Одна кнопка', actions: [buttons[0]] });
     expect(postedNotification('check-notify-once'), 'уведомления с одной кнопкой нет в шторке');
     shownNotification('check-notify-once').getNotification().actions[0].actionIntent.send();
     expect(waitFor(function () { return got.length === 3; }, 8000), 'кнопка обычного уведомления не вызвала функцию');
     expect(waitFor(function () { return !shownNotification('check-notify-once'); }, 3000), 'обычное уведомление осталось после нажатия кнопки');
 
-    assi.notify.cancel(id);
+    axiko.notify.cancel(id);
     expect(waitFor(function () { return !shownNotification(id); }, 3000), 'cancel не убрал уведомление');
-    expect(failure(function () { assi.notify({ text: 'x', actions: [{ title: 'x' }] }); }).indexOf('call и fn') >= 0, 'кнопка без call и fn принята');
-    expect(failure(function () { assi.notify({ text: 'x', channel: 'loud' }); }).indexOf('Нет такого канала') >= 0, 'неизвестный канал принят');
+    expect(failure(function () { axiko.notify({ text: 'x', actions: [{ title: 'x' }] }); }).indexOf('call и fn') >= 0, 'кнопка без call и fn принята');
+    expect(failure(function () { axiko.notify({ text: 'x', channel: 'loud' }); }).indexOf('Нет такого канала') >= 0, 'неизвестный канал принят');
 
-    assi.notify({ id: 'check-alarm', title: 'Проверка', text: 'Будильник', channel: 'alarm', silent: true });
+    axiko.notify({ id: 'check-alarm', title: 'Проверка', text: 'Будильник', channel: 'alarm', silent: true });
     expect(postedNotification('check-alarm'), 'будильника нет в шторке');
     var alarm = shownNotification('check-alarm').getNotification();
-    expect(String(alarm.getChannelId()) === 'assi-alarm' && String(alarm.category) === 'alarm', 'не канал будильников: ' + alarm.getChannelId());
-    var bypass = context.getSystemService('notification').getNotificationChannel('assi-alarm').canBypassDnd();
+    expect(String(alarm.getChannelId()) === 'axiko-alarm' && String(alarm.category) === 'alarm', 'не канал будильников: ' + alarm.getChannelId());
+    var bypass = context.getSystemService('notification').getNotificationChannel('axiko-alarm').canBypassDnd();
     return '3 нажатия дошли; канал будильников ' + (bypass ? 'звучит сквозь «Не беспокоить»' : 'без обхода «Не беспокоить»');
   } finally {
-    ['check-notify', 'check-notify-once', 'check-alarm'].forEach(function (tag) { assi.notify.cancel(tag); });
-    assi.files.remove('modules/zz-check-notify');
+    ['check-notify', 'check-notify-once', 'check-alarm'].forEach(function (tag) { axiko.notify.cancel(tag); });
+    axiko.files.remove('modules/zz-check-notify');
   }
 });
 
@@ -932,8 +932,8 @@ check('notifications: a chat read whole — messages, whose, the conversation', 
   var style = new Style(me).setConversationTitle('Семья').setGroupConversation(true);
   style.addMessage(new Style.Message('Привет', Date.now() - 1000, anna));
   style.addMessage(new Style.Message('И тебе', Date.now(), me));
-  manager.createNotificationChannel(new android.app.NotificationChannel('assi', 'Axiko', 3));
-  manager.notify('check-chat', 0, new android.app.Notification.Builder(context, 'assi')
+  manager.createNotificationChannel(new android.app.NotificationChannel('axiko', 'Axiko', 3));
+  manager.notify('check-chat', 0, new android.app.Notification.Builder(context, 'axiko')
     .setSmallIcon(context.getApplicationInfo().icon).setStyle(style).build());
   try {
     var shown = postedNotification('check-chat');
@@ -943,7 +943,7 @@ check('notifications: a chat read whole — messages, whose, the conversation', 
     expect(item.messages[0].sender === 'Аня' && item.messages[0].text === 'Привет', 'чужое сообщение: ' + JSON.stringify(item.messages[0]));
     expect(item.messages[1].sender === null, 'своё сообщение с отправителем: ' + JSON.stringify(item.messages[1]));
     expect(item.conversationTitle === 'Семья' && item.isGroup === true, 'беседа: ' + item.conversationTitle + ', группа ' + item.isGroup);
-    expect(item.tag === 'check-chat' && item.channel === 'assi' && item.shortcutId === null && typeof item.user === 'number', 'поля: ' + JSON.stringify(item));
+    expect(item.tag === 'check-chat' && item.channel === 'axiko' && item.shortcutId === null && typeof item.user === 'number', 'поля: ' + JSON.stringify(item));
     return 'профиль ' + item.user + ', ' + item.messages.length + ' сообщения';
   } finally {
     manager.cancel('check-chat', 0);
@@ -952,7 +952,7 @@ check('notifications: a chat read whole — messages, whose, the conversation', 
 
 check('notifications: another app\'s chat heard and its removal told', function () {
   if (!P.sense.Notices.INSTANCE.getOn()) skip('чтение уведомлений выключено');
-  var shown = shownNotification('assi-check', 'com.android.shell');
+  var shown = shownNotification('axiko-check', 'com.android.shell');
   if (!shown) skip('нет уведомления от оболочки: его посылает scripts\\check.ps1 перед проверками');
   var item = JSON.parse(String(P.sense.Notices.INSTANCE.describe(shown)));
   expect(item.messages.length === 2 && item.messages[0].sender === 'Anna' && item.messages[1].sender === null, 'сообщения: ' + JSON.stringify(item.messages));
@@ -974,17 +974,17 @@ check('notifications: another app\'s chat heard and its removal told', function 
 check('notifications: a tap made from Axiko opens what the notification opens', function () {
   needScreen();
   if (!P.sense.Notices.INSTANCE.getOn()) skip('чтение уведомлений выключено');
-  var assi = require('lib/assi');
+  var axiko = require('lib/axiko');
   var was = native('ui.where').path;
   try {
     P.MainActivity.Companion.getCurrent().getPage().openAndWait('ui/home/index.html', 10000);
-    var id = assi.notify({ id: 'check-open', text: 'Открыть настройки', open: 'ui/settings/index.html' });
+    var id = axiko.notify({ id: 'check-open', text: 'Открыть настройки', open: 'ui/settings/index.html' });
     var shown = postedNotification(id, String(context.getPackageName()));
     expect(shown, 'слушатель не видит уведомление');
     expect(native('notices.open', String(shown.getKey())) === true, 'не открыто');
     expect(waitFor(function () { return native('ui.where').path.indexOf('ui/settings') >= 0; }, 6000), 'открыт не тот экран: ' + native('ui.where').path);
   } finally {
-    assi.notify.cancel('check-open');
+    axiko.notify.cancel('check-open');
     native('ui.open', was || 'ui/home/index.html');
   }
 });
@@ -1047,9 +1047,9 @@ check('job: once at a moment, and not again', function () {
 });
 
 check('vibrate: a pattern', function () {
-  var assi = require('lib/assi');
-  assi.vibrate([0, 60, 80, 60]);
-  assi.vibrate(30);
+  var axiko = require('lib/axiko');
+  axiko.vibrate([0, 60, 80, 60]);
+  axiko.vibrate(30);
 });
 
 check('app.visible: out of sight and back', function () {
@@ -1062,7 +1062,7 @@ check('app.visible: out of sight and back', function () {
     activity.evalInPage('window.__seen = []; document.addEventListener("visibilitychange", function () { __seen.push(document.visibilityState); }); 1', 3000);
     new android.os.Handler(android.os.Looper.getMainLooper()).post(function () { activity.moveTaskToBack(true); });
     expect(waitFor(function () { return seen.indexOf(false) >= 0; }, 5000), 'уход с экрана не замечен');
-    context.startActivity(new android.content.Intent().setClassName(context, 'app.assi.MainActivity').addFlags(0x10000000 | 0x00020000));
+    context.startActivity(new android.content.Intent().setClassName(context, 'app.axiko.MainActivity').addFlags(0x10000000 | 0x00020000));
     expect(waitFor(function () { return seen[seen.length - 1] === true; }, 5000), 'возвращение не замечено: ' + seen.join(' → '));
     var page = '';
     waitFor(function () { page = String(activity.evalInPage('__seen.join()', 3000)); return page === '"hidden,visible"'; }, 3000);
@@ -1074,7 +1074,7 @@ check('app.visible: out of sight and back', function () {
 });
 
 check('theme: a decor over any theme', function () {
-  var files = require('lib/assi').files;
+  var files = require('lib/axiko').files;
   var kept = files.exists('themes/_decor.css') ? files.read('themes/_decor.css') : '';
   try {
     native('theme.decor', 'body { --check-decor: 1; }');
@@ -1087,7 +1087,7 @@ check('theme: a decor over any theme', function () {
 });
 
 check('widget: a module\'s picture beside its text', function () {
-  var files = require('lib/assi').files;
+  var files = require('lib/axiko').files;
   var path = 'modules/zz-check-widget/main.js';
   files.write(path, "exports.image = 'data/check-widget.png'; exports.widget = function () { return { title: 'Проверка', text: 'С картинкой', image: exports.image }; };");
   var picture = android.graphics.Bitmap.createBitmap(1200, 600, android.graphics.Bitmap.Config.ARGB_8888);
@@ -1120,11 +1120,11 @@ check('widget: a module\'s picture beside its text', function () {
 
 check('home: a module\'s card in a frame, hearing events', function () {
   needScreen();
-  var files = require('lib/assi').files;
+  var files = require('lib/axiko').files;
   files.write('modules/zz-check-card/module.json', JSON.stringify({ title: 'Проверка карточки', home: 'ui/card.html', homeHeight: 90 }));
   files.write('modules/zz-check-card/ui/index.html', '<!doctype html><meta charset="utf-8"><title>Проверка</title>');
   files.write('modules/zz-check-card/ui/card.html', '<!doctype html><meta charset="utf-8"><body><b id="n">0</b>' +
-    '<script>assi.on("check.card", function (data) { document.getElementById("n").textContent = data.n; });</script>');
+    '<script>axiko.on("check.card", function (data) { document.getElementById("n").textContent = data.n; });</script>');
   var frame = 'document.querySelector(\'#cards iframe[src="/modules/zz-check-card/ui/card.html"]\')';
   var ask = function (code) { return String(native('ui.eval', code, 0)); };
   try {
@@ -1188,7 +1188,7 @@ check('usage: time in apps and the screen\'s sessions', function () {
 
 check('speech: said into a file and its phrases found again', function () {
   if (!native('tts.local.status').ready) skip('голос не скачан');
-  var files = require('lib/assi').files;
+  var files = require('lib/axiko').files;
   var path = native('speech.render', 'Привет. Это проверка голоса в файле.', 'data/check-render.mp3', 'local');
   try {
     expect(path === 'data/check-render.wav', 'записано не туда: ' + path);
@@ -1222,7 +1222,7 @@ check('speech: said into a file by the cloud voice', function () {
     expect(path === 'data/check-cloud.wav' ? head === 'RIFF' : path !== 'data/check-cloud.ogg' || head === 'OggS', 'не тот файл: ' + path + ' начинается с ' + head);
     return path + ', ' + Math.round(file.length() / 1024) + ' КБ';
   } finally {
-    require('lib/assi').files.remove(path);
+    require('lib/axiko').files.remove(path);
   }
 });
 

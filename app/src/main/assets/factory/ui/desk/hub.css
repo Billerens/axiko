@@ -530,7 +530,7 @@ button svg.i, [data-icon] svg.i {
 .create-prompt:hover, .create-prompt:focus-visible {
   background: color-mix(in srgb, var(--accent) 5%, var(--bg));
 }
-.assi-core {
+.axiko-core {
   position: relative;
   display: grid;
   width: 180px;
@@ -711,7 +711,7 @@ and the frames made for the spark step back. */
 @container (max-width: 600px) {
   .overview-intro { grid-template-columns: minmax(0, 1fr) 160px; gap: 6px; min-height: 190px; }
   .overview-intro h2 { font-size: 34px; }
-  .assi-core { width: 160px; height: 130px; }
+  .axiko-core { width: 160px; height: 130px; }
   .core-center { width: 62px; height: 62px; border-radius: 21px; }
   .core-center svg.i { width: 34px; height: 34px; }
   .intro-copy { font-size: 11px; }
@@ -729,7 +729,7 @@ and the frames made for the spark step back. */
   .intro-copy { font-size: 12px; max-width: 320px; }
   .idea-station { align-items: stretch; }
   .create-prompt { flex-direction: row; gap: 13px; padding: 8px 12px; border-color: var(--line); border-radius: 15px; background: var(--surface); text-align: left; }
-  .assi-core { flex: none; width: 46px; height: 46px; }
+  .axiko-core { flex: none; width: 46px; height: 46px; }
   .core-orbits { display: none; }
   .core-center { width: 39px; height: 39px; border-radius: 14px; }
   .core-center svg.i { width: 25px; height: 25px; }

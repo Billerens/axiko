@@ -122,7 +122,7 @@
 
 ## Данные
 
-- `data/rpg/xp.db` (SQLite через `assi.db('rpg')`), таблица `xp(id, day, at, skill, amount, reason, ref)`. Это журнал начислений, он только дописывается. `ref` — `id` записи общей базы или ачивки, чтобы не начислить дважды.
+- `data/rpg/xp.db` (SQLite через `axiko.db('rpg')`), таблица `xp(id, day, at, skill, amount, reason, ref)`. Это журнал начислений, он только дописывается. `ref` — `id` записи общей базы или ачивки, чтобы не начислить дважды.
 - `data/rpg/state.json` — `{ level, total, skills: { id: { xp, level } }, freezes: { habitId: остаток }, lastActive }`. Состояние можно пересобрать из журнала.
 - `data/rpg/cells.json` — открытые клетки `{ cell: первый визит }`; `data/rpg/locations.json` — игровые имена.
 - `data/rpg/quests.json` (шаблоны), `data/rpg/active.json` (активные квесты), `data/rpg/chronicle.json` (строки по дням), `data/rpg/settings.json`.
@@ -131,13 +131,13 @@
 
 ## Что нужно от оболочки
 
-Уже есть: `job`, `assi.db`, `lib/base.js`, сводка дня и места из [Здоровья](health.md), `widget()`, `assi.notify`, `ai.ask({ role })`, кэш библиотек с CDN (`webcache`), `<canvas>` и SVG в WebView.
+Уже есть: `job`, `axiko.db`, `lib/base.js`, сводка дня и места из [Здоровья](health.md), `widget()`, `axiko.notify`, `ai.ask({ role })`, кэш библиотек с CDN (`webcache`), `<canvas>` и SVG в WebView.
 
 Правка оболочки не нужна. Зависимости от других модулей:
 
 - места требуют сбора местоположения в Здоровье и разрешения «Всегда» для геолокации (`ACCESS_BACKGROUND_LOCATION` объявлено, выдаёт владелец в настройках телефона);
 - проверить на телефоне, что `getCurrentLocation` отвечает из фоновой работы. Служба движка объявлена с типами `specialUse|microphone`, без `location`; при разрешении «Всегда» это не должно мешать;
-- проверить, что тайлы OpenStreetMap грузятся в WebView с `assi.local` (заголовок `Referer`) и кэшируются.
+- проверить, что тайлы OpenStreetMap грузятся в WebView с `axiko.local` (заголовок `Referer`) и кэшируются.
 
 ## Связи
 

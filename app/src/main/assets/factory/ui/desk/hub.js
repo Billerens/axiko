@@ -1,7 +1,7 @@
 /* Universal browser hub. The factory copy is installed into the editable workspace. */
 (function () {
   'use strict';
-  const T = window.AssiTransport;
+  const T = window.AxikoTransport;
   const $ = id => document.getElementById(id);
   const h = ui.h;
   const desk = $('desk');
@@ -102,8 +102,8 @@
   function setChat(on, agent) {
     if (agent) {
       chatAgent = agent;
-      if (chatReady && chatFrame.contentWindow && typeof chatFrame.contentWindow.__assiEmit === 'function') {
-        chatFrame.contentWindow.__assiEmit('chat.agent', agent);
+      if (chatReady && chatFrame.contentWindow && typeof chatFrame.contentWindow.__axikoEmit === 'function') {
+        chatFrame.contentWindow.__axikoEmit('chat.agent', agent);
         chatAgent = null;
       }
     }
@@ -302,26 +302,26 @@
     if (editorLoading) return editorLoading;
     $('studio-editor').replaceChildren(h('p', { class: 'empty-copy editor-loading', role: 'status' }, 'Открываю редактор…'));
     editorLoading = (async () => {
-      if (!window.AssiEditor) {
+      if (!window.AxikoEditor) {
         await Promise.all([
           editorAsset('/ui/desk/editor.css', true),
-          window.AssiEditorModel ? Promise.resolve() : editorAsset('/ui/desk/editor-model.js', false)
+          window.AxikoEditorModel ? Promise.resolve() : editorAsset('/ui/desk/editor-model.js', false)
         ]);
-        if (typeof window.AssiEditorModel?.create !== 'function') {
-          forgetEditorScript('/ui/desk/editor-model.js', 'AssiEditorModel');
+        if (typeof window.AxikoEditorModel?.create !== 'function') {
+          forgetEditorScript('/ui/desk/editor-model.js', 'AxikoEditorModel');
           throw new Error('Модель редактора не загрузилась. Повторите попытку.');
         }
         await editorAsset('/ui/desk/editor.js', false);
       }
-      if (typeof window.AssiEditor?.mount !== 'function') {
-        forgetEditorScript('/ui/desk/editor.js', 'AssiEditor');
+      if (typeof window.AxikoEditor?.mount !== 'function') {
+        forgetEditorScript('/ui/desk/editor.js', 'AxikoEditor');
         throw new Error('Редактор не загрузился. Повторите попытку.');
       }
       try {
-        editor = window.AssiEditor.mount($('studio-editor'), { rpc: payload => T.rpc(payload), open: openEditorPreview, toast });
+        editor = window.AxikoEditor.mount($('studio-editor'), { rpc: payload => T.rpc(payload), open: openEditorPreview, toast });
         if (!editor) throw new Error('Редактор не открылся. Повторите попытку.');
       } catch (error) {
-        forgetEditorScript('/ui/desk/editor.js', 'AssiEditor');
+        forgetEditorScript('/ui/desk/editor.js', 'AxikoEditor');
         throw error;
       }
       return editor;
@@ -390,7 +390,7 @@
   }
 
   // Installed before any iframe gets a src: every nested module shares one event connection.
-  window.assiDesk = {
+  window.axikoDesk = {
     rpc: payload => T.rpc(payload),
     subscribe: callback => {
       subscribers.add(callback);
@@ -404,7 +404,7 @@
     stage,
     openFile: openEditorFile
   };
-  window.dispatchEvent(new Event('assi-desk-ready'));
+  window.dispatchEvent(new Event('axiko-desk-ready'));
 
   function navButton(item, route) {
     const button = h('button', { class: 'nav-item', title: item.title, 'data-route': route },
@@ -517,7 +517,7 @@
       }
     },
     nav: {
-      request: () => T.eval('require("lib/assi").files.read("ui/nav.json")'),
+      request: () => T.eval('require("lib/axiko").files.read("ui/nav.json")'),
       apply: value => {
         const nav = typeof value === 'string' ? JSON.parse(value) : value;
         state.nav = Array.isArray(nav?.items) ? nav.items : [];
@@ -700,7 +700,7 @@
   $('journal-refresh').addEventListener('click', readJournal);
   $('journal-download').addEventListener('click', () => {
     const url = URL.createObjectURL(new Blob([journalLines.join('\n')], { type: 'text/plain;charset=utf-8' }));
-    const link = h('a', { href: url, download: 'assi-journal.txt' });
+    const link = h('a', { href: url, download: 'axiko-journal.txt' });
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   });

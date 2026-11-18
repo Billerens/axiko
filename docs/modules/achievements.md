@@ -218,14 +218,14 @@
 Уже есть:
 
 - `lib/base.js` и сводка дня [Здоровья](health.md);
-- `assi.notify({ title, text, open, silent })`;
-- `widget()` и `assi.widget.refresh('achievements')`;
+- `axiko.notify({ title, text, open, silent })`;
+- `widget()` и `axiko.widget.refresh('achievements')`;
 - `module_check` и автоматический прогон `checks.js` после хода агента — это и есть проверка правил, которые он дописал;
 - `require` других модулей для `define`/`grant`.
 
 Правка оболочки для первого этапа не нужна. Позже:
 
-- картинка значка в уведомлении (`setLargeIcon` в `assi.notify`, сейчас его нет) и в виджете — тот же механизм `image`, что просит [Питомец](pet.md).
+- картинка значка в уведомлении (`setLargeIcon` в `axiko.notify`, сейчас его нет) и в виджете — тот же механизм `image`, что просит [Питомец](pet.md).
 
 ## Связи
 

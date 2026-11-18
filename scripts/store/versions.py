@@ -6,7 +6,7 @@ published now: its version and the hash of every file. A package whose files dif
 carry a higher version; one that is the same keeps its version and its published archive.
 
     python tools/store/versions.py check  --store . --licensefile LICENSE --exclude sparks-ring
-    python tools/store/versions.py record --store . --built ../assi-store-dist
+    python tools/store/versions.py record --store . --built ../axiko-store-dist
 
 `check` reads sources only: no network, nothing is built, installed or run. `record` copies the
 manifests of a finished build into `released/` after its archives have been published.

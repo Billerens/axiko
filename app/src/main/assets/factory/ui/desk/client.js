@@ -1,7 +1,7 @@
-// Browser equivalent of window.assi. Nested widgets share the surrounding hub's transport.
+// Browser equivalent of window.axiko. Nested widgets share the surrounding hub's transport.
 (function () {
   'use strict';
-  if (window.assi) return;
+  if (window.axiko) return;
 
   var listeners = Object.create(null);
   var unsubscribe = null;
@@ -14,7 +14,7 @@
   var visibilityTimer = null;
   var forceVisibility = false;
   var rootPath = /^\/(?:ui\/desk\/(?:index\.html)?)?$/.test(location.pathname);
-  if (rootPath) window.__assiTransportRoot = true;
+  if (rootPath) window.__axikoTransportRoot = true;
 
   function ancestors() {
     var result = [], current = window;
@@ -33,7 +33,7 @@
   function desk() {
     var chain = ancestors();
     for (var i = 0; i < chain.length; i++) {
-      if (chain[i].assiDesk && typeof chain[i].assiDesk.rpc === 'function' && typeof chain[i].assiDesk.subscribe === 'function') return chain[i].assiDesk;
+      if (chain[i].axikoDesk && typeof chain[i].axikoDesk.rpc === 'function' && typeof chain[i].axikoDesk.subscribe === 'function') return chain[i].axikoDesk;
     }
     return null;
   }
@@ -42,7 +42,7 @@
     var host = desk();
     if (host) return host;
     var chain = ancestors();
-    for (var i = 0; i < chain.length; i++) if (chain[i].AssiTransport) return chain[i].AssiTransport;
+    for (var i = 0; i < chain.length; i++) if (chain[i].AxikoTransport) return chain[i].AxikoTransport;
     return null;
   }
 
@@ -52,7 +52,7 @@
       function clear() {
         if (timer !== null) clearTimeout(timer);
         if (deadline !== null) clearTimeout(deadline);
-        host.removeEventListener('assi-transport-ready', check);
+        host.removeEventListener('axiko-transport-ready', check);
       }
       function check() {
         var ready = available();
@@ -61,7 +61,7 @@
         if (timer !== null) clearTimeout(timer);
         timer = setTimeout(check, 30);
       }
-      host.addEventListener('assi-transport-ready', check);
+      host.addEventListener('axiko-transport-ready', check);
       deadline = setTimeout(function () {
         clear();
         reject(new Error('Web-оболочка не подключилась. Обновите страницу или откройте заводской вариант.'));
@@ -75,7 +75,7 @@
     if (ready) return Promise.resolve(ready);
     var chain = ancestors();
     for (var i = 0; i < chain.length; i++) {
-      if (chain[i].__assiTransportRoot) return waitForHost(chain[i]);
+      if (chain[i].__axikoTransportRoot) return waitForHost(chain[i]);
     }
     // A module opened directly, outside the hub, still works and owns exactly one connection.
     if (!scriptPromise) {
@@ -83,7 +83,7 @@
         var script = document.createElement('script');
         script.src = '/ui/desk/transport.js';
         script.onload = function () {
-          if (window.AssiTransport) resolve(window.AssiTransport);
+          if (window.AxikoTransport) resolve(window.AxikoTransport);
           else { scriptPromise = null; reject(new Error('Транспорт Axiko не загрузился.')); }
         };
         script.onerror = function () { scriptPromise = null; reject(new Error('Не удалось подключиться к Axiko.')); };
@@ -109,7 +109,7 @@
     for (var i = 0; i < chain.length; i++) {
       var ownDraft = draftOf(chain[i].location.pathname);
       if (ownDraft) return ownDraft;
-      if (chain[i].__assiTransportRoot) break;
+      if (chain[i].__axikoTransportRoot) break;
     }
     // The chat refers to the selected preview. A live module keeps its own context even
     // when another pane is showing a draft; absolute widget URLs inherit their parent.
@@ -253,7 +253,7 @@
     'ui.stage': function (on) {
       var host = desk();
       if (host && typeof host.stage === 'function') host.stage(!!on);
-      else if (document.documentElement) document.documentElement.classList.toggle('assi-stage', !!on);
+      else if (document.documentElement) document.documentElement.classList.toggle('axiko-stage', !!on);
       return true;
     },
     'ui.ready': reportReady,
@@ -265,7 +265,7 @@
       var id = plain.split('/')[1];
       return send({
         op: 'eval',
-        code: '(function(){var p=' + JSON.stringify(path) + ';try{var m=require("lib/assi").files.readJson(' +
+        code: '(function(){var p=' + JSON.stringify(path) + ';try{var m=require("lib/axiko").files.readJson(' +
           JSON.stringify('modules/' + id + '/module.json') + ',{});return {path:p,title:m.title||' +
           JSON.stringify(id) + '};}catch(e){return {path:p,title:' + JSON.stringify(id) + '};}})()'
       });
@@ -282,7 +282,7 @@
     }
   };
 
-  window.assi = {
+  window.axiko = {
     protocol: 1,
     platform: 'web',
     call: function (path, fn) {
@@ -299,18 +299,18 @@
     on: function (event, listener) {
       (listeners[event] || (listeners[event] = [])).push(listener);
       if (event === 'app.visible') scheduleVisibility(false);
-      return function () { window.assi.off(event, listener); };
+      return function () { window.axiko.off(event, listener); };
     },
     off: function (event, listener) {
       listeners[event] = (listeners[event] || []).filter(function (item) { return item !== listener; });
       if (event === 'app.visible') visibilityValues.delete(listener);
     },
-    open: function (path) { return window.assi.native('ui.open', path); },
-    back: function () { return window.assi.native('ui.back'); },
-    chat: function (open) { return window.assi.native('ui.chat', open !== false); },
-    stage: function (on) { return window.assi.native('ui.stage', on); }
+    open: function (path) { return window.axiko.native('ui.open', path); },
+    back: function () { return window.axiko.native('ui.back'); },
+    chat: function (open) { return window.axiko.native('ui.chat', open !== false); },
+    stage: function (on) { return window.axiko.native('ui.stage', on); }
   };
-  window.__assiEmit = function (name, data) {
+  window.__axikoEmit = function (name, data) {
     if (name === 'app.visible' || name === 'desk.visibility') {
       publishVisibility(false);
       if (name === 'app.visible') return;
@@ -330,8 +330,8 @@
     button.onclick = function () {
       button.remove();
       var host = desk();
-      if (host && host.chat) host.chat(true, 'assi');
-      window.assi.native('ui.fix', location.pathname.replace(/^\//, ''), faults.slice(0, 8).join('\n')).catch(function (error) {
+      if (host && host.chat) host.chat(true, 'axiko');
+      window.axiko.native('ui.fix', location.pathname.replace(/^\//, ''), faults.slice(0, 8).join('\n')).catch(function (error) {
         console.warn(error.message);
       });
     };

@@ -89,11 +89,11 @@
         android:extractNativeLibs="true"
         android:pageSizeCompat="enabled"
         android:icon="@mipmap/ic_launcher"
-        android:label="${assiLabel}"
+        android:label="${axikoLabel}"
         android:largeHeap="true"
         android:requestLegacyExternalStorage="true"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Assi"
+        android:theme="@style/Theme.Axiko"
         android:usesCleartextTraffic="true"
         tools:targetApi="36">
 
@@ -127,7 +127,7 @@
             android:enabled="true"
             android:exported="true"
             android:icon="@mipmap/ic_launcher"
-            android:label="${assiLabel}"
+            android:label="${axikoLabel}"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -139,7 +139,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_plain"
-            android:label="${assiLabel}"
+            android:label="${axikoLabel}"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -151,7 +151,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_night"
-            android:label="${assiLabel}"
+            android:label="${axikoLabel}"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -163,7 +163,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_light"
-            android:label="${assiLabel}"
+            android:label="${axikoLabel}"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -175,7 +175,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_pink"
-            android:label="${assiLabel}"
+            android:label="${axikoLabel}"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -187,7 +187,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_plain_night"
-            android:label="${assiLabel}"
+            android:label="${axikoLabel}"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

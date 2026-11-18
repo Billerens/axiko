@@ -1,8 +1,8 @@
 // The engine side of the hub «Игротека»: saves in SQLite, the catalog, settings, the inbox and
 // the content stock of each game, the life links (links/*.js), achievements to «Ачивки за
-// жизнь», notifications. Screens call it: assi.call('modules/games/main.js', 'save', id, seq, json).
+// жизнь», notifications. Screens call it: axiko.call('modules/games/main.js', 'save', id, seq, json).
 // The rules are in docs/modules/games.md; how a game is made is in AGENT.md next to this file.
-var assi = require('lib/assi');
+var axiko = require('lib/axiko');
 var Big = require('./engine/big.js');
 var Fmt = require('./engine/fmt.js');
 var Rng = require('./engine/rng.js');
@@ -30,8 +30,8 @@ function locked(fn) {
 
 function readJson(path, fallback) {
   try {
-    if (!assi.files.exists(path)) return fallback;
-    var text = assi.files.read(path);
+    if (!axiko.files.exists(path)) return fallback;
+    var text = axiko.files.read(path);
     return text.trim() ? JSON.parse(text) : fallback;
   } catch (error) {
     console.warn('games: ' + path + ' не читается: ' + error);
@@ -43,14 +43,14 @@ function readJson(path, fallback) {
 function writeJson(path, value) {
   var text = JSON.stringify(value, null, 1);
   if (typeof java === 'undefined') {
-    assi.files.write(path, text);
+    axiko.files.write(path, text);
     return;
   }
-  assi.files.write(path + '.tmp', text);
-  var target = new java.io.File(assi.files.path(path));
-  var temp = new java.io.File(assi.files.path(path + '.tmp'));
+  axiko.files.write(path + '.tmp', text);
+  var target = new java.io.File(axiko.files.path(path));
+  var temp = new java.io.File(axiko.files.path(path + '.tmp'));
   if (!temp.renameTo(target)) {
-    assi.files.write(path, text);
+    axiko.files.write(path, text);
     temp['delete']();
   }
 }
@@ -120,7 +120,7 @@ function needGame(id) {
 function games() {
   var names = [];
   try {
-    names = assi.files.list(HUB);
+    names = axiko.files.list(HUB);
   } catch (error) {
     return [];
   }
@@ -130,7 +130,7 @@ function games() {
     if (name.charAt(name.length - 1) !== '/') return;
     var id = name.slice(0, -1);
     if (!Core.validId(id) || id.indexOf('daily/') === 0) return;
-    if (!assi.files.exists(dir(id) + '/game.json')) return;
+    if (!axiko.files.exists(dir(id) + '/game.json')) return;
     var g = game(id);
     if (g) out.push(g);
   });
@@ -160,7 +160,7 @@ var DB = null;
 
 function db() {
   if (DB) return DB;
-  var d = assi.db('games');
+  var d = axiko.db('games');
   d.exec('create table if not exists saves (id integer primary key, game text, seq integer, at integer, ver integer, ' +
     'reason text, size integer, state text, keep integer default 0)');
   d.exec('create unique index if not exists saves_game on saves (game, seq)');
@@ -331,7 +331,7 @@ exports.exportSave = function (id) {
   var d = new Date();
   var stamp = Core.dayKey(d.getTime()) + '-' + ('0' + d.getHours()).slice(-2) + ('0' + d.getMinutes()).slice(-2);
   var path = DATA + '/exports/' + id + '-' + stamp + '.json';
-  assi.files.write(path, row.state);
+  axiko.files.write(path, row.state);
   return { path: path, size: row.state.length, text: row.state.length < 100 * 1024 ? row.state : null };
 };
 
@@ -410,7 +410,7 @@ function accrued(g, row, cfg) {
 
 function files(path, out) {
   out = out || [];
-  var names = assi.files.list(path);
+  var names = axiko.files.list(path);
   names.forEach(function (name) {
     name = String(name);
     if (name.charAt(name.length - 1) === '/') files(path + '/' + name.slice(0, -1), out);
@@ -424,7 +424,7 @@ var offlineCache = {};
 /** The same file timestamp used by require(): a changed or replaced file must be scanned again. */
 function scanStamp(path) {
   if (typeof host === 'undefined' || typeof host.mtime !== 'function') return null;
-  var absolute = assi.files.path(path);
+  var absolute = axiko.files.path(path);
   var modified = Number(host.mtime(absolute));
   return modified > 0 ? absolute + ':' + modified : null;
 }
@@ -439,7 +439,7 @@ function offlineCheck(id, force) {
     var old = before[path];
     var found;
     if (!force && stamp && old && old.stamp === stamp) found = old.hits;
-    else found = Core.offlineScan([{ path: path.slice(HUB.length + 1), text: assi.files.read(path) }]);
+    else found = Core.offlineScan([{ path: path.slice(HUB.length + 1), text: axiko.files.read(path) }]);
     // A file edited while it was being read is not kept under an obsolete timestamp.
     if (stamp && stamp === scanStamp(path)) fresh[path] = { stamp: stamp, hits: found };
     hits = hits.concat(found);
@@ -452,7 +452,7 @@ exports.offlineCheck = function (id) { return offlineCheck(check(id), true); };
 
 function iconOf(id) {
   try {
-    var text = assi.files.read(dir(id) + '/icon.svg');
+    var text = axiko.files.read(dir(id) + '/icon.svg');
     return /^\s*<svg[\s>]/.test(text) && text.length < 20000 ? text : null;
   } catch (error) {
     return null;
@@ -461,7 +461,7 @@ function iconOf(id) {
 
 function moduleIcon(id) {
   try {
-    var text = assi.files.read('modules/' + id + '/icon.svg');
+    var text = axiko.files.read('modules/' + id + '/icon.svg');
     return /^\s*<svg[\s>]/.test(text) && text.length < 20000 ? text : null;
   } catch (error) {
     return null;
@@ -478,7 +478,7 @@ function moduleCards() {
   var out = [];
   var names = [];
   try {
-    names = assi.files.list('modules');
+    names = axiko.files.list('modules');
   } catch (error) {
     return out;
   }
@@ -595,7 +595,7 @@ exports.catalogSet = function (op, id, value) {
     var g = readJson(dir(id) + '/game.json', null);
     if (g && g.status === 'trial') {
       g.status = 'active';
-      assi.files.write(dir(id) + '/game.json', JSON.stringify(g, null, 2));
+      axiko.files.write(dir(id) + '/game.json', JSON.stringify(g, null, 2));
     }
   }
   return cat;
@@ -608,7 +608,7 @@ function pinInMenu(id, on) {
   var open = dir(id) + '/' + (g.entry || 'ui/index.html');
   nav.items = nav.items.filter(function (item) { return item.open !== open; });
   if (on) nav.items.push({ title: g.title || id, icon: 'play', open: open });
-  assi.files.write('ui/nav.json', JSON.stringify(nav, null, 2));
+  axiko.files.write('ui/nav.json', JSON.stringify(nav, null, 2));
   try {
     native('nav.changed');
   } catch (ignored) { /* an older shell rereads the menu itself */ }
@@ -617,18 +617,18 @@ function pinInMenu(id, on) {
 /** «Удалить»: the code goes to modules/games/archive/<id>-<date>/ (recoverable), the data stays. */
 exports.remove = function (id) {
   check(id);
-  if (!assi.files.exists(dir(id) + '/game.json')) throw new Error('Нет такой игры');
+  if (!axiko.files.exists(dir(id) + '/game.json')) throw new Error('Нет такой игры');
   try {
     pinInMenu(id, false);
   } catch (ignored) { /* not pinned */ }
   var to = HUB + '/archive/' + id + '-' + Core.dayKey(now()) + '-' + now() % 100000;
   if (typeof java !== 'undefined') {
-    var from = new java.io.File(assi.files.path(dir(id)));
-    var target = new java.io.File(assi.files.path(to));
+    var from = new java.io.File(axiko.files.path(dir(id)));
+    var target = new java.io.File(axiko.files.path(to));
     target.getParentFile().mkdirs();
     if (!from.renameTo(target)) throw new Error('Не удалось убрать папку игры');
   } else {
-    assi.files.remove(dir(id));
+    axiko.files.remove(dir(id));
   }
   update(DATA + '/catalog.json', {}, function (c) {
     ['pinned', 'archived', 'order'].forEach(function (k) { c[k] = (c[k] || []).filter(function (x) { return x !== id; }); });
@@ -743,7 +743,7 @@ function markSteps() {
 
 /** The owner allows the step sensor from the sheet «Энергия»: true when granted. */
 exports.stepsPermission = function () {
-  var granted = assi.permission(['ACTIVITY_RECOGNITION']);
+  var granted = axiko.permission(['ACTIVITY_RECOGNITION']);
   if (granted) links('steps').mark(hub, hubConfig());
   return granted;
 };
@@ -836,7 +836,7 @@ function deliver(items) {
   if (!items || !items.length) return 0;
   var grant = null;
   try {
-    if (assi.files.exists('modules/achievements/main.js')) {
+    if (axiko.files.exists('modules/achievements/main.js')) {
       var mod = require('modules/achievements/main.js');
       if (typeof mod.grant === 'function') grant = mod.grant;
     }
@@ -996,7 +996,7 @@ exports.journal = function (id) { return readJson(data(check(id)) + '/log.json',
 
 function notify(options) {
   try {
-    return assi.notify(options);
+    return axiko.notify(options);
   } catch (error) {
     console.warn('games: уведомление: ' + error);
     return null;
@@ -1100,7 +1100,7 @@ exports.vibrate = function (pattern) {
     return true;
   } catch (error) {
     var longest = Math.max.apply(null, list);
-    assi.vibrate(Math.max(1, longest));
+    axiko.vibrate(Math.max(1, longest));
     return true;
   }
 };

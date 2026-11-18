@@ -541,5 +541,5 @@
       draw(c,t,s,v){c.save();(v?underground:cityMap)(c,t,s);c.restore();}
     }
   ];
-  entries.forEach(entry=>window.AssiVisuals.register(entry));
+  entries.forEach(entry=>window.AxikoVisuals.register(entry));
 }());

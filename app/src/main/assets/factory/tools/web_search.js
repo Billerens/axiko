@@ -1,8 +1,8 @@
 // Web search for the agents. The default needs no key (DuckDuckGo's plain HTML results);
 // with a key in the vault it uses a search API instead:
-//   assi.pref('search.provider', 'tavily' | 'brave')  and  assi.secret.ask('search.key', 'Ключ поиска')
+//   axiko.pref('search.provider', 'tavily' | 'brave')  and  axiko.secret.ask('search.key', 'Ключ поиска')
 // The key is named in the request and put in by the shell: this file never holds it.
-var assi = require('lib/assi');
+var axiko = require('lib/axiko');
 
 exports.name = 'web_search';
 exports.description = 'Поиск в интернете: заголовки, адреса и выдержки. Нужные страницы затем читайте через web_read.';
@@ -18,7 +18,7 @@ exports.parameters = {
 var AGENT = 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36';
 
 function duckduckgo(query, count) {
-  var page = assi.http.request({
+  var page = axiko.http.request({
     url: 'https://html.duckduckgo.com/html/?q=' + encodeURIComponent(query),
     headers: { 'User-Agent': AGENT, 'Accept-Language': 'ru,en;q=0.8' }
   });
@@ -40,12 +40,12 @@ function duckduckgo(query, count) {
 var KEY = '{{secret:search.key}}';
 
 function tavily(query, count) {
-  var answer = assi.http.post('https://api.tavily.com/search', { api_key: KEY, query: query, max_results: count }).json();
+  var answer = axiko.http.post('https://api.tavily.com/search', { api_key: KEY, query: query, max_results: count }).json();
   return (answer.results || []).map(function (item) { return { title: item.title, url: item.url, text: item.content }; });
 }
 
 function brave(query, count) {
-  var answer = assi.http.request({
+  var answer = axiko.http.request({
     url: 'https://api.search.brave.com/res/v1/web/search?count=' + count + '&q=' + encodeURIComponent(query),
     headers: { 'X-Subscription-Token': KEY, Accept: 'application/json' }
   }).json();
@@ -54,8 +54,8 @@ function brave(query, count) {
 
 exports.run = function (args) {
   var count = Math.min(args.count || 8, 20);
-  var provider = assi.pref('search.provider') || 'duckduckgo';
-  var key = assi.secret && assi.secret.has ? assi.secret.has('search.key') : false;
+  var provider = axiko.pref('search.provider') || 'duckduckgo';
+  var key = axiko.secret && axiko.secret.has ? axiko.secret.has('search.key') : false;
   var found = provider === 'tavily' && key ? tavily(args.query, count)
     : provider === 'brave' && key ? brave(args.query, count)
       : duckduckgo(args.query, count);

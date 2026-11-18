@@ -560,6 +560,6 @@
       draw: drawScene([rainCity, overgrown])
     }
   ];
-  studies.forEach(study => window.AssiVisuals.register(study));
+  studies.forEach(study => window.AxikoVisuals.register(study));
 })();
 

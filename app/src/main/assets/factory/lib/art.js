@@ -25,7 +25,7 @@
 //
 // On a screen: <script src="/modules/games/engine/art.js"></script> gives window.GameArt with
 // GameArt.el(svg, {cls, size}) — an <img> (no id clashes between pictures), GameArt.still(svg).
-var assi = require('lib/assi');
+var axiko = require('lib/axiko');
 var Art = require('modules/games/engine/art.js');
 var Series = require('modules/games/engine/series.js');
 
@@ -92,8 +92,8 @@ exports.draw = function (o) {
 
 function readJson(path, fallback) {
   try {
-    if (!assi.files.exists(path)) return fallback;
-    var t = String(assi.files.read(path));
+    if (!axiko.files.exists(path)) return fallback;
+    var t = String(axiko.files.read(path));
     return t.trim() ? JSON.parse(t) : fallback;
   } catch (error) {
     return fallback;
@@ -111,7 +111,7 @@ exports.series = function (o) {
     a.best = Math.max(1, Number(a.best) || 1);
     return a;
   }
-  function save(a) { assi.files.write(o.file, JSON.stringify(a)); }
+  function save(a) { axiko.files.write(o.file, JSON.stringify(a)); }
   function baseOf(n) {
     try {
       return o.base ? o.base(n) || null : null;

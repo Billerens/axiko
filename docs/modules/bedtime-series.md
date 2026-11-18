@@ -46,7 +46,7 @@
 нельзя: ожидание 10–20 секунд ломает настроение.
 
 1. **Детали дня** (только разрешённые владельцем источники, настройка `sources`):
-   - события календаря за сегодня (`assi.rows` по `content://com.android.calendar/instances/when/…`);
+   - события календаря за сегодня (`axiko.rows` по `content://com.android.calendar/instances/when/…`);
    - поездки, тренировки, заметки, места из общей базы (`base.find({kinds: ['trip',
      'workout', 'note', 'place', 'visit'], since: полночь})`);
    - от соседей (`links.js`, каждый необязателен: нет модуля — нет детали):
@@ -132,7 +132,7 @@ source: 'series', data: {asleep: true}})` — «Тайная жизнь теле
 
 ## Что нужно от оболочки
 
-Есть: всё из движка историй, `job`, `assi.rows`, `lib/base.js`, `assi.notify`, `live.start`,
+Есть: всё из движка историй, `job`, `axiko.rows`, `lib/base.js`, `axiko.notify`, `live.start`,
 роль `tts` с `options.style`. Роли `series.write` объявить в `module.json`. Правок нет.
 Проверить на телефоне: слышно ли рассказчика тихо в наушниках при ночном режиме звука; не
 мешает ли «не беспокоить» (модуль [focus.md](focus.md)) уведомлению о серии.

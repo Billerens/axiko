@@ -22,7 +22,7 @@ const state = { planId: explicitPlan, digest: '', pending: null, serial: 0, requ
 
 function persist() {
   fs.mkdirSync(path.dirname(REPORT), { recursive: true });
-  fs.writeFileSync(REPORT, JSON.stringify({ test: 'real-assi-conversation-scoped-store', simulatedAudit: true, status: state.failed ? 'failed' : state.complete ? 'passed' : 'running', planId: state.planId || null, requests: state.requests, files: state.queue.map(f => ({ path: f.path, sha256: f.sha256 })), events: state.events }, null, 2));
+  fs.writeFileSync(REPORT, JSON.stringify({ test: 'real-axiko-conversation-scoped-store', simulatedAudit: true, status: state.failed ? 'failed' : state.complete ? 'passed' : 'running', planId: state.planId || null, requests: state.requests, files: state.queue.map(f => ({ path: f.path, sha256: f.sha256 })), events: state.events }, null, 2));
 }
 function event(kind, data = {}) { state.events.push({ kind, ...data }); persist(); }
 function check(ok, code) { if (!ok) { state.failed = true; event('assertion-failed', { code }); throw new Error(code); } }

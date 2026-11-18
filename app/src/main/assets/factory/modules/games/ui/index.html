@@ -188,7 +188,7 @@
 <body>
 <main class="page">
   <header class="topbar">
-    <button class="icon-btn" onclick="assi.back()" aria-label="Назад" data-icon="back"></button>
+    <button class="icon-btn" onclick="axiko.back()" aria-label="Назад" data-icon="back"></button>
     <h1>Игротека</h1>
     <button class="icon-btn" id="new" aria-label="Новая игра" data-icon="plus"></button>
     <button class="icon-btn" id="settings" aria-label="Настройки Игротеки" data-icon="settings"></button>
@@ -219,7 +219,7 @@
   // Numbers and «2 ч назад» in the interface's language (the words around them come from i18n-en.json).
   Fmt.setup({ lang: window.__lang === 'en' ? 'en' : 'ru' });
 
-  const call = (fn, ...args) => assi.call(MAIN, fn, ...args);
+  const call = (fn, ...args) => axiko.call(MAIN, fn, ...args);
 
   /** The game's own SVG without anything that could run. */
   function picture(markup) {
@@ -272,7 +272,7 @@
     node.addEventListener('contextmenu', event => event.preventDefault());
     node.addEventListener('click', () => {
       if (long) return;
-      assi.open(item.entry);
+      axiko.open(item.entry);
     });
     return node;
   }
@@ -284,7 +284,7 @@
 
   /** A card of another module («Игра дня», «Шляпа»): opens its screen, no menu of the hub. */
   function moduleCard(item) {
-    return h('button', { class: 'game', 'data-module': item.module, onclick: () => assi.open(item.open) },
+    return h('button', { class: 'game', 'data-module': item.module, onclick: () => axiko.open(item.open) },
       picture(item.icon),
       h('div', { class: 'text' },
         h('div', { class: 'name' }, item.title),
@@ -319,8 +319,8 @@
     const below = h('div', { 'data-module-slot': 'below' });
     if (!list.length) {
       const empty = h('div', { class: 'card flat empty', id: 'empty' },
-        h('p', {}, 'Игр пока нет. Скажите, во что хотите играть, — агент сделает. Или установите игру из assi-store.'),
-        h('div', { style: 'margin-top: 14px' }, h('button', { class: 'btn primary', onclick: () => assi.chat() }, 'Попросить агента')));
+        h('p', {}, 'Игр пока нет. Скажите, во что хотите играть, — агент сделает. Или установите игру из axiko-store.'),
+        h('div', { style: 'margin-top: 14px' }, h('button', { class: 'btn primary', onclick: () => axiko.chat() }, 'Попросить агента')));
       box.replaceChildren(...[top, empty, below].filter(Boolean));
       renderModules();
       return;
@@ -386,17 +386,17 @@
     });
     add('link', 'Ярлык на рабочий стол', async () => {
       try {
-        await assi.native('shortcut.pin', item.title, item.entry);
+        await axiko.native('shortcut.pin', item.title, item.entry);
       } catch (error) {
         ui.toast(error.message);
       }
     });
     add('history', 'Сохранения', () => Game.ui.savesSheet(item.id, { onRestore: () => { forgetMirror(item.id); ui.toast('Сохранение возвращено'); refresh(); } }));
-    add('settings', 'Настройки игры', () => assi.open('modules/games/ui/settings.html?game=' + encodeURIComponent(item.id)));
+    add('settings', 'Настройки игры', () => axiko.open('modules/games/ui/settings.html?game=' + encodeURIComponent(item.id)));
     add('share', 'Экспорт сохранения', async () => {
       try {
         const r = await call('exportSave', item.id);
-        if (r.text) await assi.call('lib/assi.js', 'share', r.text, item.title + ': сохранение');
+        if (r.text) await axiko.call('lib/axiko.js', 'share', r.text, item.title + ': сохранение');
         else ui.toast('Сохранение большое, оно в файле ' + r.path);
       } catch (error) {
         ui.toast(error.message);
@@ -607,9 +607,9 @@
     return loading;
   }
 
-  document.getElementById('new').onclick = () => assi.chat();
-  document.getElementById('settings').onclick = () => assi.open('modules/games/ui/settings.html');
-  assi.on('games.links', () => {
+  document.getElementById('new').onclick = () => axiko.chat();
+  document.getElementById('settings').onclick = () => axiko.open('modules/games/ui/settings.html');
+  axiko.on('games.links', () => {
     const ticket = generation;
     if (data && current(ticket)) call('links').then(l => {
       if (current(ticket)) { data.links = l; plates(); }

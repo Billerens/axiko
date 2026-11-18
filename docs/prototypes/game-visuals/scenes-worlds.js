@@ -732,7 +732,7 @@
     glow(c, 914, 159, 124, '#f3c17928'); ellipse(c, 914 + Math.sin(t * 2) * 1.5, 158, 5, 13, '#ffe2a2');
   }
 
-  window.AssiVisuals.register({
+  window.AxikoVisuals.register({
     id: 'dynasty', title: 'Династия', category: 'Миры и истории',
     variants: [
       { name: 'Королевство на ладони', kicker: 'Живая изометрия', description: 'Город растёт на скальном острове: башни, кварталы, жители и мост через реку. Каждое решение меняет само королевство.', features: ['Постройки появляются прямо в городе', 'Жители, облака и знамёна движутся', 'Рост державы виден без таблиц'], action: 'Построить квартал', result: 'На острове появился новый квартал. Дома и жители остаются в королевстве.', accent: '#6bbaa0', background: '#223d3b' },
@@ -741,7 +741,7 @@
     stats: (v, state) => v === 0 ? [['Жителей', String(128 + state.count * 24)], ['Кварталов', String(5 + state.count)], ['Настроение', state.count ? 'Праздничное' : 'Спокойное']] : [['Поколение', 'IV'], ['Указов', String(3 + state.count)], ['Влияние', String(62 + state.count * 7)]],
     draw: (c, t, state, v) => v === 0 ? dynastyRealm(c, t, state) : dynastyCourt(c, t, state)
   });
-  window.AssiVisuals.register({
+  window.AxikoVisuals.register({
     id: 'library', title: 'Библиотека', category: 'Миры и истории',
     variants: [
       { name: 'Дом тихих открытий', kicker: 'Тёплый разрез', description: 'Библиотека как обжитый дом: полки до потолка, лестницы, читатели и кот. Редкие книги поднимаются в янтарном свете.', features: ['Настоящие этажи и читающие жители', 'Сотни цветных книжных корешков', 'Найденные тома пополняют выставку'], action: 'Открыть редкий том', result: 'Редкий том раскрылся над читальным столом. Коллекция пополнилась.', accent: '#d5b57d', background: '#3e3532' },
@@ -750,7 +750,7 @@
     stats: (v, state) => v === 0 ? [['Томов', String(1240 + state.count)], ['Читателей', String(18 + state.count * 2)], ['Редких находок', String(7 + state.count)]] : [['Миров', String(7 + state.count)], ['Созвездие', 'Атлас странствий'], ['Открытий', String(state.count)]],
     draw: (c, t, state, v) => v === 0 ? libraryHouse(c, t, state) : libraryObservatory(c, t, state)
   });
-  window.AssiVisuals.register({
+  window.AxikoVisuals.register({
     id: 'garden', title: 'Сад', category: 'Живые миры',
     variants: [
       { name: 'Сад за старой калиткой', kicker: 'Солнечная садовая диорама', description: 'Дорожки, пруд, домик садовника и грядки с разными растениями. Редкий цветок раскрывается после полива и остаётся в саду.', features: ['Живые формы лепестков и листьев', 'Бабочки, вода и мягкий ветер', 'Новые цветы остаются на участке'], action: 'Вырастить редкий цветок', result: 'Редкий цветок раскрылся. У сада появился новый цвет и форма.', accent: '#afd18c', background: '#354c3e' },
@@ -759,7 +759,7 @@
     stats: (v, state) => v === 0 ? [['Цветущих', String(27 + state.count)], ['Редких видов', String(3 + state.count)], ['Условия', 'Мягкое солнце']] : [['Гибридов', String(8 + state.count)], ['Поколение', String(2 + state.count)], ['Микроклимат', 'Лунная ночь']],
     draw: (c, t, state, v) => v === 0 ? gardenPlot(c, t, state) : gardenGlass(c, t, state)
   });
-  window.AssiVisuals.register({
+  window.AxikoVisuals.register({
     id: 'dragon-hoard', title: 'Сокровищница дракона', category: 'Персонажи и легенды',
     variants: [
       { name: 'Хранитель горной пещеры', kicker: 'Большой герой в живой среде', description: 'Дракон занимает сцену целиком: чешуя, крылья, дыхание и настоящая гора монет. Огонь освещает пещеру, сокровища остаются.', features: ['Крупный дракон с дыханием и пластикой', 'Золото, самоцветы и следы путешественников', 'Пламя освещает скалы и растит сокровищницу'], action: 'Разбудить дракона', result: 'Пещера озарилась пламенем. Дракон добавил добычу к своей горе золота.', accent: '#dcb878', background: '#1b343d' },

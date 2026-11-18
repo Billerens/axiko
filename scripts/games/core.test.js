@@ -401,7 +401,7 @@ test('проверка кода: общее подмножество', () => {
 test('без сети: адреса в файлах игры', () => {
   const hits = Core.offlineScan([
     { path: 'ui/index.html', text: '<script src="https://cdn.example.com/x.js"></script>\n<svg xmlns="http://www.w3.org/2000/svg"></svg>' },
-    { path: 'ui/game.js', text: 'fetch("//api.example.org/v1")\n// see //notes.example.com in a comment\nvar ok = "https://assi.local/x";' },
+    { path: 'ui/game.js', text: 'fetch("//api.example.org/v1")\n// see //notes.example.com in a comment\nvar ok = "https://axiko.local/x";' },
     { path: 'ui/game.css', text: '@import url(//fonts.example.net/a.css);' }
   ]);
   assert.deepStrictEqual(hits.map((h) => [h.path, h.line]), [['ui/index.html', 1], ['ui/game.css', 1]]);

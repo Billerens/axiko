@@ -5,7 +5,7 @@
   const $ = id => document.getElementById(id);
   const PORTION = 24;
   const state = { tab: 'catalog', sources: [], items: [], total: 0, counts: { all: 0, updates: 0 }, tags: [], kinds: [], tag: '', sort: 'title', view: 'grid', listing: false, listSerial: 0, installed: [], plans: [], bans: [], query: '', kind: 'all', source: 'all', sourceUrl: '', loaded: false, operations: new Set(), pending: null, reviewTask: null, dialog: null, token: 0, acknowledged: new Set(), poll: null, visible: true, loadSerial: 0 };
-  const api = (method, ...args) => assi.native('store.' + method, ...args);
+  const api = (method, ...args) => axiko.native('store.' + method, ...args);
   const listOf = (value, key) => Array.isArray(value) ? value : value && Array.isArray(value[key]) ? value[key] : [];
   const packageId = item => item.packageId || item.id;
   const installationKey = item => item.installationKey || item.key;
@@ -44,9 +44,9 @@
   // The review's conversation opens in the chat panel over this screen, as any other chat does:
   // the phone slides it up, the web hub shows its own side panel. Closing it returns here.
   async function openReviewChat(task) {
-    const agent = task.agent || 'assi';
-    if (task.thread) await assi.native('agent.openThread', agent, task.thread);
-    await assi.native('ui.chat', true, agent);
+    const agent = task.agent || 'axiko';
+    if (task.thread) await axiko.native('agent.openThread', agent, task.thread);
+    await axiko.native('ui.chat', true, agent);
   }
   function icon(kind) {
     const paths = kind === 'hosted' ? '<path d="M12 3 4 7.5v9L12 21l8-4.5v-9L12 3Z"/><path d="M4 7.5 12 12l8-4.5M12 12v9"/>' : kind === 'source' ? '<path d="m12 3 9 5v8l-9 5-9-5V8l9-5Zm-9 5 9 5 9-5m-9 5v8"/>' : '<rect x="4" y="4" width="7" height="7" rx="2"/><rect x="14" y="4" width="6" height="7" rx="2"/><rect x="4" y="14" width="7" height="6" rx="2"/><path d="M14 17h7m-3.5-3.5v7"/>';
@@ -82,7 +82,7 @@
   function installedFor(item) { return state.installed.find(entry => entry.sourceId === item.sourceId && packageId(entry) === packageId(item)); }
   function sourceName(id) { const source = state.sources.find(item => item.id === id); return source ? source.title || source.repositoryId || id : tr('Источник удалён'); }
   function entryPath(item) { const value = item.entryPath || ''; return /^(?:modules|ui)\/[a-zA-Z0-9_./-]+\.html?$/i.test(value) && !value.split('/').includes('..') ? value : ''; }
-  function openInstalled(item) { const path = entryPath(item); if (path) assi.open(path); else status(tr('У пакета нет отдельного экрана.'), false); }
+  function openInstalled(item) { const path = entryPath(item); if (path) axiko.open(path); else status(tr('У пакета нет отдельного экрана.'), false); }
   function empty(title, text, action, run) {
     return h('div', { class: 'store-empty' }, icon('source'), h('h3', {}, title), h('p', {}, text), action ? button(action, run, { class: 'btn primary' }) : null);
   }
@@ -461,7 +461,7 @@
       ['Тип', kindItem(display.kind)], ['Для пакета', isMod(display) ? (display.targetTitle || display.extends) + (display.targetVersion ? ' ' + display.targetVersion : '') : ''], ['Версия', display.version], ['Установлена', installed && installed.version], ['Выпуск от', display.updated], ['Автор', display.publisher], ['Лицензия', display.license], ['Источник', display.sourceTitle || sourceName(item.sourceId)], ['Загрузка', display.archive && bytes(display.archive.size)], ['После распаковки', display.archive && bytes(display.archive.unpackedSize)]
     ]));
     if (Array.isArray(display.tags) && display.tags.length) current.body.append(h('div', { class: 'store-meta', 'data-tags': '' }, display.tags.map(tag => h('span', { class: 'store-tag' }, raw('#' + tag)))));
-    if (display.compatibility) current.body.append(note(tr('API Axiko: от {}', display.compatibility.minAssiApi) + Object.keys(display.compatibility).filter(key => key !== 'minAssiApi').map(key => ' · ' + kindTitle(display.kind) + ': ' + display.compatibility[key]).join('')));
+    if (display.compatibility) current.body.append(note(tr('API Axiko: от {}', display.compatibility.minAxikoApi) + Object.keys(display.compatibility).filter(key => key !== 'minAxikoApi').map(key => ' · ' + kindTitle(display.kind) + ': ' + display.compatibility[key]).join('')));
     if (display.ban) current.body.append(banNotice(display.ban));
     else if (!compatible) current.body.append(h('p', { class: 'store-notice danger' }, raw(display.compatibilityError || tr('Пакет несовместим с установленной версией Axiko.'))));
     (Array.isArray(display.previousBans) ? display.previousBans : []).forEach(ban => current.body.append(banNotice(ban, true)));
@@ -735,7 +735,7 @@
     pickTab(buttons[next].dataset.tab, true); buttons[next].scrollIntoView({ block: 'nearest', inline: 'nearest' });
   });
   const again = () => { if (listed()) relist(); else render(); };
-  const remember = (key, value) => { Promise.resolve(assi.native('pref.set', key, value)).catch(() => {}); };
+  const remember = (key, value) => { Promise.resolve(axiko.native('pref.set', key, value)).catch(() => {}); };
   let typing = null;
   $('store-search').addEventListener('input', event => { state.query = event.target.value.trim().toLocaleLowerCase(); if (typing) clearTimeout(typing); typing = setTimeout(again, listed() ? 250 : 0); });
   $('store-kind').addEventListener('change', event => { state.kind = event.target.value; again(); });
@@ -746,15 +746,15 @@
     state.view = node.dataset.view; remember('store.view', state.view);
     const grid = $('store-list'); if (grid) grid.dataset.view = state.view; facets();
   }));
-  $('store-reload').addEventListener('click', refreshSources); $('store-back').addEventListener('click', () => assi.back());
+  $('store-reload').addEventListener('click', refreshSources); $('store-back').addEventListener('click', () => axiko.back());
   document.addEventListener('visibilitychange', schedulePoll);
   window.addEventListener('pagehide', () => { if (state.poll) clearTimeout(state.poll); state.poll = null; });
-  if (assi.on) {
-    assi.on('app.visible', event => { state.visible = !event || event.on !== false; schedulePoll(); });
-    assi.on('store.changed', () => { if (visible()) load({ keepStatus: true }).catch(error => status(errorText(error), true)); });
+  if (axiko.on) {
+    axiko.on('app.visible', event => { state.visible = !event || event.on !== false; schedulePoll(); });
+    axiko.on('store.changed', () => { if (visible()) load({ keepStatus: true }).catch(error => status(errorText(error), true)); });
   }
   // How the list looks is the owner's habit, kept between visits.
-  Promise.all([assi.native('pref.get', 'store.view', 'grid'), assi.native('pref.get', 'store.sort', 'title')]).then(([view, sort]) => {
+  Promise.all([axiko.native('pref.get', 'store.view', 'grid'), axiko.native('pref.get', 'store.sort', 'title')]).then(([view, sort]) => {
     if (['grid', 'list', 'compact'].includes(view)) state.view = view;
     if (['title', 'updated'].includes(sort)) state.sort = sort;
   }).catch(() => {}).then(() => load()).catch(error => { state.loaded = true; state.listing = false; render(); status(errorText(error), true, () => load()); }).then(() => ui.tour && ui.tour.offer('store', [

@@ -22,14 +22,14 @@ function metadata(res, value) {
 }
 function releaseMetadata() { holdMetadata = false; while (waiting.length) waiting.shift()(); }
 function count(name) { return resources.filter(resource => resource === '/ui/desk/' + name).length; }
-const inject = html => html.replace(/(<!doctype[^>]*>)/i, '$1<script src="/__assi/client.js"></script>');
+const inject = html => html.replace(/(<!doctype[^>]*>)/i, '$1<script src="/__axiko/client.js"></script>');
 const server = http.createServer((req, res) => {
   const route = new URL(req.url, 'http://localhost').pathname;
-  if (route === '/__assi/events') {
+  if (route === '/__axiko/events') {
     res.writeHead(200, { 'Content-Type': 'text/event-stream' }); res.flushHeaders();
     streams.add(res); req.on('close', () => streams.delete(res)); return;
   }
-  if (route === '/__assi/rpc') {
+  if (route === '/__axiko/rpc') {
     let body = ''; req.on('data', chunk => body += chunk);
     req.on('end', () => {
       const request = JSON.parse(body);
@@ -52,7 +52,7 @@ const server = http.createServer((req, res) => {
   if (route === '/ui/chat/index.html') {
     res.writeHead(200, { 'Content-Type': 'text/html' }); res.end(inject('<!doctype html><textarea></textarea>')); return;
   }
-  let relative = route === '/' ? '/ui/desk/index.html' : route === '/__assi/client.js' ? '/ui/desk/client.js' : route;
+  let relative = route === '/' ? '/ui/desk/index.html' : route === '/__axiko/client.js' ? '/ui/desk/client.js' : route;
   resources.push(relative);
   if (relative === '/ui/desk/editor-model.js' && editorMode === 'missing-model') {
     res.writeHead(200, { 'Content-Type': 'text/javascript' }); res.end('/* incomplete model */'); return;
@@ -64,7 +64,7 @@ const server = http.createServer((req, res) => {
     }
     if (editorMode === 'mount-error') {
       res.writeHead(200, { 'Content-Type': 'text/javascript' });
-      res.end('window.AssiEditor={mount:function(){throw new Error("Editor mount failed")}};'); return;
+      res.end('window.AxikoEditor={mount:function(){throw new Error("Editor mount failed")}};'); return;
     }
   }
   const file = path.join(root, relative);
@@ -119,8 +119,8 @@ const server = http.createServer((req, res) => {
       await p.waitForSelector('.module-tile');
       assert.equal(await p.locator('#sidebar').evaluate(node => node.inert), true, 'closed mobile navigation cannot steal focus');
       await p.evaluate(() => {
-        assiDesk.openFile('a.js');
-        assiDesk.openFile('b.js', { draft: 'd2' });
+        axikoDesk.openFile('a.js');
+        axikoDesk.openFile('b.js', { draft: 'd2' });
       });
       await p.waitForSelector('.editor-error');
       editorMode = 'valid';
@@ -131,7 +131,7 @@ const server = http.createServer((req, res) => {
       assert.equal(count('editor-model.js') - initialModel, mode === 'missing-model' ? 2 : 1);
       assert.equal(count('editor.js') - initialEditor, mode === 'missing-model' ? 1 : 2);
       const afterMount = resources.length;
-      await p.evaluate(() => assiDesk.openFile('a.js'));
+      await p.evaluate(() => axikoDesk.openFile('a.js'));
       await p.waitForFunction(() => document.querySelector('.ae-code')?.value === 'contents of a.js');
       assert.equal(resources.length, afterMount, 'opening a second file reuses the editor assets');
       assert.equal(await p.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);

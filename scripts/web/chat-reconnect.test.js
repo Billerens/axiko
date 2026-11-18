@@ -23,9 +23,9 @@ function fixture() {
   let sequence = 0;
   let implementation = () => Promise.resolve(false);
   const scope = {
-    agentId: 'assi', threadId: 'thread-1', chatLoadVersion: 1, agentEventsVersion: 0,
+    agentId: 'axiko', threadId: 'thread-1', chatLoadVersion: 1, agentEventsVersion: 0,
     document: { visibilityState: 'visible', addEventListener: (name, fn) => documentHandlers.set(name, fn) },
-    assi: {
+    axiko: {
       on: (name, fn) => handlers.set(name, fn),
       native: (...args) => { calls.push(args); return implementation(...args); }
     },

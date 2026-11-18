@@ -9,16 +9,16 @@
       "version": "1.0.0",
       "publisher": "example",
       "license": "MIT",
-      "manifestUrl": "https://example.org/assi-catalog/packages/example.counter/1.0.0/package.json",
+      "manifestUrl": "https://example.org/axiko-catalog/packages/example.counter/1.0.0/package.json",
       "archive": {
-        "url": "https://example.org/assi-catalog/packages/example.counter/1.0.0/package.zip",
+        "url": "https://example.org/axiko-catalog/packages/example.counter/1.0.0/package.zip",
         "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
         "size": 2048,
         "unpackedSize": 4096,
         "fileCount": 4
       },
       "compatibility": {
-        "minAssiApi": 1
+        "minAxikoApi": 1
       },
       "tags": [
         "example",

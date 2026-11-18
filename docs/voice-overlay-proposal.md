@@ -24,16 +24,16 @@
 
 | Область | Факт из кода | Что требуется |
 |---|---|---|
-| Вызов по имени | [Wake.kt:271](D:/Projects/Axiko/app/src/main/java/app/assi/voice/Wake.kt:271): локальный детектор, VAD и подтверждение STT; команда отправляется в текущий основной чат | Событие пробуждения и вызов контроллера голосовой сессии |
-| Непрерывный разговор | [Live.kt:78](D:/Projects/Axiko/app/src/main/java/app/assi/voice/Live.kt:78): микрофон, VAD, подавление эха, перебивание и явный threadId | Отделить прерывание речи от отмены работы |
-| Системный вызов | [Assist.kt:89](D:/Projects/Axiko/app/src/main/java/app/assi/sense/Assist.kt:89): окно отключено через setUiEnabled(false); deliver открывает MainActivity | Отрисовать собственную панель в AssistSession |
-| Обычное наложенное окно | [Bubble.kt:110](D:/Projects/Axiko/app/src/main/java/app/assi/sense/Bubble.kt:110): TYPE_APPLICATION_OVERLAY | Переиспользовать как резервный способ показа |
-| Работа без экрана | [App.kt:16](D:/Projects/Axiko/app/src/main/java/app/assi/App.kt:16), [Conversation.kt:104](D:/Projects/Axiko/app/src/main/java/app/assi/agent/Conversation.kt:104): запуск движка из Application, executor каждого разговора | Добавить управление голосовой сессией вне MainActivity |
-| История | [Threads.kt:28](D:/Projects/Axiko/app/src/main/java/app/assi/agent/Threads.kt:28): создание чата сразу выбирает его текущим | Создание без выбора; признак source=voice; идентификаторы без коллизий |
-| Потоковый ответ | [Conversation.kt:520](D:/Projects/Axiko/app/src/main/java/app/assi/agent/Conversation.kt:520): LLM-текст уже озвучивается предложениями | Переиспользовать; привязать вывод к конкретной голосовой сессии |
-| Управление телефоном | [ScreenService.kt:94](D:/Projects/Axiko/app/src/main/java/app/assi/sense/ScreenService.kt:94): чтение, жесты, ввод, снимки | Выбирать нужное окно, исключать overlay и сериализовать действия |
+| Вызов по имени | [Wake.kt:271](D:/Projects/Axiko/app/src/main/java/app/axiko/voice/Wake.kt:271): локальный детектор, VAD и подтверждение STT; команда отправляется в текущий основной чат | Событие пробуждения и вызов контроллера голосовой сессии |
+| Непрерывный разговор | [Live.kt:78](D:/Projects/Axiko/app/src/main/java/app/axiko/voice/Live.kt:78): микрофон, VAD, подавление эха, перебивание и явный threadId | Отделить прерывание речи от отмены работы |
+| Системный вызов | [Assist.kt:89](D:/Projects/Axiko/app/src/main/java/app/axiko/sense/Assist.kt:89): окно отключено через setUiEnabled(false); deliver открывает MainActivity | Отрисовать собственную панель в AssistSession |
+| Обычное наложенное окно | [Bubble.kt:110](D:/Projects/Axiko/app/src/main/java/app/axiko/sense/Bubble.kt:110): TYPE_APPLICATION_OVERLAY | Переиспользовать как резервный способ показа |
+| Работа без экрана | [App.kt:16](D:/Projects/Axiko/app/src/main/java/app/axiko/App.kt:16), [Conversation.kt:104](D:/Projects/Axiko/app/src/main/java/app/axiko/agent/Conversation.kt:104): запуск движка из Application, executor каждого разговора | Добавить управление голосовой сессией вне MainActivity |
+| История | [Threads.kt:28](D:/Projects/Axiko/app/src/main/java/app/axiko/agent/Threads.kt:28): создание чата сразу выбирает его текущим | Создание без выбора; признак source=voice; идентификаторы без коллизий |
+| Потоковый ответ | [Conversation.kt:520](D:/Projects/Axiko/app/src/main/java/app/axiko/agent/Conversation.kt:520): LLM-текст уже озвучивается предложениями | Переиспользовать; привязать вывод к конкретной голосовой сессии |
+| Управление телефоном | [ScreenService.kt:94](D:/Projects/Axiko/app/src/main/java/app/axiko/sense/ScreenService.kt:94): чтение, жесты, ввод, снимки | Выбирать нужное окно, исключать overlay и сериализовать действия |
 
-Важная конкретная проблема: [Live.kt:203](D:/Projects/Axiko/app/src/main/java/app/assi/voice/Live.kt:203) перед отправкой следующей реплики вызывает chat.stop(), если агент занят. Эта операция отменяет запрос к модели, очищает очередь и останавливает дочерние задачи. Простая новая оболочка сохранит это неудобное поведение.
+Важная конкретная проблема: [Live.kt:203](D:/Projects/Axiko/app/src/main/java/app/axiko/voice/Live.kt:203) перед отправкой следующей реплики вызывает chat.stop(), если агент занят. Эта операция отменяет запрос к модели, очищает очередь и останавливает дочерние задачи. Простая новая оболочка сохранит это неудобное поведение.
 
 ## Способ интеграции с Android
 

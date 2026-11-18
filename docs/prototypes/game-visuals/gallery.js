@@ -2,13 +2,13 @@
   'use strict';
   const order = ['dynasty','library','infinity-layers','alchemist','menagerie','tower','one-cell-dungeon','garden','asteroid-colony','dragon-hoard','subway','wave-survival','sparks'];
   const $ = id => document.getElementById(id);
-  const games = order.map(id => window.AssiVisuals.games.get(id)).filter(Boolean);
+  const games = order.map(id => window.AxikoVisuals.games.get(id)).filter(Boolean);
   const states = new Map();
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
   let current = games[0], variant = 0, mobile = false, overview = false, paused = reduced.matches;
   let pendingTabFocus = null;
   let time = 4, previousFrame = 0, frameRequest = 0, overviewBuilt = false, sceneVisible = true, choices = {};
-  try { choices = JSON.parse(localStorage.getItem('assi-visual-directions') || '{}') || {}; } catch (_) {}
+  try { choices = JSON.parse(localStorage.getItem('axiko-visual-directions') || '{}') || {}; } catch (_) {}
   const canvas = $('scene'), ctx = canvas.getContext('2d', {alpha:false});
   function element(tag, className, text) { const e = document.createElement(tag); if (className) e.className = className; if (text != null) e.textContent = text; return e; }
   function stateFor(game = current, v = variant) {
@@ -179,7 +179,7 @@
   $('wide-button').addEventListener('click',() => setMobile(false));
   $('favorite-button').addEventListener('click',() => {
     if (choices[current.id] === variant) delete choices[current.id]; else choices[current.id] = variant;
-    try { localStorage.setItem('assi-visual-directions', JSON.stringify(choices)); } catch (_) {}
+    try { localStorage.setItem('axiko-visual-directions', JSON.stringify(choices)); } catch (_) {}
     updateFavorite(); nav();
   });
   $('next-button').addEventListener('click',() => { location.hash = games[(games.indexOf(current)+1)%games.length].id + '/a'; });

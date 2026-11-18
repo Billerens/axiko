@@ -19,7 +19,7 @@
 // The tool module_check runs them; the app also runs them by itself after a turn that changed
 // the module, and shows the outcome in the chat. Checks must clean up after themselves: what
 // they add to the module's data, they remove.
-var files = require('lib/assi').files;
+var files = require('lib/axiko').files;
 
 function Failure(message) { this.message = message; }
 function Skipped(why) { this.why = why; }

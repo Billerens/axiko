@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://example.org/assi-marketplace/schema/v1/index.schema.json",
+  "$id": "https://example.org/axiko-marketplace/schema/v1/index.schema.json",
   "title": "Axiko catalog head v1",
   "description": "index.json: the repository and the pages that hold its packages. Example schema namespace is a placeholder. 1 MiB UTF-8 limit; client hard limits cannot be raised by repository metadata.",
   "type": "object",

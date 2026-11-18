@@ -25,8 +25,8 @@ function idOf(dir) {
 }
 
 function readJson(path) {
-  var assi = require('lib/assi');
-  return JSON.parse(assi.files.read(path));
+  var axiko = require('lib/axiko');
+  return JSON.parse(axiko.files.read(path));
 }
 
 /** The values a game runs with, without the owner's own (checks use the game's defaults). */
@@ -164,10 +164,10 @@ function standard(dir, o) {
 
   checks['старые сохранения читаются (fixtures)'] = function (t) {
     var x = load();
-    var assi = require('lib/assi');
+    var axiko = require('lib/axiko');
     var names = [];
     try {
-      names = assi.files.list(path + '/fixtures').filter(function (n) { return /\.json$/.test(n); });
+      names = axiko.files.list(path + '/fixtures').filter(function (n) { return /\.json$/.test(n); });
     } catch (ignored) { /* none */ }
     if (!names.length) t.skip('нет fixtures/*.json');
     names.forEach(function (name) {

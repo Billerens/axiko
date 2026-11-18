@@ -28,8 +28,8 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 MAGIC = b'AXIKOBAK'
 HEADER = 80
 TAG = 16
-ROOTS = ('files/assi/', 'files/data/', 'files/state/', 'files/drafts/', 'files/history/')
-SINGLE = ('prefs/assi.json', 'secrets.json')
+ROOTS = ('files/axiko/', 'files/data/', 'files/state/', 'files/drafts/', 'files/history/')
+SINGLE = ('prefs/axiko.json', 'secrets.json')
 
 
 class Refused(Exception):

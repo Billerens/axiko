@@ -17,7 +17,7 @@
 <script>
   // The shared store of the owner's personal facts: lib/base.js.
   const h = ui.h;
-  const base = (fn, ...args) => assi.call('lib/base.js', fn, ...args);
+  const base = (fn, ...args) => axiko.call('lib/base.js', fn, ...args);
   let kind = null;
 
   const day = time => new Date(time).toLocaleString(window.__lang || 'ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
@@ -51,7 +51,7 @@
         } }, ui.icon('trash')))));
   }
 
-  document.getElementById('back').onclick = () => { if (kind) { kind = null; render(); } else assi.back(); };
+  document.getElementById('back').onclick = () => { if (kind) { kind = null; render(); } else axiko.back(); };
   render();
 </script>
 </body>

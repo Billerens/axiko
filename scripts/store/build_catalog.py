@@ -298,7 +298,7 @@ def load_kinds(store: Path) -> dict:
                 or not re.fullmatch(r'[a-z][a-z0-9-]{0,31}\.json', str(spec.get('descriptor', '')))
                 or set(spec) - {'host', 'descriptor', 'engine', 'version'}
                 or (engine is None) != ('version' not in spec)
-                or engine is not None and (not re.fullmatch(r'[a-z][A-Za-z0-9]{0,31}', str(engine)) or engine in ('assiApi', 'minAssiApi')
+                or engine is not None and (not re.fullmatch(r'[a-z][A-Za-z0-9]{0,31}', str(engine)) or engine in ('axikoApi', 'minAxikoApi')
                                            or not isinstance(spec['version'], int) or isinstance(spec['version'], bool) or spec['version'] < 1)):
             raise BuildError(f'kinds.json: "{name}" needs host, descriptor and, when the host has versions, engine with version')
     return kinds
@@ -376,7 +376,7 @@ def package(folder: Path, output: Path, args, license_raw: bytes, ids: dict[str,
     entry = {
         'id': identity, 'kind': kind, 'title': store.get('title', identity),
         'version': version, 'publisher': args.publisher, 'license': args.license_id,
-        'compatibility': {'minAssiApi': 1},
+        'compatibility': {'minAxikoApi': 1},
     }
     entry.update(shown)
     entry['compatibility'].update(hosted)
@@ -435,7 +435,7 @@ def package(folder: Path, output: Path, args, license_raw: bytes, ids: dict[str,
     manifest = {
         'schemaVersion': 1, 'id': identity, 'kind': kind, 'version': version,
         'publisher': args.publisher, 'license': args.license_id, 'sourceFormat': 'readable',
-        'entry': 'code/' + runtime_entry, 'runtime': {'assiApi': 1}, 'dependencies': [],
+        'entry': 'code/' + runtime_entry, 'runtime': {'axikoApi': 1}, 'dependencies': [],
         # An optional integration was written against the neighbour as it is in this store now.
         'optionalDependencies': [{'id': dep, 'version': '>=' + dependency_versions.get(dep, version)} for dep in optional],
         'capabilities': ['storage.own', 'legacy.full-trust'],
@@ -540,7 +540,7 @@ def build(args):
                   'Credential pattern scanning is a limited preflight; manual privacy and license review is still required.',
                   'ZIP bytes are reproducible for identical source bytes and Python/zlib versions; source line endings are preserved.',
               ], 'packages': [], 'excluded': [], 'blocked': []}
-    with tempfile.TemporaryDirectory(prefix='.assi-build-', dir=output.parent) as temporary:
+    with tempfile.TemporaryDirectory(prefix='.axiko-build-', dir=output.parent) as temporary:
         stage = Path(temporary)
         entries = []
         for folder in folders:
@@ -608,10 +608,10 @@ def parser():
     result.add_argument('--publisher', required=True, help='Stable lowercase publisher ID')
     result.add_argument('--licensefile', type=Path, required=True, help='License or explicit no-license notice; copied as LICENSE')
     result.add_argument('--license-id', default='UNLICENSED', help='License metadata, defaults to UNLICENSED; does not grant rights')
-    result.add_argument('--repository-id', default='billerens.assi-store')
+    result.add_argument('--repository-id', default='billerens.axiko-store')
     result.add_argument('--repository-title', default='Axiko Store')
     result.add_argument('--repository-description', default='', help='What the catalog is, up to 600 characters; shown with the source')
-    result.add_argument('--repository-homepage', default='https://github.com/Billerens/assi-store')
+    result.add_argument('--repository-homepage', default='https://github.com/Billerens/axiko-store')
     result.add_argument('--exclude', action='append', default=[], help='Explicit package ID or source folder to omit, repeatable')
     return result
 

@@ -255,7 +255,7 @@
 <script src="/ui/kit/kit.js"></script>
 <script>
   const h = ui.h;
-  document.getElementById('store-open').onclick = () => assi.open('ui/store/index.html');
+  document.getElementById('store-open').onclick = () => axiko.open('ui/store/index.html');
   const IDEAS = [
     ['note', 'Сделай экран заметок с поиском'],
     ['calendar', 'Сделай экран с моими событиями из календаря на неделю'],
@@ -271,9 +271,9 @@
 
   /** Sends the request to the main agent in a new chat and opens the chat on it. */
   async function ask(text) {
-    await assi.native('agent.newThread', 'assi');
-    await assi.native('ui.chat', true, 'assi');
-    await assi.native('agent.send', 'assi', text);
+    await axiko.native('agent.newThread', 'axiko');
+    await axiko.native('ui.chat', true, 'axiko');
+    await axiko.native('agent.send', 'axiko', text);
   }
 
   /**
@@ -319,7 +319,7 @@
   function manage(kind, item) {
     let close = null;
     const choose = async choice => {
-      await assi.native('icon.set', kind, item.id, choice);
+      await axiko.native('icon.set', kind, item.id, choice);
       close();
       render();
     };
@@ -352,7 +352,7 @@
       kind === 'module' && h('button', {
         class: 'btn wide',
         onclick: async () => {
-          await assi.native('shortcut.pin', item.title, item.entry);
+          await axiko.native('shortcut.pin', item.title, item.entry);
           close();
         },
       }, ui.icon('home'), 'Ярлык на рабочий стол'),
@@ -361,7 +361,7 @@
         onclick: async () => {
           const sure = await ui.confirm('Удалить модуль «' + item.title + '»? Его данные останутся, а сам модуль можно вернуть в истории изменений.', 'Удалить', true);
           if (!sure) return;
-          await assi.native('modules.remove', item.id);
+          await axiko.native('modules.remove', item.id);
           close();
           render();
         },
@@ -393,7 +393,7 @@
   let editing = null;
 
   function readLayout() {
-    layoutRead = layoutRead || assi.native('pref.get', 'home.cards', '').then(text => {
+    layoutRead = layoutRead || axiko.native('pref.get', 'home.cards', '').then(text => {
       try {
         layout = Object.assign({ order: [], size: {}, hidden: [] }, JSON.parse(text || '{}'));
       } catch (error) { /* a broken pref starts over */ }
@@ -402,7 +402,7 @@
   }
 
   function saveLayout() {
-    assi.native('pref.set', 'home.cards', JSON.stringify(layout)).catch(() => {});
+    axiko.native('pref.set', 'home.cards', JSON.stringify(layout)).catch(() => {});
     cards(lastModules);
   }
 
@@ -466,7 +466,7 @@
           }
           win.addEventListener('click', event => {
             const own = event.target.closest && event.target.closest('a, button, input, select, textarea, label, [onclick]');
-            if (!event.defaultPrevented && !own && editing !== module.id) assi.open(module.entry);
+            if (!event.defaultPrevented && !own && editing !== module.id) axiko.open(module.entry);
           });
           win.addEventListener('contextmenu', event => {
             event.preventDefault();
@@ -530,7 +530,7 @@
         layer.removeEventListener('pointerup', up);
         layer.removeEventListener('pointercancel', up);
         layout.size[module.id] = { w: size.w, h: size.h };
-        assi.native('pref.set', 'home.cards', JSON.stringify(layout)).catch(() => {});
+        axiko.native('pref.set', 'home.cards', JSON.stringify(layout)).catch(() => {});
       };
       layer.addEventListener('pointermove', move);
       layer.addEventListener('pointerup', up);
@@ -581,7 +581,7 @@
       h('div', { class: 'actions' },
         at > 0 && h('button', { class: 'btn', onclick: () => move(-1) }, ui.icon('back'), 'Раньше'),
         at < shown.length - 1 && h('button', { class: 'btn', onclick: () => move(1) }, ui.icon('right'), 'Позже')),
-      h('button', { class: 'btn wide', onclick: () => assi.open(module.entry).then(close) }, ui.icon('box'), 'Открыть модуль'),
+      h('button', { class: 'btn wide', onclick: () => axiko.open(module.entry).then(close) }, ui.icon('box'), 'Открыть модуль'),
       h('button', {
         class: 'btn wide',
         onclick: () => {
@@ -603,8 +603,8 @@
   async function render() {
     greet();
     const [info, modules, agents, roles, providers] = await Promise.all([
-      assi.native('sys.info'), assi.native('modules.list'), assi.native('agent.list'),
-      assi.native('models.roles'), assi.native('models.providers'),
+      axiko.native('sys.info'), axiko.native('modules.list'), axiko.native('agent.list'),
+      axiko.native('models.roles'), axiko.native('models.providers'),
     ]);
 
     const notices = document.getElementById('notices');
@@ -617,7 +617,7 @@
     if (info.safeMode) {
       notices.append(notice('danger', 'Безопасный режим',
         'Показан заводской интерфейс. Откатите последнее изменение или попросите Axiko починить экраны.',
-        'Выйти из безопасного режима', () => assi.native('safe.set', false), ['safe', 'safe']));
+        'Выйти из безопасного режима', () => axiko.native('safe.set', false), ['safe', 'safe']));
     }
     if (info.engineError) notices.append(notice('danger', 'Движок не запустился', info.engineError));
     if (setup) {
@@ -626,7 +626,7 @@
       ui.mascot.say('hello', '').then(phrase => { hello.textContent = phrase; hello.hidden = !phrase; });
       notices.append(hello, notice('accent', 'Подключите модель',
         'Axiko нужен доступ к языковой модели: адрес провайдера, ключ и название модели.',
-        'Настроить', () => assi.open('ui/settings/index.html?setup=1'), ['hello', 'model']));
+        'Настроить', () => axiko.open('ui/settings/index.html?setup=1'), ['hello', 'model']));
     }
 
     await readLayout();
@@ -638,7 +638,7 @@
           h('div', { class: 'icon' }, ui.mark(module)),
           h('div', { class: 'title' }, module.title),
           module.description && h('div', { class: 'about' }, module.description)),
-        () => assi.open(module.entry),
+        () => axiko.open(module.entry),
         () => manage('module', module))));
     if (!modules.length) {
       const none = h('div', { class: 'empty', style: 'grid-column: 1 / -1' },
@@ -647,7 +647,7 @@
       grid.replaceChildren(none);
     }
 
-    const others = agents.filter(agent => agent.id !== 'assi');
+    const others = agents.filter(agent => agent.id !== 'axiko');
     document.getElementById('agents-section').hidden = !others.length;
     document.getElementById('agents').replaceChildren(...others.map(agent =>
       pressable(
@@ -655,7 +655,7 @@
           h('div', { class: 'well' }, ui.mark(agent)),
           h('div', { style: 'font-weight: 600' }, agent.title),
           h('div', { class: 'small muted truncate', style: 'max-width: 100%' }, agent.description || 'Агент')),
-        () => assi.native('ui.chat', true, agent.id),
+        () => axiko.native('ui.chat', true, agent.id),
         () => manage('agent', agent))));
 
     document.getElementById('ideas-section').hidden = modules.length > 2;
@@ -664,13 +664,13 @@
   }
 
   // With the menu of screens on, History and Settings are there; without it they are here.
-  assi.native('pref.get', 'nav.on', 'on').then(menu => {
+  axiko.native('pref.get', 'nav.on', 'on').then(menu => {
     document.getElementById('history').hidden = document.getElementById('settings').hidden = menu === 'on';
   });
-  document.getElementById('settings').onclick = () => assi.open('ui/settings/index.html');
-  document.getElementById('history').onclick = () => assi.open('ui/history/index.html');
+  document.getElementById('settings').onclick = () => axiko.open('ui/settings/index.html');
+  document.getElementById('history').onclick = () => axiko.open('ui/history/index.html');
   // The workspace may change while this screen is open: redraw when an agent finishes.
-  assi.on('agent', event => { follow(event); if (event.type === 'idle') render(); });
+  axiko.on('agent', event => { follow(event); if (event.type === 'idle') render(); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
 
   // The first time the app is opened it is shown around, step by step.

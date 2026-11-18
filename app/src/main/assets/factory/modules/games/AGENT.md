@@ -82,9 +82,9 @@ height: 620, draw(ctx, model, timeSeconds, effects)})`. Создайте её о
 - **Время** — `ctx.now` в логике. Состояние не хранит «сколько прошло»: движок досчитывает разрыв
   офлайн-прогрессом.
 - **Без сети.** В `.html`, `.js` и `.css` игры не должно быть адресов `http(s)://`, кроме
-  `https://assi.local/`. Пространства имён `w3.org` в SVG можно.
+  `https://axiko.local/`. Пространства имён `w3.org` в SVG можно.
   - Библиотеку скачайте один раз:
-    `assi.http.download(url, 'data/games/vendor/<имя>-<версия>.js')`. Подключайте её как
+    `axiko.http.download(url, 'data/games/vendor/<имя>-<версия>.js')`. Подключайте её как
     `/data/games/vendor/…`.
   - Preact — `/ui/vendor/preact.js`.
   - Шрифты — системные.
@@ -554,7 +554,7 @@ modules/games/<id>/
 
 ## Движок Игротеки — modules/games/main.js
 
-Экран зовёт его через `assi.call('modules/games/main.js', имя, …)`, агент — через
+Экран зовёт его через `axiko.call('modules/games/main.js', имя, …)`, агент — через
 `js_eval` / `require`. Всё, что пишет, — только в `data/games/`.
 
 - **Игры.** `games()`, `game(id)`, `catalog()`, `catalogSet('pin' | 'archive' | 'order' | 'trial', id, value)`,
@@ -774,13 +774,13 @@ state}`, `kit.offlineAgree(game, sim, cfg, setupSec, play)`, `kit.defaultPlay`,
   - Проверка «без сети» пропускает пространства имён `w3.org` (`xmlns` в SVG).
   - Вибрация:
     - `vibro.via: auto` идёт узором через движок: `main.vibrate` сам зовёт
-      `VibrationEffect.createWaveform`, а если не вышло — одним импульсом `assi.vibrate(ms)`.
-      Правка `lib/assi.js` для этого не нужна;
+      `VibrationEffect.createWaveform`, а если не вышло — одним импульсом `axiko.vibrate(ms)`.
+      Правка `lib/axiko.js` для этого не нужна;
     - `web` — через `navigator.vibrate`.
   - Уведомление к сроку — `job(…, {once})`, если оболочка это умеет (`shell.features`). Иначе
     `{at: 'ЧЧ:ММ'}` и `unjob`.
   - Ориентация и «не гасить экран» — через `ui(fn)` в `main.screenMode`, а не через
-    `assi.eval`.
+    `axiko.eval`.
   - Цикл «Пассажира» крутится в `spawn`; задача раз в 15 минут подстраховывает его после
     перезапуска.
 - **Связки.**

@@ -19,7 +19,7 @@ const server = http.createServer((req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.end(`<!doctype html><html lang="ru"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/ui/kit/kit.css"><body>
       <main style="height:1600px">Тест экрана</main><button id="native-chat" style="position:fixed;z-index:2147483647;right:8px;bottom:0;width:104px;height:78px;background:#d44">Чат</button>
-      <script>window.nativePresses=0;document.getElementById('native-chat').onclick=()=>nativePresses++;window.assi={platform:${JSON.stringify(url.searchParams.get('platform') || 'android')},on(){},native(){return Promise.resolve(null)}};</script>
+      <script>window.nativePresses=0;document.getElementById('native-chat').onclick=()=>nativePresses++;window.axiko={platform:${JSON.stringify(url.searchParams.get('platform') || 'android')},on(){},native(){return Promise.resolve(null)}};</script>
       <script src="/ui/kit/kit.js"></script></body></html>`);
     return;
   }

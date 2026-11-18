@@ -147,15 +147,15 @@
     const pictures = await Promise.all(items.map(picture));
     document.getElementById('menu').replaceChildren(...items.map((item, index) =>
       h('button', {
-        onclick: () => (item.chat ? assi.native('ui.chat', true, item.chat) : assi.open(item.open)),
+        onclick: () => (item.chat ? axiko.native('ui.chat', true, item.chat) : axiko.open(item.open)),
       }, h('span', { class: 'pill' }, pictures[index]), h('span', { class: 'label' }, item.title))));
     mark();
   }
 
-  assi.on('where', path => { where = path; mark(); });
-  assi.on('nav', load);
+  axiko.on('where', path => { where = path; mark(); });
+  axiko.on('nav', load);
   // "ui.where" names no path for the home screen: it is where the app starts.
-  assi.native('ui.where').then(place => { where = where || place.path || 'ui/home/index.html'; mark(); });
+  axiko.native('ui.where').then(place => { where = where || place.path || 'ui/home/index.html'; mark(); });
   load();
 </script>
 </body>

@@ -49,7 +49,7 @@
 <body>
 <main class="page">
   <header class="topbar">
-    <button class="icon-btn" onclick="assi.back()" aria-label="Назад" data-icon="back"></button>
+    <button class="icon-btn" onclick="axiko.back()" aria-label="Назад" data-icon="back"></button>
     <h1>Задачи</h1>
   </header>
 
@@ -85,8 +85,8 @@
   const who = task => ((agents.find(agent => agent.id === task.agent) || {}).title || task.agent);
 
   async function openChat(task) {
-    if (task.thread) await assi.native('agent.openThread', task.agent, task.thread);
-    await assi.native('ui.chat', true, task.agent);
+    if (task.thread) await axiko.native('agent.openThread', task.agent, task.thread);
+    await axiko.native('ui.chat', true, task.agent);
   }
 
   function row(task) {
@@ -100,15 +100,15 @@
         h('div', { class: 'title', 'data-raw': '' }, task.title || '…'),
         h('div', { class: 'line' }, task.parent ? ui.raw(about) : ui.raw(who(task) + ' · ' + about)),
         !running && task.result && h('div', { class: 'line truncate', 'data-raw': '' }, task.result)),
-      running && !task.parent && h('button', { class: 'btn small', onclick: () => assi.native('agent.stop', task.agent, task.thread) }, 'Остановить'),
+      running && !task.parent && h('button', { class: 'btn small', onclick: () => axiko.native('agent.stop', task.agent, task.thread) }, 'Остановить'),
       task.state === 'interrupted' && h('button', { class: 'btn small primary', onclick: async () => {
-        await assi.native('tasks.resume', task.agent, task.thread);
+        await axiko.native('tasks.resume', task.agent, task.thread);
         openChat(task);
       } }, 'Продолжить'));
   }
 
   async function render() {
-    const tasks = await assi.native('tasks.list');
+    const tasks = await axiko.native('tasks.list');
     const running = tasks.filter(task => task.state === 'run');
     const cut = tasks.filter(task => task.state === 'interrupted');
     const recent = tasks.filter(task => task.state !== 'run' && task.state !== 'interrupted');
@@ -121,10 +121,10 @@
   }
 
   let timer = null;
-  assi.on('tasks', () => { clearTimeout(timer); timer = setTimeout(render, 250); });
+  axiko.on('tasks', () => { clearTimeout(timer); timer = setTimeout(render, 250); });
   setInterval(() => { if (!document.hidden) render(); }, 5000);
-  document.getElementById('clear').onclick = async () => { await assi.native('tasks.forget', '*'); render(); };
-  assi.native('agent.list').then(list => { agents = list; render(); }).then(() => ui.tour.offer('tasks', [
+  document.getElementById('clear').onclick = async () => { await axiko.native('tasks.forget', '*'); render(); };
+  axiko.native('agent.list').then(list => { agents = list; render(); }).then(() => ui.tour.offer('tasks', [
     { target: '#running', title: 'Идут сейчас', text: 'Всё, чем приложение занято прямо сейчас: просьбы из чата, фоновые поручения, проверки. Работу можно остановить отсюда.' },
     { title: 'Работа идёт и без вас', text: 'Чат можно закрыть: задача продолжится, а о результате придёт уведомление. Если приложение закрылось посреди работы, прерванное появится здесь — и его можно продолжить с того же места.' },
   ]));

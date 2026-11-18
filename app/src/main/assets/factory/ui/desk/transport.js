@@ -1,7 +1,7 @@
-// One HTTP/SSE connection hub per browser workspace. Frames share it through assiDesk.
+// One HTTP/SSE connection hub per browser workspace. Frames share it through axikoDesk.
 (function () {
   'use strict';
-  if (window.AssiTransport) return;
+  if (window.AxikoTransport) return;
 
   var subscribers = new Set();
   var statusListeners = new Set();
@@ -40,7 +40,7 @@
   function startEvents() {
     if (closed || suspended || source || status.state === 'auth-required') return;
     setStatus('connecting');
-    var active = new EventSource('/__assi/events');
+    var active = new EventSource('/__axiko/events');
     source = active;
     active.onopen = function () {
       if (source !== active) return;
@@ -92,7 +92,7 @@
       controller.abort();
     }, timeoutMs);
     try {
-      var response = await fetch('/__assi/rpc', {
+      var response = await fetch('/__axiko/rpc', {
         method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body), signal: controller.signal
@@ -174,8 +174,8 @@
     }
   };
   Object.defineProperty(transport, 'status', { get: function () { return Object.assign({}, status); } });
-  window.AssiTransport = transport;
-  window.dispatchEvent(new CustomEvent('assi-transport-ready'));
+  window.AxikoTransport = transport;
+  window.dispatchEvent(new CustomEvent('axiko-transport-ready'));
   startEvents();
   window.addEventListener('pagehide', function () {
     suspended = true;

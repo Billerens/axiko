@@ -109,7 +109,7 @@
 `module.json`, поэтому без плитки): `voice.js` (цикл), `parse.js`, `audio.js`, `store.js`,
 `checks.js`. Работает **в движке (Rhino)** в фоновом потоке (`spawn`), а не на экране: экран
 можно погасить, телефон — убрать в карман. Экран лишь показывает состояние (события
-`emit('story.state', …)`) и шлёт команды (`assi.call('modules/story-engine/voice.js', …)`).
+`emit('story.state', …)`) и шлёт команды (`axiko.call('modules/story-engine/voice.js', …)`).
 
 **Цикл одной реплики:**
 
@@ -147,7 +147,7 @@ WAV, 24 кГц). Играет файл `android.media.MediaPlayer` в движк
 плохо, предварительная запись становится обязательной для метро.
 
 **Сохранение.** После каждой реплики `store.js` пишет `state.json` надёжно: во временный файл и
-переименованием (`java.io.File.renameTo`), а не `assi.files.write`, который пишет на месте. Две
+переименованием (`java.io.File.renameTo`), а не `axiko.files.write`, который пишет на месте. Две
 последние версии хранятся (`state.json`, `state.prev.json`).
 
 ```json

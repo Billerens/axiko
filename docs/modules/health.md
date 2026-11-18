@@ -42,7 +42,7 @@
 
 **Закрытие суток** — `job('health:dayclose', { at: '05:00' })` (время — настройка): дописывает итоговые `steps` и `screen` за прошедший день, отмечает пропущенные приёмы лекарств (`status: 'missed'`), пересчитывает сводку дня и по очереди вызывает крючки других модулей (см. «Связи»): Ачивки, затем Жизнь-RPG, затем Питомец.
 
-**Лекарства и привычки с напоминаниями** — на каждое время приёма своя работа `job('health:med:<id>:<HH:MM>', { at })`; она проверяет дни недели и срок курса и шлёт `assi.notify`. Отметка «принял» пишет запись `med` в базу.
+**Лекарства и привычки с напоминаниями** — на каждое время приёма своя работа `job('health:med:<id>:<HH:MM>', { at })`; она проверяет дни недели и срок курса и шлёт `axiko.notify`. Отметка «принял» пишет запись `med` в базу.
 
 **Еженедельный разбор** (`job('health:weekly', { at: '19:00' })`, срабатывает в выбранный день недели):
 
@@ -112,14 +112,14 @@
 
 Уже есть:
 
-- `job`/`unjob`, `on('screen')`, `on('power')` — расписание и события; `assi.notify` — уведомления с переходом на экран (`open`).
-- `assi.permission([...])` — принимает полные имена, значит годится и для `android.permission.health.*`; `ACTIVITY_RECOGNITION`, `PACKAGE_USAGE_STATS`, `ACCESS_FINE/COARSE/BACKGROUND_LOCATION`, `BODY_SENSORS` объявлены.
-- `lib/base.js`, инструменты `base_add`/`base_find`, `ai.ask({ role })`, виджет модуля через `widget() → { title, text, open }` и `assi.widget.refresh('health')`, `module_check`, `assi.shell(..., { privileged: true })` для выдачи доступа через Shizuku.
+- `job`/`unjob`, `on('screen')`, `on('power')` — расписание и события; `axiko.notify` — уведомления с переходом на экран (`open`).
+- `axiko.permission([...])` — принимает полные имена, значит годится и для `android.permission.health.*`; `ACTIVITY_RECOGNITION`, `PACKAGE_USAGE_STATS`, `ACCESS_FINE/COARSE/BACKGROUND_LOCATION`, `BODY_SENSORS` объявлены.
+- `lib/base.js`, инструменты `base_add`/`base_find`, `ai.ask({ role })`, виджет модуля через `widget() → { title, text, open }` и `axiko.widget.refresh('health')`, `module_check`, `axiko.shell(..., { privileged: true })` для выдачи доступа через Shizuku.
 
 Нужна правка оболочки:
 
 1. **Health Connect в манифесте**: `android.permission.health.READ_STEPS`, `READ_SLEEP`, `READ_EXERCISE`, `READ_HYDRATION`, `WRITE_HYDRATION`, `READ_HEALTH_DATA_IN_BACKGROUND` (без неё рутины не прочтут данные, пока приложение закрыто), `READ_HEALTH_DATA_HISTORY` (иначе видны только 30 дней до первого разрешения). Плюс `activity-alias` с `intent-filter` `android.intent.action.VIEW_PERMISSION_USAGE` и категорией `android.intent.category.HEALTH_PERMISSIONS` (разрешение `android.permission.START_VIEW_PERMISSION_USAGE`), ведущий на экран «какие данные и зачем» — без него система отказывает в доступе молча. Проверить на телефоне: выдаётся ли доступ через обычный `requestPermissions` и работает ли платформенный API из Rhino без библиотеки Jetpack.
-2. **Кнопки в уведомлениях**: сейчас `assi.notify` умеет только открыть экран по нажатию. Нужно `assi.notify({ ..., actions: [{ title: 'Принял', call: { path, fn, args } }] })` — приёмник в манифесте поднимает движок и вызывает функцию модуля, не открывая приложение. Пригодится и Входящим, и Тратам. До правки: нажатие открывает `modules/health/ui/index.html#med=<id>&due=<мс>`, экран отмечает приём и сам закрывается (проверить на телефоне, что хвост `#...` доходит до страницы).
+2. **Кнопки в уведомлениях**: сейчас `axiko.notify` умеет только открыть экран по нажатию. Нужно `axiko.notify({ ..., actions: [{ title: 'Принял', call: { path, fn, args } }] })` — приёмник в манифесте поднимает движок и вызывает функцию модуля, не открывая приложение. Пригодится и Входящим, и Тратам. До правки: нажатие открывает `modules/health/ui/index.html#med=<id>&due=<мс>`, экран отмечает приём и сам закрывается (проверить на телефоне, что хвост `#...` доходит до страницы).
 3. **Кнопки в виджете** («плюс стакан», отметка привычки) — тот же механизм `call` в `widget()`. Не обязательно для первого этапа.
 
 ## Связи

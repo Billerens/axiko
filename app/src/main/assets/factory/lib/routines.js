@@ -11,7 +11,7 @@
 //
 // When a routine fires, the agent gets `do` together with what set it off (the notification, the
 // time), works in a conversation of its own, and its answer goes to the owner as a notification.
-var assi = require('lib/assi');
+var axiko = require('lib/axiko');
 var ai = require('lib/ai');
 
 var PATH = 'data/routines.json';
@@ -19,8 +19,8 @@ var QUIET_MS = 30000;
 var lastFired = {};
 var listening = {};
 
-function load() { return assi.files.readJson(PATH, []); }
-function save(list) { assi.files.writeJson(PATH, list); emit('routines', null); }
+function load() { return axiko.files.readJson(PATH, []); }
+function save(list) { axiko.files.writeJson(PATH, list); emit('routines', null); }
 
 exports.list = load;
 
@@ -43,7 +43,7 @@ function run(id, cause) {
     'Ваш ответ уйдёт владельцу уведомлением: напишите его коротко и по делу. Если сообщать нечего — ответьте одним словом «ничего».';
   var outcome = { at: Date.now(), ok: true, text: '' };
   try {
-    outcome.text = String(ai.run(routine.agent || 'assi', task) || '').trim();
+    outcome.text = String(ai.run(routine.agent || 'axiko', task) || '').trim();
   } catch (error) {
     outcome.ok = false;
     outcome.text = String(error && error.message ? error.message : error);
@@ -51,8 +51,8 @@ function run(id, cause) {
   var list = load();
   list.forEach(function (item) { if (item.id === id) item.last = { at: outcome.at, ok: outcome.ok, text: outcome.text.slice(0, 600) }; });
   save(list);
-  if (!outcome.ok) assi.notify({ title: 'Рутина «' + routine.title + '» не выполнена', text: outcome.text, open: 'ui/routines/index.html' });
-  else if (outcome.text && !/^ничего[.!]?$/i.test(outcome.text)) assi.notify({ title: routine.title, text: outcome.text, open: 'ui/routines/index.html' });
+  if (!outcome.ok) axiko.notify({ title: 'Рутина «' + routine.title + '» не выполнена', text: outcome.text, open: 'ui/routines/index.html' });
+  else if (outcome.text && !/^ничего[.!]?$/i.test(outcome.text)) axiko.notify({ title: routine.title, text: outcome.text, open: 'ui/routines/index.html' });
   return outcome.text;
 }
 exports.run = run;
@@ -147,7 +147,7 @@ exports.set = function (routine) {
   saved.title = routine.title;
   saved.when = when;
   saved.do = routine.do;
-  saved.agent = routine.agent || saved.agent || 'assi';
+  saved.agent = routine.agent || saved.agent || 'axiko';
   if (routine.enabled !== undefined) saved.enabled = Boolean(routine.enabled);
   save(list);
   arm();

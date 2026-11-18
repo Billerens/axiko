@@ -1,7 +1,7 @@
 /* A small workspace editor with independent documents and revision-aware saves. */
 (function () {
   'use strict';
-  var PREFIX = 'assi.desk.buffer:';
+  var PREFIX = 'axiko.desk.buffer:';
   function el(tag, attrs, children) {
     var node = document.createElement(tag);
     Object.keys(attrs || {}).forEach(function (key) {
@@ -27,7 +27,7 @@
     var rows = [], folders = new Map(), findAt = 0;
     var rpc = options.rpc;
     var toast = options.toast || function () {};
-    var root = el('section', { class: 'assi-editor', 'aria-label': 'Редактор файлов' });
+    var root = el('section', { class: 'axiko-editor', 'aria-label': 'Редактор файлов' });
     var tree = el('nav', { class: 'ae-tree', 'aria-label': 'Файлы приложения' });
     var filter = el('input', { class: 'ae-filter', type: 'search', placeholder: 'Найти в открытых папках', 'aria-label': 'Фильтр файлов' });
     var tabs = el('div', { class: 'ae-tabs', role: 'tablist', 'aria-label': 'Открытые файлы' });
@@ -71,7 +71,7 @@
     ]);
     root.append(treeSide, main); container.replaceChildren(root);
 
-    var store = AssiEditorModel.create(rpc, {
+    var store = AxikoEditorModel.create(rpc, {
       changed: function (doc) {
         if (!alive) return;
         renderTabs();
@@ -224,7 +224,7 @@
     async function list(path, into, ticket) {
       into.replaceChildren(el('span', { class: 'ae-tree-note' }, 'Загрузка…'));
       try {
-        var names = await rpc({ op: 'eval', draft: null, code: 'require("lib/assi").files.list(' + JSON.stringify(path) + ')' });
+        var names = await rpc({ op: 'eval', draft: null, code: 'require("lib/axiko").files.list(' + JSON.stringify(path) + ')' });
         if (!alive || ticket !== treeTicket) return;
         names = names.slice().sort(function (a, b) { return Number(b.endsWith('/')) - Number(a.endsWith('/')) || a.localeCompare(b, 'ru'); });
         into.replaceChildren();
@@ -318,5 +318,5 @@
       }
     };
   }
-  window.AssiEditor = { mount: mount };
+  window.AxikoEditor = { mount: mount };
 })();

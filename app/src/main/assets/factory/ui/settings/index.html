@@ -144,7 +144,7 @@
 <body>
 <main class="page">
   <header class="topbar">
-    <button class="icon-btn" onclick="assi.back()" aria-label="Назад" data-icon="back"></button>
+    <button class="icon-btn" onclick="axiko.back()" aria-label="Назад" data-icon="back"></button>
     <h1>Настройки</h1>
   </header>
 
@@ -337,7 +337,7 @@
         <label><span class="grow">Безопасный режим<div class="value">Заводской интерфейс, без фоновых скриптов</div></span><input type="checkbox" class="switch" id="safe"></label>
         <button id="reset-ui"><span class="grow">Сбросить интерфейс к заводскому<div class="value">Главный экран, чат, настройки. Модули останутся</div></span></button>
         <button id="web-cache"><span class="grow">Кэш веб-ресурсов<div class="value" id="web-cache-size"></div></span><span class="badge">Очистить</span></button>
-        <button onclick="assi.open('ui/base/index.html')"><span class="grow">Личные данные<div class="value">Общая база того, что записано о вашей жизни</div></span><span class="muted" data-icon="right"></span></button>
+        <button onclick="axiko.open('ui/base/index.html')"><span class="grow">Личные данные<div class="value">Общая база того, что записано о вашей жизни</div></span><span class="muted" data-icon="right"></span></button>
         <button id="engine-log"><span class="grow">Журнал движка</span><span class="muted" data-icon="right"></span></button>
         <button id="tours"><span class="grow">Обучение<div class="value">Показать подсказки по экранам заново</div></span></button>
         <div><span class="grow value" id="about"></span></div>
@@ -388,10 +388,10 @@
   const assigned = role => (roles[role] && roles[role].model ? roles[role] : null);
 
   async function load() {
-    const info = await assi.native('sys.info');
+    const info = await axiko.native('sys.info');
     [providers, roles, agents, modules, speech, prefs] = await Promise.all([
-      assi.native('models.providers'), assi.native('models.roles'), assi.native('agent.list'),
-      assi.native('modules.list'), assi.native('speech.status'), assi.native('pref.all'),
+      axiko.native('models.providers'), axiko.native('models.roles'), axiko.native('agent.list'),
+      axiko.native('modules.list'), axiko.native('speech.status'), axiko.native('pref.all'),
     ]);
     document.getElementById('safe').checked = info.safeMode;
     document.getElementById('about').textContent = `Axiko ${info.version} · ${info.device} · Android ${info.android}`;
@@ -409,7 +409,7 @@
     if (!providers.length) list.replaceChildren(h('div', { class: 'empty' }, 'Пока ни одного. Добавьте провайдера, чтобы Axiko заработал.'));
 
     const rows = [roleRow('main', 'Основной агент', 'Axiko: меняет приложение')];
-    agents.filter(agent => agent.id !== 'assi').forEach(agent =>
+    agents.filter(agent => agent.id !== 'axiko').forEach(agent =>
       rows.push(roleRow(agent.role, 'Агент «' + agent.title + '»', agent.description || '')));
     modules.forEach(module => (module.models || []).forEach(model =>
       rows.push(roleRow(model.id, model.title || model.id, 'Модуль «' + module.title + '»'))));
@@ -423,7 +423,7 @@
   // ---- what is left to set up ---------------------------------------------------------------
 
   async function renderChecklist() {
-    const sense = await assi.native('sense.status');
+    const sense = await axiko.native('sense.status');
     const steps = [
       ['Провайдер моделей', 'Адрес и ключ сервиса с моделями', providers.length > 0, () => { showTab('models'); editProvider(null); }],
       ['Основная модель', 'На ней работает Axiko', Boolean(assigned('main')), () => { showTab('models'); editRole('main', 'Основной агент'); }],
@@ -487,8 +487,8 @@
       try { host = new URL(url.value.trim()).host; } catch (error) { ui.toast('Адрес должен начинаться с http:// или https://'); return; }
       Object.assign(draft, { name: name.value.trim() || host, baseUrl: url.value.trim().replace(/\/+$/, '') });
       if (key.value.trim()) draft.key = key.value.trim(); else delete draft.key;
-      await assi.native('models.setProviders', isNew ? providers.concat([draft]) : providers.map(item => (item.id === draft.id ? draft : item)));
-      providers = await assi.native('models.providers');
+      await axiko.native('models.setProviders', isNew ? providers.concat([draft]) : providers.map(item => (item.id === draft.id ? draft : item)));
+      providers = await axiko.native('models.providers');
       close();
       render();
       if (isNew && !assigned('main')) editRole('main', 'Основной агент', draft.id);
@@ -496,7 +496,7 @@
     const remove = async () => {
       if (!(await ui.confirm('Удалить провайдера «' + draft.name + '»?', 'Удалить', true))) return;
       providers = providers.filter(item => item.id !== draft.id);
-      await assi.native('models.setProviders', providers);
+      await axiko.native('models.setProviders', providers);
       close();
       render();
     };
@@ -535,7 +535,7 @@
       browse.disabled = true;
       browse.textContent = 'Загружаю…';
       try {
-        all = await assi.native('models.list', provider.value);
+        all = await axiko.native('models.list', provider.value);
         if (!all.length) ui.toast('Провайдер не вернул ни одной модели');
         show();
       } catch (error) {
@@ -597,7 +597,7 @@
           context: Math.max(0, parseInt(context.value, 10) || 0),
         });
       }
-      await assi.native('models.setRoles', roles);
+      await axiko.native('models.setRoles', roles);
       close();
       render();
     };
@@ -615,7 +615,7 @@
   const tokens = value => (value >= 1e6 ? ui.t('{} млн токенов', (value / 1e6).toFixed(1)) : ui.t('{} тыс. токенов', Math.round(value / 1000)));
 
   async function renderUsage() {
-    const usage = await assi.native('usage.summary', 7);
+    const usage = await axiko.native('usage.summary', 7);
     const day = new Date().toLocaleDateString('sv');
     const today = usage.days.find(item => item.day === day);
     const week = usage.days.reduce((sum, item) => ({ cost: sum.cost + item.cost, all: sum.all + item.input + item.output }), { cost: 0, all: 0 });
@@ -626,7 +626,7 @@
     }) : [];
     const limit = h('input', { class: 'input', style: 'width: 96px; text-align: right', inputMode: 'decimal', placeholder: 'нет', value: usage.budget || '' });
     limit.onchange = async () => {
-      await assi.native('pref.set', 'budget.daily', limit.value.trim() || null);
+      await axiko.native('pref.set', 'budget.daily', limit.value.trim() || null);
       ui.toast(limit.value.trim() ? 'Лимит: $' + limit.value.trim() + ' в день' : 'Лимит снят');
     };
     document.getElementById('usage').replaceChildren(
@@ -646,7 +646,7 @@
   // ---- models on the device ---------------------------------------------------------------------
 
   async function renderLocal() {
-    const models = await assi.native('local.status');
+    const models = await axiko.native('local.status');
     const size = megabytes => (megabytes >= 1000 ? (megabytes / 1024).toFixed(1) + ' ГБ' : megabytes + ' МБ');
     const notes = {};
     document.getElementById('local').replaceChildren(...models.map(model => {
@@ -654,13 +654,13 @@
       const action = model.installed
         ? h('button', { class: 'btn small', onclick: async () => {
           if (!(await ui.confirm('Удалить модель «' + model.title + '» с телефона?', 'Удалить', true))) return;
-          await assi.native('local.remove', model.id);
+          await axiko.native('local.remove', model.id);
           renderLocal();
         } }, 'Удалить')
         : h('button', { class: 'btn small primary', disabled: model.downloading, onclick: event => {
           event.target.disabled = true;
           note.textContent = 'Начинаю скачивание…';
-          assi.native('local.download', model.id).catch(() => {});
+          axiko.native('local.download', model.id).catch(() => {});
         } }, model.megabytes ? size(model.megabytes) : 'Скачать');
       return h('div', {},
         h('span', { class: 'grow' },
@@ -672,7 +672,7 @@
     }));
     if (renderLocal.listening) return;
     renderLocal.listening = true;
-    assi.on('local.download', event => {
+    axiko.on('local.download', event => {
       if (event.ready) { ui.toast('Модель скачана. Назначьте её в разделе «Кто на какой модели»'); load(); renderLocal(); return; }
       if (event.error) { ui.toast(event.error); renderLocal(); return; }
       const note = notes[event.id];
@@ -691,7 +691,7 @@
       h('label', { class: 'row' }, h('span', { class: 'grow' }, 'Это модель эмбеддингов (для поиска в памяти)'), embedding),
       h('div', { class: 'actions' }, h('button', { class: 'btn primary', onclick: async () => {
         try {
-          await assi.native('local.add', url.value, embedding.checked);
+          await axiko.native('local.add', url.value, embedding.checked);
           close();
           renderLocal();
         } catch (error) {
@@ -704,7 +704,7 @@
   // ---- the Linux environment ---------------------------------------------------------------------
 
   async function renderLinux() {
-    const state = await assi.native('linux.status');
+    const state = await axiko.native('linux.status');
     const list = document.getElementById('linux');
     if (state.installed) {
       list.replaceChildren(
@@ -714,7 +714,7 @@
         h('button', { onclick: async () => {
           if (!(await ui.confirm('Удалить Linux-окружение со всем, что в нём установлено? Данные модулей останутся.', 'Удалить', true))) return;
           ui.toast('Удаляю…');
-          await assi.native('linux.remove');
+          await axiko.native('linux.remove');
           renderLinux();
         } }, h('span', { class: 'grow', style: 'color: var(--danger)' }, 'Удалить окружение')));
       return;
@@ -731,10 +731,10 @@
     start.onclick = () => {
       start.disabled = true;
       progress.hidden = false;
-      assi.native('linux.install').catch(error => { ui.toast(error.message); renderLinux(); });
+      axiko.native('linux.install').catch(error => { ui.toast(error.message); renderLinux(); });
     };
     list.replaceChildren(h('div', {}, h('span', { class: 'grow' }, 'Не установлено', note, progress), start));
-    const off = assi.on('linux.install', event => {
+    const off = axiko.on('linux.install', event => {
       if (event.stage === 'download' && event.total > 0) {
         bar.style.width = Math.round(event.done / event.total * 100) + '%';
         note.textContent = `Скачиваю: ${(event.done / 1048576).toFixed(0)} из ${(event.total / 1048576).toFixed(0)} МБ`;
@@ -752,10 +752,10 @@
   // ---- the app in a browser on the local network ---------------------------------------------------
 
   async function renderLan(state) {
-    state = state || await assi.native('lan.status');
+    state = state || await axiko.native('lan.status');
     const toggle = h('input', { type: 'checkbox', class: 'switch', checked: state.on });
-    toggle.onchange = async () => renderLan(await assi.native('lan.set', toggle.checked));
-    const copy = async (text, said) => { await assi.eval('require("lib/assi").clipboard.set(' + JSON.stringify(text) + ')'); ui.toast(said); };
+    toggle.onchange = async () => renderLan(await axiko.native('lan.set', toggle.checked));
+    const copy = async (text, said) => { await axiko.eval('require("lib/axiko").clipboard.set(' + JSON.stringify(text) + ')'); ui.toast(said); };
     const rows = [h('label', {},
       h('span', { class: 'grow' }, 'Открыть доступ',
         h('div', { class: 'value' }, state.on && !state.running ? 'Не запустился: порт ' + state.port + ' занят'
@@ -777,7 +777,7 @@
       // The same door serves agents on other machines: the phone's tools over MCP.
       state.addresses.slice(0, 1).forEach(address => {
         const mcp = address + '/mcp';
-        const command = 'claude mcp add --transport http assi ' + mcp + ' --header "Authorization: Bearer ' + state.code + '"';
+        const command = 'claude mcp add --transport http axiko ' + mcp + ' --header "Authorization: Bearer ' + state.code + '"';
         rows.push(h('button', { onclick: () => copy(command, 'Команда скопирована') }, h('span', { class: 'grow' },
           h('div', { style: 'font-weight: 600' }, 'Инструменты телефона для агентов на компьютере'),
           h('div', { class: 'value' }, 'Сервер MCP: уведомления, экран, файлы и модули, личные данные, задачи ассистенту. Нажмите, чтобы скопировать команду подключения для Claude Code'),
@@ -788,7 +788,7 @@
   }
 
   function editLan(state) {
-    const name = h('input', { class: 'input mono', value: state.name, autocapitalize: 'off', autocomplete: 'off', placeholder: 'assi' });
+    const name = h('input', { class: 'input mono', value: state.name, autocapitalize: 'off', autocomplete: 'off', placeholder: 'axiko' });
     const code = h('input', { class: 'input mono', value: state.code, autocapitalize: 'off', autocomplete: 'off' });
     const port = h('input', { class: 'input mono', value: state.port, inputMode: 'numeric' });
     const random = () => {
@@ -798,7 +798,7 @@
     let close = null;
     const save = async () => {
       try {
-        const now = await assi.native('lan.setup', { name: name.value, code: code.value, port: parseInt(port.value, 10) || 0 });
+        const now = await axiko.native('lan.setup', { name: name.value, code: code.value, port: parseInt(port.value, 10) || 0 });
         close();
         renderLan(now);
         if (code.value.trim() !== state.code) ui.toast('Ключ сменён: в браузерах его нужно ввести заново');
@@ -809,7 +809,7 @@
     close = ui.sheet([
       h('h3', {}, 'Доступ с компьютера'),
       h('label', { class: 'field' }, h('span', {}, 'Имя телефона в сети'), name,
-        h('div', { class: 'value' }, 'К имени добавляется .local: с именем assi адрес будет http://assi.local:' + state.port)),
+        h('div', { class: 'value' }, 'К имени добавляется .local: с именем axiko адрес будет http://axiko.local:' + state.port)),
       h('label', { class: 'field' }, h('span', {}, 'Ключ входа'), code,
         h('div', { class: 'value' }, 'Любой удобный вам: от 4 знаков, латинские буквы, цифры и знаки без пробелов. Его спросит браузер и им же подключаются агенты')),
       h('div', {}, h('button', { class: 'btn small', onclick: random }, 'Случайный ключ')),
@@ -821,8 +821,8 @@
   // ---- a message sent while the agent works ------------------------------------------------------------
 
   async function renderBusy() {
-    const now = (await assi.native('pref.get', 'chat.busy', 'steer')) === 'after' ? 'after' : 'steer';
-    const option = (value, title, about) => h('button', { onclick: async () => { await assi.native('pref.set', 'chat.busy', value); renderBusy(); } },
+    const now = (await axiko.native('pref.get', 'chat.busy', 'steer')) === 'after' ? 'after' : 'steer';
+    const option = (value, title, about) => h('button', { onclick: async () => { await axiko.native('pref.set', 'chat.busy', value); renderBusy(); } },
       h('span', { class: 'grow' }, h('div', { style: 'font-weight: 600' }, title), h('div', { class: 'value' }, about)),
       now === value && h('span', { style: 'color: var(--accent)' }, ui.icon('check')));
     document.getElementById('busy-mode').replaceChildren(
@@ -835,9 +835,9 @@
   const STEPS = { min: 20, max: 400, by: 20, usual: 80 };
 
   async function renderSteps() {
-    const saved = Number(await assi.native('pref.get', 'agent.steps', String(STEPS.usual)));
+    const saved = Number(await axiko.native('pref.get', 'agent.steps', String(STEPS.usual)));
     const now = Math.min(STEPS.max, Math.max(STEPS.min, saved || STEPS.usual));
-    const step = by => async () => { await assi.native('pref.set', 'agent.steps', String(now + by)); renderSteps(); };
+    const step = by => async () => { await axiko.native('pref.set', 'agent.steps', String(now + by)); renderSteps(); };
     document.getElementById('step-limit').replaceChildren(
       h('button', { class: 'btn', disabled: now <= STEPS.min, onclick: step(-STEPS.by), 'aria-label': 'Меньше шагов' }, '−'),
       h('div', { class: 'now' }, String(now)),
@@ -850,7 +850,7 @@
 
   async function renderMcp() {
     const list = document.getElementById('mcp');
-    mcpServers = await assi.native('mcp.servers');
+    mcpServers = await axiko.native('mcp.servers');
     if (!mcpServers.length) {
       list.replaceChildren(h('div', { class: 'empty' }, 'Пока ни одного. Сервер MCP даёт агентам готовые инструменты: почту, календарь, базы знаний.'));
       return;
@@ -863,7 +863,7 @@
       state ? h('span', { class: 'badge' }, state.error ? 'нет связи' : 'инструментов: ' + state.tools) : h('span', { class: 'spinner' }));
     list.replaceChildren(...mcpServers.map(server => row(server)));
     // Asking every server takes a moment: the list shows at once, the state follows.
-    const states = await assi.native('mcp.status');
+    const states = await axiko.native('mcp.status');
     list.replaceChildren(...mcpServers.map(server => row(server, states.find(state => state.id === server.id))));
   }
 
@@ -875,7 +875,7 @@
     const token = h('input', { class: 'input mono', type: 'password', placeholder: isNew ? 'Если сервер его требует' : 'Оставьте пустым, чтобы не менять', autocomplete: 'off' });
     let close = null;
     const save = async list => {
-      await assi.native('mcp.setServers', list);
+      await axiko.native('mcp.setServers', list);
       close();
       renderMcp();
     };
@@ -900,15 +900,15 @@
   // ---- secrets --------------------------------------------------------------------------------
 
   async function renderSecrets() {
-    const names = await assi.native('secret.names');
+    const names = await axiko.native('secret.names');
     const list = document.getElementById('secrets');
     list.replaceChildren(...names.map(name =>
       h('div', {},
         h('span', { class: 'grow mono' }, name),
-        h('button', { class: 'icon-btn', 'aria-label': 'Заменить', onclick: async () => { await assi.native('secret.ask', name, 'Новое значение', ''); } }, ui.icon('edit')),
+        h('button', { class: 'icon-btn', 'aria-label': 'Заменить', onclick: async () => { await axiko.native('secret.ask', name, 'Новое значение', ''); } }, ui.icon('edit')),
         h('button', { class: 'icon-btn', 'aria-label': 'Удалить', onclick: async () => {
           if (await ui.confirm('Удалить секрет «' + name + '»? Модуль, которому он нужен, перестанет работать.', 'Удалить', true)) {
-            await assi.native('secret.remove', name);
+            await axiko.native('secret.remove', name);
             renderSecrets();
           }
         } }, ui.icon('trash')))));
@@ -924,7 +924,7 @@
       h('div', { class: 'actions' }, h('button', { class: 'btn primary', onclick: async () => {
         if (!name.value.trim()) { ui.toast('Укажите имя'); return; }
         close();
-        await assi.native('secret.ask', name.value.trim(), 'Значение секрета', '');
+        await axiko.native('secret.ask', name.value.trim(), 'Значение секрета', '');
         renderSecrets();
       } }, 'Дальше')),
     ]);
@@ -944,14 +944,14 @@
     const box = h('input', { type: 'checkbox', class: 'switch', checked: (prefs[key] || fallback) === 'on' });
     box.onchange = async () => {
       prefs[key] = box.checked ? 'on' : 'off';
-      await assi.native('pref.set', key, prefs[key]);
+      await axiko.native('pref.set', key, prefs[key]);
       if (after) after(box.checked);
     };
     return box;
   };
 
   async function renderVoice() {
-    [localVoice, wake] = await Promise.all([assi.native('tts.local.status'), assi.native('wake.status')]);
+    [localVoice, wake] = await Promise.all([axiko.native('tts.local.status'), axiko.native('wake.status')]);
     const tts = assigned('tts');
     const local = speech.engine === 'parakeet' ? 'Parakeet v3' : 'GigaAM';
     const hearing = speech.engine === 'system' ? 'Системное распознавание'
@@ -972,7 +972,7 @@
     engine.value = prefs['tts.engine'] || 'auto';
     engine.onchange = async () => {
       prefs['tts.engine'] = engine.value;
-      await assi.native('pref.set', 'tts.engine', engine.value);
+      await axiko.native('pref.set', 'tts.engine', engine.value);
       if (engine.value === 'local' && !localVoice.ready) editLocalVoice();
     };
     document.getElementById('voice').replaceChildren(
@@ -992,7 +992,7 @@
     const listen = h('input', { type: 'checkbox', class: 'switch', checked: wake.on });
     listen.onchange = async () => {
       if (listen.checked && !speech.ready) { listen.checked = false; ui.toast('Сначала скачайте модель распознавания'); return; }
-      await assi.native('wake.set', listen.checked);
+      await axiko.native('wake.set', listen.checked);
       wake.on = listen.checked;
     };
     const how = wake.mode === 'full' ? 'Тщательно: распознаётся каждая услышанная фраза'
@@ -1018,9 +1018,9 @@
       field('Имя, на которое откликаться', name),
       h('div', { class: 'actions' }, h('button', { class: 'btn primary', onclick: async () => {
         if (!name.value.trim()) { ui.toast('Имя не может быть пустым'); return; }
-        await assi.native('wake.name', name.value.trim());
+        await axiko.native('wake.name', name.value.trim());
         close();
-        agents = await assi.native('agent.list');
+        agents = await axiko.native('agent.list');
         render();
       } }, 'Сохранить')),
     ]);
@@ -1031,7 +1031,7 @@
       h('option', { value: 'light' }, 'Бережно: лёгкая модель караулит имя'),
       h('option', { value: 'full' }, 'Тщательно: распознавать каждую фразу'));
     mode.value = wake.mode;
-    mode.onchange = async () => { wake = await assi.native('wake.mode', mode.value); renderVoice(); };
+    mode.onchange = async () => { wake = await axiko.native('wake.mode', mode.value); renderVoice(); };
     const bar = h('div', {});
     const progress = h('div', { class: 'progress', hidden: true }, bar);
     const state = h('p', { class: 'small muted' });
@@ -1044,16 +1044,16 @@
           : 'Лёгкая модель записывает слова русскими буквами, имя «' + wake.name + '» ей не по силам: слушать придётся тщательно.';
     };
     describe();
-    const off = assi.on('wake.download', event => {
+    const off = axiko.on('wake.download', event => {
       if (event.error) { ui.toast(event.error); download.disabled = false; return; }
-      if (event.ready) { progress.hidden = true; assi.native('wake.status').then(next => { wake = next; describe(); renderVoice(); }); return; }
+      if (event.ready) { progress.hidden = true; axiko.native('wake.status').then(next => { wake = next; describe(); renderVoice(); }); return; }
       progress.hidden = false;
       if (event.total > 0) bar.style.width = Math.round(event.done / event.total * 100) + '%';
       state.textContent = `Скачиваю: ${(event.done / 1048576).toFixed(0)} из ${(event.total / 1048576).toFixed(0)} МБ`;
     });
     download.onclick = () => {
       download.disabled = true;
-      assi.native('wake.download').catch(error => { ui.toast(error.message); download.disabled = false; });
+      axiko.native('wake.download').catch(error => { ui.toast(error.message); download.disabled = false; });
     };
     ui.sheet([h('h3', {}, 'Как слушать имя'), field('Способ', mode), state, progress, download], off);
   }
@@ -1074,12 +1074,12 @@
       h('div', { class: 'actions' },
         h('button', { class: 'btn danger', onclick: async () => {
           if (!(await ui.confirm('Удалить голос с телефона?', 'Удалить', true))) return;
-          await assi.native('tts.local.remove');
+          await axiko.native('tts.local.remove');
           localVoice.ready = false;
           describe();
           renderVoice();
         } }, 'Удалить'),
-        h('button', { class: 'btn', onclick: () => assi.native('speech.say', 'Привет! Так звучит голос, который живёт прямо в телефоне.', 'local') }, ui.icon('play'), 'Проверить')));
+        h('button', { class: 'btn', onclick: () => axiko.native('speech.say', 'Привет! Так звучит голос, который живёт прямо в телефоне.', 'local') }, ui.icon('play'), 'Проверить')));
     const describe = () => {
       download.hidden = localVoice.ready;
       controls.hidden = !localVoice.ready;
@@ -1089,15 +1089,15 @@
     };
     describe();
     const save = async () => {
-      await assi.native('pref.set', 'tts.local.voice', voice.value);
-      await assi.native('pref.set', 'tts.local.speed', speed.value);
+      await axiko.native('pref.set', 'tts.local.voice', voice.value);
+      await axiko.native('pref.set', 'tts.local.speed', speed.value);
       localVoice.voice = Number(voice.value);
       localVoice.speed = Number(speed.value);
       renderVoice();
     };
     voice.onchange = save;
     speed.onchange = save;
-    const off = assi.on('tts.download', event => {
+    const off = axiko.on('tts.download', event => {
       if (event.error) { ui.toast(event.error); download.disabled = false; return; }
       if (event.ready) { progress.hidden = true; localVoice.ready = true; describe(); renderVoice(); return; }
       progress.hidden = false;
@@ -1106,7 +1106,7 @@
     });
     download.onclick = () => {
       download.disabled = true;
-      assi.native('tts.local.download').catch(error => { ui.toast(error.message); download.disabled = false; });
+      axiko.native('tts.local.download').catch(error => { ui.toast(error.message); download.disabled = false; });
     };
     ui.sheet([h('h3', {}, 'Голос на телефоне'), state, progress, download, controls], off);
   }
@@ -1114,14 +1114,14 @@
   // ---- agents: the name, the instructions, the memory -------------------------------------------------
 
   const readFile = path => fetch('/' + path + '?' + Date.now()).then(response => (response.ok ? response.text() : ''));
-  const writeFile = (path, content) => assi.eval('require("lib/assi").files.write(' + JSON.stringify(path) + ', ' + JSON.stringify(content) + ')');
+  const writeFile = (path, content) => axiko.eval('require("lib/axiko").files.write(' + JSON.stringify(path) + ', ' + JSON.stringify(content) + ')');
 
   async function renderAgents() {
-    const state = await assi.native('wake.status');
+    const state = await axiko.native('wake.status');
     document.getElementById('agents').replaceChildren(
       row('Имя ассистента', state.name + ' — так к нему обращаются в чате и голосом', editName, true),
       ...agents.map(agent => {
-        const home = agent.id === 'assi' ? 'agent' : 'agents/' + agent.id;
+        const home = agent.id === 'axiko' ? 'agent' : 'agents/' + agent.id;
         return h('button', { onclick: () => editAgent(agent, home) },
           h('span', { style: 'color: var(--accent)' }, ui.mark(agent)),
           h('span', { class: 'grow' },
@@ -1143,7 +1143,7 @@
       h('div', { class: 'actions' },
         factory && h('button', { class: 'btn', onclick: async () => {
           if (!(await ui.confirm('Вернуть исходный текст? Ваши правки останутся в истории изменений.', 'Вернуть'))) return;
-          await assi.native('safe.resetUi', path);
+          await axiko.native('safe.resetUi', path);
           area.value = await readFile(path);
           ui.toast('Текст возвращён');
         } }, 'Исходный'),
@@ -1156,7 +1156,7 @@
   }
 
   function editAgent(agent, home) {
-    const main = agent.id === 'assi';
+    const main = agent.id === 'axiko';
     ui.sheet([
       h('h3', {}, agent.title),
       h('div', { class: 'list' },
@@ -1167,7 +1167,7 @@
         row('Память', 'Немногое, что нужно помнить в каждом разговоре', () => editText(
           'Память: ' + agent.title, 'Агент дописывает сюда сам; лишнее можно стереть.', home + '/memory.md', false)),
         row('Что получает модель', 'Весь промпт, как он собран сейчас: инструкция, руководство, память', async () => {
-          const prompt = await assi.native('agent.prompt', agent.id);
+          const prompt = await axiko.native('agent.prompt', agent.id);
           ui.sheet([
             h('h3', {}, 'Промпт: ' + agent.title),
             h('p', { class: 'small muted' }, 'Примерно ' + Math.round(prompt.length / 3 / 100) / 10 + ' тыс. токенов, не считая описаний инструментов.'),
@@ -1213,8 +1213,8 @@
         const fresh = await readMascot();
         if (!fresh) return ui.toast('Не найден файл маскота: ' + MASCOT_FILE);
         fresh.button = id;
-        await assi.eval('require("lib/assi").files.writeJson(' + JSON.stringify(MASCOT_FILE) + ', ' + JSON.stringify(fresh) + ')');
-        await assi.native('mascot.changed');
+        await axiko.eval('require("lib/axiko").files.writeJson(' + JSON.stringify(MASCOT_FILE) + ', ' + JSON.stringify(fresh) + ')');
+        await axiko.native('mascot.changed');
         renderButtonLooks();
       } }, h('span', { class: 'pic' }, picture()), label)));
     const note = document.getElementById('button-note');
@@ -1226,27 +1226,27 @@
 
   /** The button over other apps: its looks live in ui/bubble/, the shell draws each as it will float. An older shell has none. */
   async function renderBubbleLooks() {
-    const info = await assi.native('bubble.looks').catch(() => null);
+    const info = await axiko.native('bubble.looks').catch(() => null);
     if (!info) return;
     document.getElementById('bubble-section').hidden = false;
     document.getElementById('bubble-looks').replaceChildren(...info.looks.map(look =>
       h('button', { class: look.on ? 'on' : '', onclick: async () => {
-        try { await assi.native('bubble.look.set', look.id); } catch (error) { ui.toast(error.message); }
+        try { await axiko.native('bubble.look.set', look.id); } catch (error) { ui.toast(error.message); }
         renderBubbleLooks();
       } }, look.image && h('span', { class: 'pic' }, h('img', { src: look.image, alt: '' })), look.title)));
-    const sense = await assi.native('sense.status').catch(() => null);
+    const sense = await axiko.native('sense.status').catch(() => null);
     document.getElementById('bubble-note').hidden = !sense || Boolean(sense.bubble && sense.overlay);
   }
 
   /** The scale of the whole interface. An older shell has none: the section stays hidden. */
   async function renderScale() {
-    const info = await assi.native('ui.scale').catch(() => null);
+    const info = await axiko.native('ui.scale').catch(() => null);
     if (!info) return;
     document.getElementById('scale-section').hidden = false;
     const step = by => async () => {
       // The shell loads every screen anew with the new scale: this one comes back on this tab.
       history.replaceState(null, '', '?tab=look');
-      await assi.native('ui.scale.set', info.value + by);
+      await axiko.native('ui.scale.set', info.value + by);
     };
     document.getElementById('scale').replaceChildren(
       h('button', { class: 'btn', disabled: info.value <= info.min, onclick: step(-info.step), 'aria-label': 'Мельче' }, 'A−'),
@@ -1261,42 +1261,42 @@
   /** The icon on the phone's home screen: the looks built into the shell, each with its real picture. */
   async function renderIconLooks() {
     // An older shell knows two looks and gives no pictures.
-    const icons = await assi.native('launcher.icons').catch(async () => {
-      const now = await assi.native('launcher.icon');
+    const icons = await axiko.native('launcher.icons').catch(async () => {
+      const now = await axiko.native('launcher.icon');
       return ['mascot', 'plain'].map(id => ({ id, on: id === now, image: '' }));
     });
     document.getElementById('icon-looks').replaceChildren(...icons.map(icon =>
       h('button', { class: icon.on ? 'on' : '', onclick: async () => {
-        try { await assi.native('launcher.icon.set', icon.id); } catch (error) { ui.toast(error.message); }
+        try { await axiko.native('launcher.icon.set', icon.id); } catch (error) { ui.toast(error.message); }
         renderIconLooks();
       } }, icon.image && h('span', { class: 'pic' }, h('img', { src: icon.image, alt: '' })), ICON_LOOKS[icon.id] || ui.raw(icon.id))));
   }
 
   async function renderLook() {
-    const speech = await assi.native('lang.status');
+    const speech = await axiko.native('lang.status');
     const language = h('select', { class: 'input' },
       h('option', { value: 'auto' }, 'Как в телефоне'),
       speech.languages.map(item => h('option', { value: item.code }, ui.raw(item.name))));
     language.value = speech.setting;
-    language.onchange = () => assi.native('lang.set', language.value);
+    language.onchange = () => axiko.native('lang.set', language.value);
     document.getElementById('lang').replaceChildren(h('label', {}, h('span', { class: 'grow' }, 'Язык интерфейса'), language));
 
     const face = document.getElementById('mascot-face');
     if (!face.firstChild) face.append(ui.mascot('head', { size: 36 }));
-    document.getElementById('mascot-open').onclick = () => assi.open('ui/mascot/index.html');
+    document.getElementById('mascot-open').onclick = () => axiko.open('ui/mascot/index.html');
     renderButtonLooks();
     renderBubbleLooks();
     renderIconLooks();
     renderScale();
 
-    const themes = await assi.native('theme.list');
+    const themes = await axiko.native('theme.list');
     const none = !themes.some(theme => theme.active);
     const themeRow = (theme, active) =>
       h('div', {},
         h('span', { class: 'swatch', style: 'background: ' + ((theme.tokens && theme.tokens.accent) || '#8B7CFF') }),
         h('button', {
           class: 'grow', style: 'border: 0; background: none; text-align: left; padding: 0; font-weight: 600',
-          onclick: async () => { await assi.native('theme.set', theme.id); renderLook(); },
+          onclick: async () => { await axiko.native('theme.set', theme.id); renderLook(); },
         }, theme.name),
         active && h('span', { class: 'badge', style: 'background: var(--accent-soft); color: var(--accent)' }, 'выбрана'),
         theme.id && h('button', { class: 'icon-btn', 'aria-label': 'Изменить', onclick: () => editTheme(theme) }, ui.icon('edit')));
@@ -1307,12 +1307,12 @@
     const nav = await fetch('/ui/nav.json?' + Date.now()).then(response => response.json()).catch(() => ({ items: [] }));
     const items = nav.items || [];
     const saveMenu = async next => {
-      await assi.eval('require("lib/assi").files.writeJson("ui/nav.json", ' + JSON.stringify({ items: next }) + ')');
-      await assi.native('nav.changed');
+      await axiko.eval('require("lib/axiko").files.writeJson("ui/nav.json", ' + JSON.stringify({ items: next }) + ')');
+      await axiko.native('nav.changed');
       renderLook();
     };
     const shown = h('input', { type: 'checkbox', class: 'switch', checked: (prefs['nav.on'] || 'on') === 'on' });
-    shown.onchange = async () => { prefs['nav.on'] = shown.checked ? 'on' : 'off'; await assi.native('nav.show', shown.checked); };
+    shown.onchange = async () => { prefs['nav.on'] = shown.checked ? 'on' : 'off'; await axiko.native('nav.show', shown.checked); };
     document.getElementById('menu').replaceChildren(
       h('label', {}, h('span', { class: 'grow' }, 'Показывать меню'), shown),
       ...items.map((item, index) => h('div', {},
@@ -1363,8 +1363,8 @@
         tokens['ink-2'] = mix(tokens.ink, bg, 0.66);
         tokens['ink-3'] = mix(tokens.ink, bg, 0.4);
       }
-      await assi.native('theme.save', draft.id, { name: name.value.trim() || 'Своя тема', tokens, css: draft.css || '' });
-      await assi.native('theme.set', draft.id);
+      await axiko.native('theme.save', draft.id, { name: name.value.trim() || 'Своя тема', tokens, css: draft.css || '' });
+      await axiko.native('theme.set', draft.id);
       close();
       renderLook();
     };
@@ -1376,7 +1376,7 @@
       h('div', { class: 'actions' },
         !isNew && h('button', { class: 'btn danger', onclick: async () => {
           if (!(await ui.confirm('Удалить тему «' + draft.name + '»?', 'Удалить', true))) return;
-          await assi.native('theme.remove', draft.id);
+          await axiko.native('theme.remove', draft.id);
           close();
           renderLook();
         } }, 'Удалить'),
@@ -1385,9 +1385,9 @@
   }
 
   document.getElementById('add-theme').onclick = () => editTheme(null);
-  assi.on('theme', () => renderLook());
-  assi.on('nav', () => renderLook());
-  assi.on('mascot', () => renderButtonLooks());
+  axiko.on('theme', () => renderLook());
+  axiko.on('nav', () => renderLook());
+  axiko.on('mascot', () => renderButtonLooks());
 
   function editHearing() {
     const engine = h('select', { class: 'input' },
@@ -1409,7 +1409,7 @@
           : 'Модель распознавания скачивается один раз. До тех пор используется системное распознавание, если оно есть.';
     };
     describe();
-    const off = assi.on('stt.download', event => {
+    const off = axiko.on('stt.download', event => {
       if (event.error) { ui.toast(event.error); return; }
       if (event.ready) { speech.ready = true; progress.hidden = true; describe(); renderVoice(); return; }
       progress.hidden = false;
@@ -1419,14 +1419,14 @@
     download.onclick = () => {
       download.disabled = true;
       download.textContent = 'Скачиваю…';
-      assi.native('speech.download').catch(error => {
+      axiko.native('speech.download').catch(error => {
         ui.toast(error.message);
         describe();
       });
     };
     engine.onchange = async () => {
-      await assi.native('pref.set', 'stt.engine', engine.value);
-      speech = await assi.native('speech.status');
+      await axiko.native('pref.set', 'stt.engine', engine.value);
+      speech = await axiko.native('speech.status');
       describe();
       renderVoice();
     };
@@ -1464,7 +1464,7 @@
     const save = async () => {
       if (!fields.model.value.trim()) { ui.toast('Укажите модель'); return false; }
       roles.tts = collect();
-      await assi.native('models.setRoles', roles);
+      await axiko.native('models.setRoles', roles);
       renderVoice();
       return true;
     };
@@ -1475,7 +1475,7 @@
       voiceField,
       field('Манера речи', style),
       h('div', { class: 'actions' },
-        h('button', { class: 'btn', onclick: async () => { if (await save()) assi.native('speech.say', 'Привет! Так звучит мой голос. Могу говорить спокойно, а могу и с улыбкой.'); } }, ui.icon('play'), 'Проверить'),
+        h('button', { class: 'btn', onclick: async () => { if (await save()) axiko.native('speech.say', 'Привет! Так звучит мой голос. Могу говорить спокойно, а могу и с улыбкой.'); } }, ui.icon('play'), 'Проверить'),
         h('button', { class: 'btn primary', onclick: async () => { if (await save()) close(); } }, 'Сохранить')),
     ]);
   }
@@ -1489,10 +1489,10 @@
         : !state.granted ? 'Запущен. Нажмите, чтобы разрешить Axiko им пользоваться и выдать себе всё'
           : 'Работает. Нажмите, чтобы Axiko заново выдал себе все разрешения';
     const act = async () => {
-      if (!state.installed) { assi.eval("require('lib/assi').openUrl('https://shizuku.rikka.app/')"); return; }
+      if (!state.installed) { axiko.eval("require('lib/axiko').openUrl('https://shizuku.rikka.app/')"); return; }
       try {
         ui.toast('Выдаю разрешения…');
-        const report = await assi.native('shizuku.empower');
+        const report = await axiko.native('shizuku.empower');
         ui.sheet([h('h3', {}, 'Что получилось'), h('pre', { class: 'mono', style: 'white-space: pre-wrap; margin: 0' }, report)], renderSenses);
       } catch (error) {
         ui.toast(error.message);
@@ -1507,7 +1507,7 @@
   }
 
   async function renderSenses() {
-    const sense = await assi.native('sense.status');
+    const sense = await axiko.native('sense.status');
     const row = (title, about, on, action) =>
       h('button', { onclick: action },
         h('span', { class: 'grow' },
@@ -1519,21 +1519,21 @@
       if (bubble.checked && !sense.overlay) {
         bubble.checked = false;
         ui.toast('Сначала разрешите показ поверх других приложений');
-        assi.native('sense.open', 'overlay');
+        axiko.native('sense.open', 'overlay');
         return;
       }
-      await assi.native('bubble.set', bubble.checked);
+      await axiko.native('bubble.set', bubble.checked);
     };
     document.getElementById('senses').replaceChildren(
-      row('Видеть экран', 'Читать, что открыто в других приложениях, и действовать в них', sense.screen, () => assi.native('sense.open', 'screen')),
-      row('Читать уведомления', 'Письма, сообщения, банки — всё, что показывает телефон', sense.notices, () => assi.native('sense.open', 'notices')),
-      row('Системный ассистент', 'Вызов жестом ассистента поверх любого приложения, с его экраном', sense.assistant, () => assi.native('sense.open', 'assistant')),
+      row('Видеть экран', 'Читать, что открыто в других приложениях, и действовать в них', sense.screen, () => axiko.native('sense.open', 'screen')),
+      row('Читать уведомления', 'Письма, сообщения, банки — всё, что показывает телефон', sense.notices, () => axiko.native('sense.open', 'notices')),
+      row('Системный ассистент', 'Вызов жестом ассистента поверх любого приложения, с его экраном', sense.assistant, () => axiko.native('sense.open', 'assistant')),
       h('label', {},
         h('span', { class: 'grow' }, 'Плавающая кнопка',
           h('div', { class: 'value' }, 'Поверх других приложений: нажали — и спрашиваете Axiko об этом экране')),
         bubble),
-      shizukuRow(await assi.native('shizuku.status')),
-      h('button', { onclick: () => assi.native('sense.open', 'app') },
+      shizukuRow(await axiko.native('shizuku.status')),
+      h('button', { onclick: () => axiko.native('sense.open', 'app') },
         h('span', { class: 'grow' },
           h('div', { style: 'font-weight: 600' }, 'Если переключатель в системе серый'),
           h('div', { class: 'value' }, 'Откройте сведения о приложении, меню с тремя точками и выберите «Разрешить ограниченные настройки»')),
@@ -1543,9 +1543,9 @@
   document.addEventListener('visibilitychange', () => { if (!document.hidden) renderSenses(); });
   renderSenses();
   // Granting access to all files restarts the app; what was granted is shown once it is back.
-  assi.native('pref.get', 'empower.report').then(report => {
+  axiko.native('pref.get', 'empower.report').then(report => {
     if (!report) return;
-    assi.native('pref.set', 'empower.report', null);
+    axiko.native('pref.set', 'empower.report', null);
     ui.sheet([h('h3', {}, 'Что получилось'), h('pre', { class: 'mono', style: 'white-space: pre-wrap; margin: 0' }, report)]);
   });
 
@@ -1579,7 +1579,7 @@
   }
 
   async function renderBackup(state) {
-    backup = state || await assi.native('backup.status');
+    backup = state || await axiko.native('backup.status');
     const busy = backup.busy;
     const last = backup.last;
     const auto = backup.auto;
@@ -1594,7 +1594,7 @@
         h('span', { class: 'grow' },
           h('div', { style: 'font-weight: 600' }, busy.kind === 'open' || busy.kind === 'apply' ? 'Восстановление из копии' : 'Создаётся копия'),
           note, h('div', { class: 'progress', hidden: true }, bar)),
-        stoppable && h('button', { class: 'btn small', onclick: () => assi.native('backup.cancel') }, 'Отмена')));
+        stoppable && h('button', { class: 'btn small', onclick: () => axiko.native('backup.cancel') }, 'Отмена')));
       backupProgress(busy);
     } else {
       rows.push(h('div', {},
@@ -1612,14 +1612,14 @@
         h('span', { class: 'muted' }, ui.icon('right'))));
     }
     rows.push(
-      h('button', { disabled: Boolean(busy), onclick: () => assi.native('backup.save').catch(error => ui.toast(error.message)) },
+      h('button', { disabled: Boolean(busy), onclick: () => axiko.native('backup.save').catch(error => ui.toast(error.message)) },
         h('span', { class: 'grow' }, 'Сохранить копию…',
           h('div', { class: 'value' }, 'Память телефона, Google Диск или другое облако: место выбирается в системном окне'))),
-      h('button', { disabled: Boolean(busy), onclick: () => assi.native('backup.open').catch(error => ui.toast(error.message)) },
+      h('button', { disabled: Boolean(busy), onclick: () => axiko.native('backup.open').catch(error => ui.toast(error.message)) },
         h('span', { class: 'grow' }, 'Восстановить из копии…',
           h('div', { class: 'value' }, 'Сначала покажу, что в файле, и спрошу. Нынешнее содержимое будет заменено'))));
     const history = h('input', { type: 'checkbox', class: 'switch', checked: backup.history });
-    history.onchange = () => assi.native('backup.set', { history: history.checked }).then(renderBackup);
+    history.onchange = () => axiko.native('backup.set', { history: history.checked }).then(renderBackup);
     rows.push(h('label', {},
       h('span', { class: 'grow' }, 'Включать историю изменений',
         h('div', { class: 'value' }, 'Снимки для отката правок. Копия станет заметно больше')),
@@ -1635,7 +1635,7 @@
     if (backup.undo) {
       rows.push(h('button', { onclick: async () => {
         if (await ui.confirm('Вернуть всё как было до восстановления из копии? Приложение перезапустится.', 'Вернуть', true)) {
-          assi.native('backup.undo').catch(error => ui.toast(error.message));
+          axiko.native('backup.undo').catch(error => ui.toast(error.message));
         }
       } }, h('span', { class: 'grow', style: 'color: var(--danger)' }, 'Вернуть как было до восстановления')));
     }
@@ -1663,12 +1663,12 @@
         h('button', { class: 'btn danger', onclick: () => {
           decided = true;
           close();
-          assi.native('backup.apply').catch(error => { ui.toast(error.message); renderBackup(); });
+          axiko.native('backup.apply').catch(error => { ui.toast(error.message); renderBackup(); });
         } }, 'Восстановить')),
     ], async () => {
       backupSheet = null;
       // Closed without a decision: the unpacked copy is removed from the phone.
-      if (!decided) await assi.native('backup.discard').catch(() => {});
+      if (!decided) await axiko.native('backup.discard').catch(() => {});
       renderBackup();
     });
   }
@@ -1690,7 +1690,7 @@
     };
     const ask = name => async () => {
       try {
-        backup = await assi.native(name);
+        backup = await axiko.native(name);
         show();
         renderBackup(backup);
       } catch (error) {
@@ -1704,7 +1704,7 @@
         return false;
       }
       try {
-        renderBackup(await assi.native('backup.set', { auto: mode.value, time: time.value || auto.time, keep: Number(keep.value) || 3 }));
+        renderBackup(await axiko.native('backup.set', { auto: mode.value, time: time.value || auto.time, keep: Number(keep.value) || 3 }));
         return true;
       } catch (error) {
         ui.toast(error.message);
@@ -1714,7 +1714,7 @@
     now.onclick = async () => {
       if (!(await save())) return;
       close();
-      assi.native('backup.now').catch(error => ui.toast(error.message));
+      axiko.native('backup.now').catch(error => ui.toast(error.message));
     };
     show();
     close = ui.sheet([
@@ -1732,7 +1732,7 @@
     ]);
   }
 
-  assi.on('backup', event => {
+  axiko.on('backup', event => {
     if (event.busy && backupProgress(event.busy)) return;
     if (event.error) ui.toast(event.error);
     if (event.done) ui.toast('Копия сохранена: ' + sized(event.last.bytes));
@@ -1742,32 +1742,32 @@
   // ---- system ------------------------------------------------------------------------------
 
   async function cacheSize() {
-    const cache = await assi.native('webcache.info');
+    const cache = await axiko.native('webcache.info');
     document.getElementById('web-cache-size').textContent = cache.files
       ? `Сохранено файлов: ${cache.files}, ${(cache.bytes / 1048576).toFixed(1)} МБ. Работают без сети`
       : 'Пусто. Сюда попадут библиотеки, шрифты и картинки, которые модули берут из сети';
   }
 
   document.getElementById('add-provider').onclick = () => editProvider(null);
-  document.getElementById('safe').onchange = event => assi.native('safe.set', event.target.checked);
+  document.getElementById('safe').onchange = event => axiko.native('safe.set', event.target.checked);
   document.getElementById('reset-ui').onclick = async () => {
     if (await ui.confirm('Вернуть главный экран, чат и настройки к заводскому виду? Это можно будет откатить в истории.', 'Сбросить')) {
-      await assi.native('safe.resetUi', 'ui/');
+      await axiko.native('safe.resetUi', 'ui/');
     }
   };
   document.getElementById('web-cache').onclick = async () => {
     if (await ui.confirm('Очистить кэш? Модули заново скачают свои библиотеки при следующем открытии — понадобится сеть.', 'Очистить')) {
-      await assi.native('webcache.clear');
+      await axiko.native('webcache.clear');
       cacheSize();
     }
   };
   document.getElementById('engine-log').onclick = async () => {
-    const lines = await assi.native('log.engine', 200);
+    const lines = await axiko.native('log.engine', 200);
     ui.sheet([h('h3', {}, 'Журнал движка'),
       h('pre', { class: 'mono', style: 'white-space: pre-wrap; margin: 0' }, lines.length ? lines.join('\n') : 'Пусто')]);
   };
-  assi.on('tts', event => { if (event.error) ui.toast(event.error); });
-  assi.on('local.note', note => ui.toast(note));
+  axiko.on('tts', event => { if (event.error) ui.toast(event.error); });
+  axiko.on('local.note', note => ui.toast(note));
 
   cacheSize();
   renderBackup();

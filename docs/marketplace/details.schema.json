@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://example.org/assi-marketplace/schema/v1/details.schema.json",
+  "$id": "https://example.org/axiko-marketplace/schema/v1/details.schema.json",
   "title": "Axiko package details v1",
   "description": "What is read when a package is opened. 256 KiB UTF-8 limit. Texts are untrusted Markdown; pictures are fetched by path, size and hash.",
   "type": "object",

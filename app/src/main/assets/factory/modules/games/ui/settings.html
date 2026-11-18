@@ -63,7 +63,7 @@
 <body>
 <main class="page">
   <header class="topbar">
-    <button class="icon-btn" onclick="assi.back()" aria-label="Назад" data-icon="back"></button>
+    <button class="icon-btn" onclick="axiko.back()" aria-label="Назад" data-icon="back"></button>
     <h1 id="title">Настройки</h1>
   </header>
   <p class="muted" id="about"></p>
@@ -91,7 +91,7 @@
       clearTimeout(timers[key]);
       timers[key] = setTimeout(async () => {
         try {
-          data = await assi.call(MAIN, 'setSetting', game, key, v);
+          data = await axiko.call(MAIN, 'setSetting', game, key, v);
           render();
         } catch (error) {
           ui.toast(error.message);
@@ -149,11 +149,11 @@
     box.replaceChildren(...order.map(g => h('section', { class: 'section' }, h('h2', {}, g.name),
       h('div', { class: 'card flat', style: 'padding: 4px 16px' }, groups[g.name].map(key => control(key, data.schema[key]))))));
     if (data.game) {
-      box.appendChild(h('button', { class: 'btn wide', onclick: () => assi.open('modules/games/ui/settings.html') }, 'Настройки Игротеки'));
+      box.appendChild(h('button', { class: 'btn wide', onclick: () => axiko.open('modules/games/ui/settings.html') }, 'Настройки Игротеки'));
     }
   }
 
-  assi.call(MAIN, 'settings', game).then(result => {
+  axiko.call(MAIN, 'settings', game).then(result => {
     data = result;
     render();
   }, error => {

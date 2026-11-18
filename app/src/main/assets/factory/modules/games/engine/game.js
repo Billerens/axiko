@@ -14,9 +14,9 @@
   var h = function () { return window.ui.h.apply(null, arguments); };
 
   // In the frame of ui/preview.html the link to the app may be only the parent's (same origin).
-  if (!window.assi && window.parent && window.parent !== window) {
+  if (!window.axiko && window.parent && window.parent !== window) {
     try {
-      window.assi = window.parent.assi;
+      window.axiko = window.parent.axiko;
     } catch (ignored) { /* another origin */ }
   }
   var noop = function () {};
@@ -38,7 +38,7 @@
 
   function call(fn) {
     var args = [MAIN, fn].concat(Array.prototype.slice.call(arguments, 1));
-    return window.assi.call.apply(window.assi, args);
+    return window.axiko.call.apply(window.axiko, args);
   }
 
   function frame() {
@@ -396,12 +396,12 @@
     document.body.classList.add('g-body');
     var el = buildFrame(opts.root || document.body);
     el.field.appendChild(h('div', { class: 'g-wait' }, 'Загрузка…'));
-    if (!window.assi) {
+    if (!window.axiko) {
       el.field.replaceChildren(h('div', { class: 'g-error' }, 'Игра открывается только внутри Axiko.'));
-      throw new Error('нет window.assi');
+      throw new Error('нет window.axiko');
     }
     // Browser games stay in their hub pane; its fullscreen button is the owner's choice.
-    if (!preview && window.assi.platform !== 'web') window.assi.stage(true).catch(noop);
+    if (!preview && window.axiko.platform !== 'web') window.axiko.stage(true).catch(noop);
 
     var boot = await call('boot', id);
     var game = boot.game;
@@ -462,7 +462,7 @@
       el.field.replaceChildren(h('div', { class: 'g-error' }, 'Сохранение новее игры: игру откатили, а данные остались новыми. Поверх них игра не пишет.'));
       var close = sheet([h('h3', {}, 'Сохранение новее игры'), note('Вернуть копию, сделанную до обновления?'),
         h('div', { class: 'g-btns' },
-          h('button', { class: 'g-btn small', onclick: function () { close(); window.assi.back(); } }, 'Не сейчас'),
+          h('button', { class: 'g-btn small', onclick: function () { close(); window.axiko.back(); } }, 'Не сейчас'),
           h('button', {
             class: 'g-btn small primary', onclick: async function () {
               var rows = await call('saves', id);
@@ -1102,7 +1102,7 @@
       });
       item('settings', 'Настройки игры', function () {
         save('action');
-        window.assi.open('modules/games/ui/settings.html?game=' + encodeURIComponent(id));
+        window.axiko.open('modules/games/ui/settings.html?game=' + encodeURIComponent(id));
       });
       close = sheet([h('h3', {}, game.title || id), h('div', { class: 'list' }, items)]);
     }
@@ -1319,7 +1319,7 @@
     // ---- wiring ----
     el.exit.addEventListener('click', function () {
       hide();
-      chain.then(function () { window.assi.back(); });
+      chain.then(function () { window.axiko.back(); });
     });
     el.menu.addEventListener('click', menuSheet);
     window.addEventListener('resize', function () {
@@ -1332,17 +1332,17 @@
     });
     window.addEventListener('pagehide', hide);
     if (features.indexOf('app.visible') >= 0) {
-      window.assi.on('app.visible', function (e) {
+      window.axiko.on('app.visible', function (e) {
         if (e && e.on === false) hide();
         else if (document.visibilityState !== 'hidden') show();
       });
     }
-    window.assi.on('games.audio', function (a) { if (a) audio = a; });
-    window.assi.on('games.links', function () { refreshLinks(); });
-    window.assi.on('games.inbox', function (e) { if (!e || e.game === id) pullInbox(false); });
-    window.assi.on('games.stock', function (e) { if (e && e.game === id) call('stockStatus', id).then(function (c) { counts = c; }, noop); });
-    window.assi.on('games.config', function (e) { if (!e || !e.game || e.game === id) refreshConfig(); });
-    window.assi.on('power', function (e) { if (e) charging = !!e.charging; });
+    window.axiko.on('games.audio', function (a) { if (a) audio = a; });
+    window.axiko.on('games.links', function () { refreshLinks(); });
+    window.axiko.on('games.inbox', function (e) { if (!e || e.game === id) pullInbox(false); });
+    window.axiko.on('games.stock', function (e) { if (e && e.game === id) call('stockStatus', id).then(function (c) { counts = c; }, noop); });
+    window.axiko.on('games.config', function (e) { if (!e || !e.game || e.game === id) refreshConfig(); });
+    window.axiko.on('power', function (e) { if (e) charging = !!e.charging; });
     timers.push(setInterval(function () { if (!hidden) pullInbox(false); }, config['inbox.everySec'] * 1000));
     timers.push(setInterval(function () { if (!hidden) refreshLinks(); }, 60000));
 

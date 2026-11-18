@@ -27,7 +27,7 @@
 <body>
   <a class="skip" href="#workspace">К макетам</a>
   <header class="masthead">
-    <a class="brand" href="#dynasty/a" aria-label="Миры Axiko, первая игра"><span class="brand-mark" aria-hidden="true">a<span>✳</span></span><span>assi<span class="brand-sub">play studies</span></span></a>
+    <a class="brand" href="#dynasty/a" aria-label="Миры Axiko, первая игра"><span class="brand-mark" aria-hidden="true">a<span>✳</span></span><span>axiko<span class="brand-sub">play studies</span></span></a>
     <div class="masthead-note">13 игр <i></i> 26 направлений <i></i> интерактивные этюды</div>
     <button class="outline-button" id="overview-button">Все концепции <span aria-hidden="true">↗</span></button>
   </header>
@@ -65,12 +65,12 @@
         <p class="overview-intro">Выберите сцену, чтобы посмотреть её в движении и попробовать действие. Отмеченные направления сохраняются в этом браузере.</p>
         <div id="overview-grid"></div>
       </section>
-      <footer class="site-footer"><span>ASSI / VISUAL STUDIES</span><span>Автономно · без загрузок и внешних сервисов</span></footer>
+      <footer class="site-footer"><span>AXIKO / VISUAL STUDIES</span><span>Автономно · без загрузок и внешних сервисов</span></footer>
     </main>
   </div>
   <script>
 /* Shared only by the standalone visual studies, independent of the Axiko runtime. */
-window.AssiVisuals = {
+window.AxikoVisuals = {
   games: new Map(),
   register(game) {
     if (!game.id || game.variants.length !== 2 || this.games.has(game.id)) throw new Error('Invalid visual study: ' + game.id);
@@ -814,7 +814,7 @@ window.AssiVisuals = {
     glow(c, 914, 159, 124, '#f3c17928'); ellipse(c, 914 + Math.sin(t * 2) * 1.5, 158, 5, 13, '#ffe2a2');
   }
 
-  window.AssiVisuals.register({
+  window.AxikoVisuals.register({
     id: 'dynasty', title: 'Династия', category: 'Миры и истории',
     variants: [
       { name: 'Королевство на ладони', kicker: 'Живая изометрия', description: 'Город растёт на скальном острове: башни, кварталы, жители и мост через реку. Каждое решение меняет само королевство.', features: ['Постройки появляются прямо в городе', 'Жители, облака и знамёна движутся', 'Рост державы виден без таблиц'], action: 'Построить квартал', result: 'На острове появился новый квартал. Дома и жители остаются в королевстве.', accent: '#6bbaa0', background: '#223d3b' },
@@ -823,7 +823,7 @@ window.AssiVisuals = {
     stats: (v, state) => v === 0 ? [['Жителей', String(128 + state.count * 24)], ['Кварталов', String(5 + state.count)], ['Настроение', state.count ? 'Праздничное' : 'Спокойное']] : [['Поколение', 'IV'], ['Указов', String(3 + state.count)], ['Влияние', String(62 + state.count * 7)]],
     draw: (c, t, state, v) => v === 0 ? dynastyRealm(c, t, state) : dynastyCourt(c, t, state)
   });
-  window.AssiVisuals.register({
+  window.AxikoVisuals.register({
     id: 'library', title: 'Библиотека', category: 'Миры и истории',
     variants: [
       { name: 'Дом тихих открытий', kicker: 'Тёплый разрез', description: 'Библиотека как обжитый дом: полки до потолка, лестницы, читатели и кот. Редкие книги поднимаются в янтарном свете.', features: ['Настоящие этажи и читающие жители', 'Сотни цветных книжных корешков', 'Найденные тома пополняют выставку'], action: 'Открыть редкий том', result: 'Редкий том раскрылся над читальным столом. Коллекция пополнилась.', accent: '#d5b57d', background: '#3e3532' },
@@ -832,7 +832,7 @@ window.AssiVisuals = {
     stats: (v, state) => v === 0 ? [['Томов', String(1240 + state.count)], ['Читателей', String(18 + state.count * 2)], ['Редких находок', String(7 + state.count)]] : [['Миров', String(7 + state.count)], ['Созвездие', 'Атлас странствий'], ['Открытий', String(state.count)]],
     draw: (c, t, state, v) => v === 0 ? libraryHouse(c, t, state) : libraryObservatory(c, t, state)
   });
-  window.AssiVisuals.register({
+  window.AxikoVisuals.register({
     id: 'garden', title: 'Сад', category: 'Живые миры',
     variants: [
       { name: 'Сад за старой калиткой', kicker: 'Солнечная садовая диорама', description: 'Дорожки, пруд, домик садовника и грядки с разными растениями. Редкий цветок раскрывается после полива и остаётся в саду.', features: ['Живые формы лепестков и листьев', 'Бабочки, вода и мягкий ветер', 'Новые цветы остаются на участке'], action: 'Вырастить редкий цветок', result: 'Редкий цветок раскрылся. У сада появился новый цвет и форма.', accent: '#afd18c', background: '#354c3e' },
@@ -841,7 +841,7 @@ window.AssiVisuals = {
     stats: (v, state) => v === 0 ? [['Цветущих', String(27 + state.count)], ['Редких видов', String(3 + state.count)], ['Условия', 'Мягкое солнце']] : [['Гибридов', String(8 + state.count)], ['Поколение', String(2 + state.count)], ['Микроклимат', 'Лунная ночь']],
     draw: (c, t, state, v) => v === 0 ? gardenPlot(c, t, state) : gardenGlass(c, t, state)
   });
-  window.AssiVisuals.register({
+  window.AxikoVisuals.register({
     id: 'dragon-hoard', title: 'Сокровищница дракона', category: 'Персонажи и легенды',
     variants: [
       { name: 'Хранитель горной пещеры', kicker: 'Большой герой в живой среде', description: 'Дракон занимает сцену целиком: чешуя, крылья, дыхание и настоящая гора монет. Огонь освещает пещеру, сокровища остаются.', features: ['Крупный дракон с дыханием и пластикой', 'Золото, самоцветы и следы путешественников', 'Пламя освещает скалы и растит сокровищницу'], action: 'Разбудить дракона', result: 'Пещера озарилась пламенем. Дракон добавил добычу к своей горе золота.', accent: '#dcb878', background: '#1b343d' },
@@ -1416,7 +1416,7 @@ window.AssiVisuals = {
       draw: drawScene([rainCity, overgrown])
     }
   ];
-  studies.forEach(study => window.AssiVisuals.register(study));
+  studies.forEach(study => window.AxikoVisuals.register(study));
 })();
 
 
@@ -1965,7 +1965,7 @@ window.AssiVisuals = {
       draw(c,t,s,v){c.save();(v?underground:cityMap)(c,t,s);c.restore();}
     }
   ];
-  entries.forEach(entry=>window.AssiVisuals.register(entry));
+  entries.forEach(entry=>window.AxikoVisuals.register(entry));
 }());
 
 </script>
@@ -2054,7 +2054,7 @@ window.AssiVisuals = {
     const mist=(t*12)%110;for(let i=0;i<7;i++){const y=460-i*22-mist*.2;ellipse(c,846+Math.sin(t*.4+i)*9,y,14+i*3,7+i*2,`rgba(152,190,163,${.08-i*.008})`);}
     glow(c,550,289,290,'#80d5a20b');
   }
-  window.AssiVisuals.register({
+  window.AxikoVisuals.register({
     id:'sparks',title:'Искры в кольце',category:'Реакция · концентрация',
     variants:[
       {name:'Орбитальный резонатор',kicker:'Тишина между импульсами',description:'Кольцо становится прибором на орбите планеты. Навстречу летят горячие частицы, а отражение расходится световой волной по металлическим сегментам.',features:['Входящие искры — тёплые кометы со следом. Ложные выходящие — тонкие холодные штрихи.','Успешное отражение видно как направленный выброс частиц и расширяющуюся волну.','Серия попаданий зажигает сегменты резонатора; дальняя орбита остаётся спокойной.'],action:'Отразить искру',result:'Импульс отражён. Резонатор набирает энергию.',accent:'#efb77a',background:'#111f2b'},
@@ -2071,13 +2071,13 @@ window.AssiVisuals = {
   'use strict';
   const order = ['dynasty','library','infinity-layers','alchemist','menagerie','tower','one-cell-dungeon','garden','asteroid-colony','dragon-hoard','subway','wave-survival','sparks'];
   const $ = id => document.getElementById(id);
-  const games = order.map(id => window.AssiVisuals.games.get(id)).filter(Boolean);
+  const games = order.map(id => window.AxikoVisuals.games.get(id)).filter(Boolean);
   const states = new Map();
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
   let current = games[0], variant = 0, mobile = false, overview = false, paused = reduced.matches;
   let pendingTabFocus = null;
   let time = 4, previousFrame = 0, frameRequest = 0, overviewBuilt = false, sceneVisible = true, choices = {};
-  try { choices = JSON.parse(localStorage.getItem('assi-visual-directions') || '{}') || {}; } catch (_) {}
+  try { choices = JSON.parse(localStorage.getItem('axiko-visual-directions') || '{}') || {}; } catch (_) {}
   const canvas = $('scene'), ctx = canvas.getContext('2d', {alpha:false});
   function element(tag, className, text) { const e = document.createElement(tag); if (className) e.className = className; if (text != null) e.textContent = text; return e; }
   function stateFor(game = current, v = variant) {
@@ -2248,7 +2248,7 @@ window.AssiVisuals = {
   $('wide-button').addEventListener('click',() => setMobile(false));
   $('favorite-button').addEventListener('click',() => {
     if (choices[current.id] === variant) delete choices[current.id]; else choices[current.id] = variant;
-    try { localStorage.setItem('assi-visual-directions', JSON.stringify(choices)); } catch (_) {}
+    try { localStorage.setItem('axiko-visual-directions', JSON.stringify(choices)); } catch (_) {}
     updateFavorite(); nav();
   });
   $('next-button').addEventListener('click',() => { location.hash = games[(games.indexOf(current)+1)%games.length].id + '/a'; });

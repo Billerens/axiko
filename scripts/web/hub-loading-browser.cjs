@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const factory = path.resolve(__dirname, '../../app/src/main/assets/factory');
 const held = new Map(), streams = new Set(), visits = new Map();
-const inject = html => html.replace(/(<!doctype[^>]*>)/i, '$1<script src="/__assi/client.js"></script>');
+const inject = html => html.replace(/(<!doctype[^>]*>)/i, '$1<script src="/__axiko/client.js"></script>');
 function release(key) {
   for (const res of held.get(key) || []) res.end('');
   held.delete(key);
@@ -20,11 +20,11 @@ function hold(key, res, type) {
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const page = url.pathname;
-  if (page === '/__assi/events') {
+  if (page === '/__axiko/events') {
     res.writeHead(200, { 'Content-Type': 'text/event-stream' }); res.flushHeaders();
     streams.add(res); req.on('close', () => streams.delete(res)); return;
   }
-  if (page === '/__assi/rpc') {
+  if (page === '/__axiko/rpc') {
     let body = ''; req.on('data', chunk => body += chunk);
     req.on('end', () => {
       const request = JSON.parse(body);
@@ -51,7 +51,7 @@ const server = http.createServer((req, res) => {
   if (page === '/ui/chat/index.html') {
     res.writeHead(200, { 'Content-Type': 'text/html' }); res.end(inject('<!doctype html><textarea></textarea>')); return;
   }
-  const relative = page === '/' ? 'ui/desk/index.html' : page === '/__assi/client.js' ? 'ui/desk/client.js' : page.slice(1);
+  const relative = page === '/' ? 'ui/desk/index.html' : page === '/__axiko/client.js' ? 'ui/desk/client.js' : page.slice(1);
   const file = path.join(factory, relative);
   if (!fs.existsSync(file)) { res.writeHead(404); res.end(); return; }
   const ext = path.extname(file);
@@ -72,9 +72,9 @@ const server = http.createServer((req, res) => {
       window.setTimeout = (callback, delay, ...args) => original(callback, delay === 15000 ? 250 : delay, ...args);
     });
     await page.goto('http://127.0.0.1:' + server.address().port, { waitUntil: 'domcontentloaded' });
-    await page.waitForFunction(() => !!window.assiDesk && document.querySelector('#connection').dataset.state === 'online');
+    await page.waitForFunction(() => !!window.axikoDesk && document.querySelector('#connection').dataset.state === 'online');
     await page.waitForTimeout(150);
-    const open = route => page.evaluate(route => assiDesk.open('modules/test/ui/' + route), route);
+    const open = route => page.evaluate(route => axikoDesk.open('modules/test/ui/' + route), route);
     const warning = () => page.locator('#hub-notice').isVisible();
 
     await open('image.html');
@@ -87,8 +87,8 @@ const server = http.createServer((req, res) => {
 
     await open('blocked.html');
     await page.frameLocator('#page').locator('#content').waitFor();
-    assert.equal(await page.evaluate(() => assiDesk.ready(document.querySelector('#chat').contentWindow, '/modules/test/ui/blocked.html')), false);
-    assert.equal(await page.evaluate(() => assiDesk.ready(document.querySelector('#page').contentWindow, '/modules/test/ui/previous.html')), false);
+    assert.equal(await page.evaluate(() => axikoDesk.ready(document.querySelector('#chat').contentWindow, '/modules/test/ui/blocked.html')), false);
+    assert.equal(await page.evaluate(() => axikoDesk.ready(document.querySelector('#page').contentWindow, '/modules/test/ui/previous.html')), false);
     await page.locator('#hub-notice').waitFor();
     release('blocked');
     await page.waitForFunction(() => document.querySelector('#hub-notice').hidden);

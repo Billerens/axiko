@@ -1116,7 +1116,7 @@
 
   /**
    * Addresses on the network in a game's files ([{path, text}]): every http(s):// except
-   * https://assi.local/ and the XML namespaces of SVG (they are names, nothing is fetched).
+   * https://axiko.local/ and the XML namespaces of SVG (they are names, nothing is fetched).
    */
   function offlineScan(files) {
     var hits = [];
@@ -1126,7 +1126,7 @@
       var m;
       while ((m = re.exec(text))) {
         var url = m[0];
-        if (/^https:\/\/assi\.local(\/|$)/.test(url)) continue;
+        if (/^https:\/\/axiko\.local(\/|$)/.test(url)) continue;
         if (/^http:\/\/www\.w3\.org\//.test(url)) continue;
         if (url.indexOf('//') === 0) {
           // Protocol-relative only where something is loaded: src=, href=, url(, import.

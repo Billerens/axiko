@@ -3,7 +3,7 @@
   "repository": {
     "id": "example.community",
     "title": "Example Axiko catalog — metadata only",
-    "homepage": "https://example.org/assi-catalog/",
+    "homepage": "https://example.org/axiko-catalog/",
     "description": "Illustrative metadata only: hashes are placeholders, nothing here can be downloaded."
   },
   "packageCount": 1,

@@ -1,7 +1,7 @@
 const http=require('node:http'),fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const base=path.resolve(__dirname,'../../app/src/main/assets/factory');
-const setup="\nwindow.reads=[];window.writes=[];window.notes=[];\nwindow.mockRpc=req=>{\n if(req.op==='eval')return Promise.resolve(['a.js','b.js','fresh.js','slow.js']);\n return new Promise((resolve,reject)=>(req.op==='desk.read'?reads:writes).push({req,resolve,reject}));\n};\nwindow.editor=AssiEditor.mount(document.getElementById('editor'),{rpc:mockRpc,open:p=>window.opened=p,toast:m=>notes.push(m)});\nwindow.resolveRead=(name,text,revision)=>{const item=reads.find(x=>x.req.path===name&&!x.done);item.done=true;item.resolve({path:name,text,revision,size:text.length});};\nwindow.rejectRead=(name)=>{const item=reads.find(x=>x.req.path===name&&!x.done);item.done=true;item.reject(Object.assign(new Error('Файл не найден'),{code:'not_found'}));};\n";
+const setup="\nwindow.reads=[];window.writes=[];window.notes=[];\nwindow.mockRpc=req=>{\n if(req.op==='eval')return Promise.resolve(['a.js','b.js','fresh.js','slow.js']);\n return new Promise((resolve,reject)=>(req.op==='desk.read'?reads:writes).push({req,resolve,reject}));\n};\nwindow.editor=AxikoEditor.mount(document.getElementById('editor'),{rpc:mockRpc,open:p=>window.opened=p,toast:m=>notes.push(m)});\nwindow.resolveRead=(name,text,revision)=>{const item=reads.find(x=>x.req.path===name&&!x.done);item.done=true;item.resolve({path:name,text,revision,size:text.length});};\nwindow.rejectRead=(name)=>{const item=reads.find(x=>x.req.path===name&&!x.done);item.done=true;item.reject(Object.assign(new Error('Файл не найден'),{code:'not_found'}));};\n";
 const server=http.createServer((req,res)=>{
  if(req.url==='/'){
   res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});
@@ -52,16 +52,16 @@ const server=http.createServer((req,res)=>{
    assert.deepEqual(errors,[]);
    console.log(JSON.stringify({width,outOfOrderReads:true,typingDuringSave:true,tabsRetainBuffers:true,newFileNullRevision:true,overflow:false,pageErrors:errors}));
    await page.evaluate(()=>{
-    localStorage.setItem('assi.desk.buffer:slow.js',JSON.stringify({text:'UNSAVED RECOVERY',revision:'s1'}));
+    localStorage.setItem('axiko.desk.buffer:slow.js',JSON.stringify({text:'UNSAVED RECOVERY',revision:'s1'}));
     editor.openFile('slow.js');
    });
    await page.getByRole('button',{name:'Закрыть slow.js',exact:true}).click();
-   const retained=await page.evaluate(()=>!!localStorage.getItem('assi.desk.buffer:slow.js'));
+   const retained=await page.evaluate(()=>!!localStorage.getItem('axiko.desk.buffer:slow.js'));
    assert.equal(retained,true,'closing a loading tab must preserve its unread recovery text');
    await page.evaluate(()=>resolveRead('slow.js','disk text','s1'));
    await page.waitForTimeout(250);
    assert.equal(await page.getByRole('tab',{name:/^slow\.js/}).count(),0);
-   assert.equal(await page.evaluate(()=>!!localStorage.getItem('assi.desk.buffer:slow.js')),true);
+   assert.equal(await page.evaluate(()=>!!localStorage.getItem('axiko.desk.buffer:slow.js')),true);
    console.log(JSON.stringify({reviewCase:'closeLoadingTabRecovery',width,recoveryPreserved:retained}));
    await page.close();
   }

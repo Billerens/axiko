@@ -86,7 +86,7 @@
 
 Пример промпта `inbox.draft`: «Предложи {{n}} коротких вариантов ответа владельца на последнее сообщение. Тон: {{tone}}. Не выдумывай факты, которых нет в переписке и памяти; где нужен факт, которого нет, — оставь вопрос владельцу в квадратных скобках. JSON: {"drafts":["…"]}».
 
-**Отправка.** `assi.notifications.reply(key, text)` — через собственную кнопку «Ответить» уведомления мессенджера. Перед отправкой модуль проверяет `assi.notifications.active()`: если уведомления с этим `key` нет — ответ невозможен, показывается «Открыть в приложении». Ничего не отправляется без нажатия владельца или его голосового «да»: черновик модели — это предложение.
+**Отправка.** `axiko.notifications.reply(key, text)` — через собственную кнопку «Ответить» уведомления мессенджера. Перед отправкой модуль проверяет `axiko.notifications.active()`: если уведомления с этим `key` нет — ответ невозможен, показывается «Открыть в приложении». Ничего не отправляется без нажатия владельца или его голосового «да»: черновик модели — это предложение.
 
 **Модели и цена.** Ориентир для 200 входящих в день: около 10–20 пачек `inbox.triage` по 1–2 тыс. токенов — это доли цента на дешёвой облачной модели или бесплатно на телефоне (Gemma, Qwen, LFM из «На устройстве»; их окна в тысячи токенов хватает на пачку из 20). Выжимки — несколько в день. Черновики — только по требованию. Все вызовы идут через `models.complete`, значит учитываются в расходе по ролям (`usage.summary`) и останавливаются дневным лимитом: тогда модуль работает без разбора, все новые идут в «Подождёт» с пометкой «не разобрано», и разбор догоняет их, когда лимит снимется.
 
@@ -94,7 +94,7 @@
 
 ## Данные
 
-SQLite модуля — `assi.db('inbox')` → `data/inbox.db`.
+SQLite модуля — `axiko.db('inbox')` → `data/inbox.db`.
 
 `messages`: `id`, `hash`, `package`, `app`, `chatId`, `sender`, `text`, `time`, `noticeKey`, `bucket` (`important`/`later`/`noise`/`otp`/`hidden`), `reason`, `asks` (0/1), `edited` (0/1), `seen` (0/1), `triagedBy` (`rule`/`model`/`none`), `created`.
 
@@ -112,17 +112,17 @@ SQLite модуля — `assi.db('inbox')` → `data/inbox.db`.
 
 Есть уже сейчас:
 
-- `on('notification', …)`, `assi.notifications.active() / .recent() / .dismiss() / .reply()` (`notices.*`).
-- `assi.db`, `assi.files`, `job`/`unjob`, `emit`/`assi.on`, `ai.ask` с ролями из `module.json` (`inbox.triage`, `inbox.digest`, `inbox.draft`), `require('lib/memory')`, виджет через `exports.widget()` и `assi.widget.refresh('inbox')`, `assi.openUrl`, `assi.rows` (контакты для имён).
+- `on('notification', …)`, `axiko.notifications.active() / .recent() / .dismiss() / .reply()` (`notices.*`).
+- `axiko.db`, `axiko.files`, `job`/`unjob`, `emit`/`axiko.on`, `ai.ask` с ролями из `module.json` (`inbox.triage`, `inbox.digest`, `inbox.draft`), `require('lib/memory')`, виджет через `exports.widget()` и `axiko.widget.refresh('inbox')`, `axiko.openUrl`, `axiko.rows` (контакты для имён).
 - Доступ к службе уведомлений включается в «Чувствах телефона» или через Shizuku.
 
 Нужно доделать:
 
 1. **Полнее описывать уведомление** (правка `Notices.describe` в `NoticeService.kt`): `messages` — массив `{ sender, text, time }` из `MessagingStyle` (`Notification.MessagingStyle.extractMessagingStyleFromNotification` или `EXTRA_MESSAGES`), `conversationTitle` (`EXTRA_CONVERSATION_TITLE`), `isGroup` (`EXTRA_IS_GROUP_CONVERSATION`), `shortcutId` (устойчивый идентификатор беседы), `channel`, `category`, `user` (для двойных мессенджеров Samsung). Без этого MVP работает на заголовке и тексте, теряя промежуточные сообщения.
-   Обходной путь без пересборки: в обработчике достать живой `StatusBarNotification` из экземпляра службы (`Packages.app.assi.sense.NoticeService`, поле `instance` — непубличные члены движку доступны) и прочитать `extras` самому. Проверить на телефоне, что движок видит компаньон Kotlin.
+   Обходной путь без пересборки: в обработчике достать живой `StatusBarNotification` из экземпляра службы (`Packages.app.axiko.sense.NoticeService`, поле `instance` — непубличные члены движку доступны) и прочитать `extras` самому. Проверить на телефоне, что движок видит компаньон Kotlin.
 2. **Событие об удалении уведомления** — `notification.removed` с `key` и причиной (`REASON_CLICK`, `REASON_CANCEL`, `REASON_APP_CANCEL`): так модуль узнает, что беседу прочитали в мессенджере, и снимет счётчик.
 3. **Открыть беседу в мессенджере** — сохранить `contentIntent` уведомления, пока процесс жив, и уметь его запустить (`notices.open(key)`); после удаления уведомления `PendingIntent` обычно ещё действует — проверить на телефоне.
-4. **Уведомление с кнопкой ответа** для «повторять важное» — `assi.notify` сейчас не умеет действий; либо расширить его (`actions: [{ title, reply: true, call: 'modules/inbox/main.js', fn: 'send' }]`), либо собрать уведомление прямо в модуле через `android.app.Notification.Builder` и приёмник, зарегистрированный в движке (`extend(android.content.BroadcastReceiver, …)` + `context.registerReceiver`), — работает, пока жив процесс.
+4. **Уведомление с кнопкой ответа** для «повторять важное» — `axiko.notify` сейчас не умеет действий; либо расширить его (`actions: [{ title, reply: true, call: 'modules/inbox/main.js', fn: 'send' }]`), либо собрать уведомление прямо в модуле через `android.app.Notification.Builder` и приёмник, зарегистрированный в движке (`extend(android.content.BroadcastReceiver, …)` + `context.registerReceiver`), — работает, пока жив процесс.
 
 Совпадение имён: в оболочке уже есть операции `inbox.peek/add/drop` и класс `agent/Inbox.kt` — это вложения следующего сообщения чата, к модулю отношения не имеют. События модуля называть `inbox.feed`, а не `inbox.*` общего вида, чтобы не путать.
 

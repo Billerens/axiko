@@ -16,14 +16,14 @@ try {
 // Modules that ask to be started at launch in their module.json ("autostart": true) — those
 // installed from the store do it this way, without editing this file.
 try {
-  var workspace = new java.io.File(context.getFilesDir(), 'assi/modules');
+  var workspace = new java.io.File(context.getFilesDir(), 'axiko/modules');
   var folders = workspace.listFiles() || [];
   for (var i = 0; i < folders.length; i++) {
     var id = String(folders[i].getName());
     var path = 'modules/' + id + '/main.js';
     if (starters.indexOf(path) >= 0) continue;
     try {
-      var meta = require('lib/assi').files.readJson('modules/' + id + '/module.json');
+      var meta = require('lib/axiko').files.readJson('modules/' + id + '/module.json');
       if (meta && meta.autostart) starters.push(path);
     } catch (ignored) {}
   }

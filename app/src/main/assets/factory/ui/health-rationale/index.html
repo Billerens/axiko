@@ -25,7 +25,7 @@
 <!-- Health Connect opens this screen when the owner asks why Axiko wants their health data. -->
 <main class="page">
   <header class="topbar">
-    <button class="icon-btn" onclick="assi.back()" aria-label="Назад" data-icon="back"></button>
+    <button class="icon-btn" onclick="axiko.back()" aria-label="Назад" data-icon="back"></button>
     <h1>Данные о здоровье</h1>
   </header>
 
@@ -78,7 +78,7 @@
 </main>
 <script src="/ui/kit/kit.js"></script>
 <script>
-  document.getElementById('manage').onclick = () => assi.eval(
+  document.getElementById('manage').onclick = () => axiko.eval(
     "context.startActivity(new android.content.Intent('android.health.connect.action.MANAGE_HEALTH_PERMISSIONS')" +
     ".putExtra('android.intent.extra.PACKAGE_NAME', context.getPackageName()).addFlags(0x10000000)); true"
   ).catch(() => ui.toast('Health Connect на этом телефоне не открывается'));

@@ -856,7 +856,7 @@
   const send = document.getElementById('send');
   const mic = document.getElementById('mic');
   const voice = document.getElementById('voice');
-  let agentId = localStorage.getItem('chat.agent') || 'assi';
+  let agentId = localStorage.getItem('chat.agent') || 'axiko';
   let attached = false;   // something waits to go with the next message: a screen, pictures, files
   let threadId = null;
   let agents = [];
@@ -873,7 +873,7 @@
   const narrow = () => matchMedia('(max-width: 520px)').matches;
   const nearBottom = () => log.scrollHeight - log.scrollTop - log.clientHeight < 160;
   const toBottom = () => { log.scrollTop = log.scrollHeight; };
-  const current = () => agents.find(agent => agent.id === agentId) || { id: 'assi', title: 'Axiko', icon: 'spark', description: '' };
+  const current = () => agents.find(agent => agent.id === agentId) || { id: 'axiko', title: 'Axiko', icon: 'spark', description: '' };
 
   function setBusy(value) {
     busy = value;
@@ -966,7 +966,7 @@
       + size.toLocaleString('ru') + ' токенов. После 70% разговор сворачивается в краткое изложение');
   }
 
-  assi.on('local.state', state => {
+  axiko.on('local.state', state => {
     loadingModel = state.loading ? state.model : '';
     if (busy && state.loading) setStatus('Загружаю модель «' + state.model + '» в память');
     else if (busy) setStatus('Модель читает запрос');
@@ -992,19 +992,19 @@
   async function blank(stillCurrent) {
     const agent = current();
     // The agent is told which screen is open behind the chat, so say so to the owner too.
-    const where = agent.id === 'assi' ? await assi.native('ui.where') : {};
+    const where = agent.id === 'axiko' ? await axiko.native('ui.where') : {};
     if (stillCurrent && !stillCurrent()) return;
     const hint = where.title ? 'Открыт экран «' + where.title + '». Скажите, что в нём изменить, — или о чём угодно другом.'
       : 'Опишите, что добавить или изменить в приложении.';
     if (log.children.length && !log.querySelector('.blank')) return;
     log.replaceChildren(h('div', { class: 'blank' },
       // The main agent is met by the mascot; with the mascot off, by its icon like any other agent.
-      agent.id === 'assi' && ui.mascot(hearing ? 'listening' : 'idle', { lively: true }),
+      agent.id === 'axiko' && ui.mascot(hearing ? 'listening' : 'idle', { lively: true }),
       h('div', { class: 'well' }, ui.mark(agent)),
       h('div', {},
-        h('h3', {}, agent.id === 'assi' ? 'Чем помочь?' : agent.title),
-        h('p', { class: 'muted small', style: 'margin-top: 4px' }, agent.id === 'assi' ? hint : agent.description)),
-      agent.id === 'assi' && h('div', { class: 'chips' },
+        h('h3', {}, agent.id === 'axiko' ? 'Чем помочь?' : agent.title),
+        h('p', { class: 'muted small', style: 'margin-top: 4px' }, agent.id === 'axiko' ? hint : agent.description)),
+      agent.id === 'axiko' && h('div', { class: 'chips' },
         IDEAS.map(text => h('button', { class: 'chip', onclick: () => submit(text) }, text)))));
   }
 
@@ -1070,7 +1070,7 @@
     if (row.detail || (row.images || []).length) row.append(h('span', { class: 'more' }, ui.icon(row.images ? 'image' : 'down')));
     // On a phone the chat covers the screen the agent has just shown: offer a way to it.
     if (event.name === 'ui_show' && event.status === 'ok' && event.live && narrow()) {
-      add(h('button', { class: 'chip on', onclick: () => assi.native('ui.chat', false) }, 'Показать экран'));
+      add(h('button', { class: 'chip on', onclick: () => axiko.native('ui.chat', false) }, 'Показать экран'));
     }
   }
 
@@ -1081,7 +1081,7 @@
     const files = draft.files || [];
     const list = h('div', { class: 'changed-list', hidden: true },
       files.map(file => h('button', { class: 'changed-file', onclick: async () => {
-        const text = await assi.native('draft.diff', draft.id, file.path);
+        const text = await axiko.native('draft.diff', draft.id, file.path);
         ui.sheet([h('h3', { class: 'mono', style: 'font-size: 14px' }, ui.raw(file.path)),
           h('p', { class: 'small muted' }, 'Разница между приложением и черновиком.'), diffView(text)]);
       } },
@@ -1089,7 +1089,7 @@
         h('span', { class: 'grow truncate mono' }, ui.raw(file.path)))));
     const decide = async take => {
       if (!take && !(await ui.confirm('Выбросить черновик? Приложение останется прежним, а сделанное в черновике пропадёт.', 'Отклонить', true))) return;
-      await assi.native(take ? 'draft.accept' : 'draft.discard', draft.id);
+      await axiko.native(take ? 'draft.accept' : 'draft.discard', draft.id);
       ui.toast(take ? 'Черновик принят: изменения в приложении' : 'Черновик отклонён');
     };
     const card = h('div', { class: 'ask card', id: 'draft-' + draft.id },
@@ -1102,7 +1102,7 @@
         list),
       h('div', { class: 'actions' },
         h('button', { class: 'btn danger', onclick: () => decide(false) }, 'Отклонить'),
-        h('button', { class: 'btn', onclick: async () => { await assi.native('draft.open', draft.id); if (narrow()) assi.native('ui.chat', false); } }, ui.icon('eye'), 'Посмотреть'),
+        h('button', { class: 'btn', onclick: async () => { await axiko.native('draft.open', draft.id); if (narrow()) axiko.native('ui.chat', false); } }, ui.icon('eye'), 'Посмотреть'),
         h('button', { class: 'btn primary', onclick: () => decide(true) }, 'Принять')));
     // The card goes after the latest answer: that is where the owner looks for it.
     if (old) old.remove();
@@ -1145,7 +1145,7 @@
     if (document.getElementById(event.id)) return;
     const change = h('textarea', { class: 'input', rows: 2, placeholder: 'Что изменить в плане' });
     const decide = async text => {
-      const taken = await assi.native('agent.answer', agentId, threadId, event.id, text);
+      const taken = await axiko.native('agent.answer', agentId, threadId, event.id, text);
       card.remove();
       if (!taken) ui.toast('Этот вопрос уже не ждёт ответа');
       else if (text) userRow(text);
@@ -1234,7 +1234,7 @@
         return (questions.length > 1 ? (index + 1) + '. ' : '') + question.question + '\n— ' + parts.join('; ');
       }).join('\n');
       send.disabled = true;
-      const taken = await assi.native('agent.answer', agentId, threadId, event.id, text);
+      const taken = await axiko.native('agent.answer', agentId, threadId, event.id, text);
       card.remove();
       if (taken) { userRow(text); setStatus('Жду ответа модели'); } else ui.toast('Этот вопрос уже не ждёт ответа');
       toBottom();
@@ -1279,7 +1279,7 @@
       fresh && ui.mascot('celebrating'), ui.icon('edit'), h('span', { class: 'grow' }, 'Изменено файлов: ' + files.length), ui.icon('down'));
     undo.onclick = async () => {
       const sure = await ui.confirm('Вернуть приложение к состоянию до этого ответа? Изменения, сделанные позже, тоже отменятся. Данные модулей не пострадают.', 'Отменить', true);
-      if (sure) assi.native('snap.restore', mark.snapshot);
+      if (sure) axiko.native('snap.restore', mark.snapshot);
     };
     // The module's own checks, run by the app after the change: passed or not, with the lines on a tap.
     const checks = (mark.checks || []).map(item => {
@@ -1295,7 +1295,7 @@
   }
 
   async function showDiff(snapshot, file) {
-    const text = await assi.native('snap.diff', snapshot, file.path);
+    const text = await axiko.native('snap.diff', snapshot, file.path);
     ui.sheet([
       h('h3', { class: 'mono', style: 'font-size: 14px' }, file.path),
       h('p', { class: 'small muted' }, 'Разница между состоянием до этого ответа и нынешним.'),
@@ -1316,8 +1316,8 @@
   }
 
   function openSettings() {
-    if (narrow()) assi.native('ui.chat', false);
-    assi.open('ui/settings/index.html');
+    if (narrow()) axiko.native('ui.chat', false);
+    axiko.open('ui/settings/index.html');
   }
 
   function draw() {
@@ -1388,14 +1388,14 @@
 
   /** Who is on the other side: the agent's name and the model it runs on. */
   async function header() {
-    agents = await assi.native('agent.list');
-    if (!agents.some(agent => agent.id === agentId)) agentId = 'assi';
+    agents = await axiko.native('agent.list');
+    if (!agents.some(agent => agent.id === agentId)) agentId = 'axiko';
     const agent = current();
     document.getElementById('mark').replaceChildren(ui.mark(agent));
     document.getElementById('name').textContent = agent.title;
     input.placeholder = attached ? (screenAttached ? 'Что сделать с этим экраном?' : 'Что с этим сделать?')
-      : agent.id === 'assi' ? 'Что сделать?' : 'Сообщение для «' + agent.title + '»';
-    speaking = (await assi.native('speech.status')).tts;
+      : agent.id === 'axiko' ? 'Что сделать?' : 'Сообщение для «' + agent.title + '»';
+    speaking = (await axiko.native('speech.status')).tts;
     voice.replaceChildren(ui.icon(speaking ? 'speaker' : 'mute'));
     voice.classList.toggle('on', speaking);
   }
@@ -1444,12 +1444,12 @@
     const who = agentId, thread = threadId, ticket = chatLoadVersion;
     const sameChat = () => ticket === chatLoadVersion && who === agentId && thread === threadId;
     try {
-      if (await assi.native('agent.busy', who, thread)) return;
+      if (await axiko.native('agent.busy', who, thread)) return;
       if (!sameChat()) return;
       const version = agentEventsVersion;
-      const history = await assi.native('agent.history', who, thread);
+      const history = await axiko.native('agent.history', who, thread);
       // The task may have started or finished while the history request was in flight.
-      const running = await assi.native('agent.busy', who, thread);
+      const running = await axiko.native('agent.busy', who, thread);
       if (!sameChat() || running || version !== agentEventsVersion || !historyOnline) return;
       renderHistory(history, false, who, thread, ticket);
       historyRefreshWanted = false;
@@ -1469,13 +1469,13 @@
     }
   }
 
-  assi.on('desk.reconnected', () => {
+  axiko.on('desk.reconnected', () => {
     historyWatchIdle = true;
     historyIdleSeen = false;
     historyRefreshError = false;
     scheduleHistoryRefresh();
   });
-  assi.on('connection', connection => {
+  axiko.on('connection', connection => {
     historyOnline = !!connection && connection.state === 'online';
     if (historyRefreshTimer !== null) clearTimeout(historyRefreshTimer);
     historyRefreshTimer = null;
@@ -1496,9 +1496,9 @@
     written = '';
     thought = null;
     setMeter(0, 0);
-    assi.native('agent.plan', who, thread).then(value => { if (sameChat()) setPlan(value); }).catch(() => {});
-    assi.native('agent.queue', who, thread).then(value => { if (sameChat()) showQueue(value); }).catch(() => {});
-    assi.native('agent.model', who, thread).then(value => { if (sameChat()) showModel(value); }).catch(() => {});
+    axiko.native('agent.plan', who, thread).then(value => { if (sameChat()) setPlan(value); }).catch(() => {});
+    axiko.native('agent.queue', who, thread).then(value => { if (sameChat()) showQueue(value); }).catch(() => {});
+    axiko.native('agent.model', who, thread).then(value => { if (sameChat()) showModel(value); }).catch(() => {});
     log.replaceChildren();
     if (!history.length) blank(sameChat).catch(error => { if (sameChat()) failRow(error.message); });
     for (const item of history) {
@@ -1528,12 +1528,12 @@
     await header();
     if (ticket !== chatLoadVersion) return;
     const who = agentId;
-    const selectedThread = await assi.native('agent.thread', who);
+    const selectedThread = await axiko.native('agent.thread', who);
     if (ticket !== chatLoadVersion || who !== agentId) return;
     threadId = selectedThread;
     const version = agentEventsVersion;
     const [history, running] = await Promise.all([
-      assi.native('agent.history', who, selectedThread), assi.native('agent.busy', who, selectedThread),
+      axiko.native('agent.history', who, selectedThread), axiko.native('agent.busy', who, selectedThread),
     ]);
     if (ticket !== chatLoadVersion || who !== agentId || selectedThread !== threadId) return;
     renderHistory(history, running, who, selectedThread, ticket);
@@ -1563,25 +1563,25 @@
         h('button', { class: 'text', 'aria-label': 'Изменить сообщение', onclick: () => takeBack(item) }, ui.raw(item.text)),
         h('button', {
           class: 'how' + (item.steer ? ' steer' : ''),
-          onclick: () => assi.native('agent.requeue', agentId, threadId, item.id, item.steer ? 'after' : 'steer'),
+          onclick: () => axiko.native('agent.requeue', agentId, threadId, item.id, item.steer ? 'after' : 'steer'),
         }, item.steer ? 'на следующем шаге' : 'после ответа'),
-        h('button', { class: 'icon-btn', 'aria-label': 'Убрать из очереди', onclick: () => assi.native('agent.unqueue', agentId, threadId, item.id) },
+        h('button', { class: 'icon-btn', 'aria-label': 'Убрать из очереди', onclick: () => axiko.native('agent.unqueue', agentId, threadId, item.id) },
           ui.icon('close')))));
     if (stick) toBottom();
   }
 
   async function takeBack(item) {
-    const taken = await assi.native('agent.unqueue', agentId, threadId, item.id);
+    const taken = await axiko.native('agent.unqueue', agentId, threadId, item.id);
     if (!taken) return;
     input.value = input.value.trim() ? input.value.trim() + '\n' + taken.text : taken.text;
     grow();
     input.focus();
-    if (taken.attached) assi.native('inbox.peek').then(showAttach);
+    if (taken.attached) axiko.native('inbox.peek').then(showAttach);
   }
 
   async function stopWork() {
     const texts = waiting.map(item => item.text);
-    await assi.native('agent.stop', agentId, threadId);
+    await axiko.native('agent.stop', agentId, threadId);
     // What was waiting is not lost with the work: it comes back to the input.
     if (texts.length && !input.value.trim()) {
       input.value = texts.join('\n');
@@ -1605,12 +1605,12 @@
     document.getElementById('model').classList.toggle('own', Boolean(chatModel.own));
   }
 
-  const refreshModel = () => assi.native('agent.model', agentId, threadId).then(showModel);
+  const refreshModel = () => axiko.native('agent.model', agentId, threadId).then(showModel);
 
   /** Another model, or another effort of thinking, for this chat alone — also while the agent works. */
   async function pickModel() {
     const [providers, roles, state] = await Promise.all([
-      assi.native('models.providers'), assi.native('models.roles'), assi.native('agent.model', agentId, threadId),
+      axiko.native('models.providers'), axiko.native('models.roles'), axiko.native('agent.model', agentId, threadId),
     ]);
     if (!providers.length) { ui.toast('Сначала добавьте провайдера моделей в настройках'); return; }
     showModel(state);
@@ -1639,7 +1639,7 @@
       browse.disabled = true;
       browse.textContent = 'Загружаю…';
       try {
-        all = await assi.native('models.list', provider.value);
+        all = await axiko.native('models.list', provider.value);
         if (!all.length) ui.toast('Провайдер не вернул ни одной модели');
         show();
       } catch (error) {
@@ -1672,7 +1672,7 @@
     let close = null;
     const apply = async choice => {
       try {
-        showModel(await assi.native('agent.setModel', agentId, threadId, choice));
+        showModel(await axiko.native('agent.setModel', agentId, threadId, choice));
       } catch (error) {
         ui.toast(error.message);
         return;
@@ -1724,7 +1724,7 @@
     if (!text) return;
     input.value = '';
     grow();
-    const accepted = await assi.native('agent.send', agentId, text, threadId, attached);
+    const accepted = await axiko.native('agent.send', agentId, text, threadId, attached);
     if (accepted) showAttach(null);
   }
 
@@ -1748,17 +1748,17 @@
     if (attached) input.placeholder = screenAttached ? 'Что сделать с этим экраном?' : 'Что с этим сделать?';
   }
 
-  document.getElementById('attach-drop').onclick = () => { assi.native('inbox.drop'); showAttach(null); header(); };
-  assi.on('inbox', async inbox => {
+  document.getElementById('attach-drop').onclick = () => { axiko.native('inbox.drop'); showAttach(null); header(); };
+  axiko.on('inbox', async inbox => {
     showAttach(inbox);
     // A question about another app's screen is a new subject: it gets a chat of its own.
     if (screenAttached && !log.querySelector('.blank') && !busy) {
-      await assi.native('agent.newThread', agentId);
+      await axiko.native('agent.newThread', agentId);
       load();
     }
   });
-  assi.on('share.text', text => { input.value = (input.value + ' ' + text).trim(); grow(); });
-  assi.native('inbox.peek').then(showAttach);
+  axiko.on('share.text', text => { input.value = (input.value + ' ' + text).trim(); grow(); });
+  axiko.native('inbox.peek').then(showAttach);
 
   /** A picked file as a data: URL; big pictures are scaled down first, so they travel fast. */
   function readFile(file) {
@@ -1788,7 +1788,7 @@
   const files = document.getElementById('files');
   // What can go along with a message: a file or a picture — or an action shown on the phone.
   document.getElementById('clip').onclick = async () => {
-    const state = await assi.native('record.status').catch(() => ({ screen: false }));
+    const state = await axiko.native('record.status').catch(() => ({ screen: false }));
     let close = null;
     close = ui.sheet([
       h('div', { class: 'list' },
@@ -1798,7 +1798,7 @@
         h('button', { onclick: async () => {
           close();
           if (!state.screen) { ui.toast('Сначала включите «Видеть экран» в настройках, вкладка «Телефон»'); return; }
-          try { await assi.native('record.start'); } catch (error) { ui.toast(error.message); }
+          try { await axiko.native('record.start'); } catch (error) { ui.toast(error.message); }
         } },
           h('span', { class: 'muted' }, ui.icon('eye')),
           h('span', { class: 'grow' },
@@ -1810,7 +1810,7 @@
     for (const file of Array.from(files.files)) {
       if (file.size > 25 * 1048576) { ui.toast(file.name + ': больше 25 МБ, не приложен'); continue; }
       try {
-        showAttach(await assi.native('inbox.add', { name: file.name, data: await readFile(file) }));
+        showAttach(await axiko.native('inbox.add', { name: file.name, data: await readFile(file) }));
       } catch (error) {
         ui.toast(error.message);
       }
@@ -1834,17 +1834,17 @@
       h('div', { class: 'list' }, rows),
       h('button', {
         class: 'btn soft wide',
-        onclick: () => { close(); switchTo('assi').then(() => { input.value = 'Создай агента, который '; grow(); input.focus(); }); },
+        onclick: () => { close(); switchTo('axiko').then(() => { input.value = 'Создай агента, который '; grow(); input.focus(); }); },
       }, 'Новый агент'),
     ]);
   }
 
   async function pickThread() {
-    const threads = await assi.native('agent.threads', agentId);
+    const threads = await axiko.native('agent.threads', agentId);
     let close = null;
     const open = async id => {
       close();
-      await assi.native('agent.openThread', agentId, id);
+      await axiko.native('agent.openThread', agentId, id);
       load();
     };
     const remove = async (event, thread) => {
@@ -1852,7 +1852,7 @@
       const sure = await ui.confirm('Удалить чат «' + (thread.title || 'без названия') + '»? Сделанное в нём останется.', 'Удалить', true);
       if (!sure) return;
       close();
-      await assi.native('agent.deleteThread', agentId, thread.id);
+      await axiko.native('agent.deleteThread', agentId, thread.id);
       load();
     };
     const rows = threads.map(thread =>
@@ -1866,7 +1866,7 @@
       h('h3', {}, 'Чаты с «' + current().title + '»'),
       h('button', {
         class: 'btn primary wide',
-        onclick: async () => { close(); await assi.native('agent.newThread', agentId); load(); },
+        onclick: async () => { close(); await axiko.native('agent.newThread', agentId); load(); },
       }, ui.icon('plus'), 'Новый чат'),
       threads.length ? h('div', { class: 'list' }, rows) : h('div', { class: 'empty' }, 'Прежних чатов пока нет.'),
     ]);
@@ -1875,18 +1875,18 @@
   // ---- voice -----------------------------------------------------------------------------------
 
   async function listen() {
-    if (dialog) { assi.native('live.stop'); return; }
-    if (hearing) { assi.native('speech.stopListening'); return; }
+    if (dialog) { axiko.native('live.stop'); return; }
+    if (hearing) { axiko.native('speech.stopListening'); return; }
     hearing = true;
     mic.classList.add('live');
     // On an empty chat the mascot is there to listen.
     const face = log.querySelector('.blank .mascot');
     if (face) ui.mascot.pose(face, 'listening');
     try {
-      const text = await assi.native('speech.listen');
+      const text = await axiko.native('speech.listen');
       if (!text) {
         ui.toast('Ничего не расслышал');
-      } else if (!input.value.trim() && !busy && (await assi.native('pref.get', 'voice.autosend', 'on')) !== 'off') {
+      } else if (!input.value.trim() && !busy && (await axiko.native('pref.get', 'voice.autosend', 'on')) !== 'off') {
         submit(text);
       } else {
         input.value = (input.value + ' ' + text).trim();
@@ -1901,13 +1901,13 @@
     mic.style.removeProperty('--level');
   }
 
-  assi.on('speech', event => {
+  axiko.on('speech', event => {
     if (!hearing) return;
     mic.classList.toggle('live', event.state === 'listening' || event.state === 'speech');
     mic.classList.toggle('wait', event.state === 'processing');
     if (event.level !== undefined) mic.style.setProperty('--level', Math.min(1, event.level * 6));
   });
-  assi.on('tts', event => { if (event.error) ui.toast(event.error); });
+  axiko.on('tts', event => { if (event.error) ui.toast(event.error); });
 
   // ---- a live conversation: the microphone stays open, and the owner can speak over the answer ------
 
@@ -1922,9 +1922,9 @@
   // A long press on the microphone starts it; a tap on the microphone ends it.
   mic.addEventListener('contextmenu', async event => {
     event.preventDefault();
-    if (dialog) { assi.native('live.stop'); return; }
+    if (dialog) { axiko.native('live.stop'); return; }
     try {
-      await assi.native('live.start', agentId, threadId);
+      await axiko.native('live.start', agentId, threadId);
       setDialog(true);
       ui.toast('Живой разговор: говорите когда угодно, меня можно перебивать');
     } catch (error) {
@@ -1932,7 +1932,7 @@
     }
   });
 
-  assi.on('live', event => {
+  axiko.on('live', event => {
     if (event.error) ui.toast(event.error);
     if (event.state === 'off') { setDialog(false); mic.style.removeProperty('--level'); return; }
     setDialog(true);
@@ -1940,19 +1940,19 @@
     mic.classList.toggle('wait', event.state === 'thinking');
     if (event.state === 'hearing') mic.style.setProperty('--level', Math.min(1, event.level * 6));
   });
-  assi.native('live.status').then(state => setDialog(state.active));
+  axiko.native('live.status').then(state => setDialog(state.active));
 
   /** Kept for the turn-by-turn flow: in a live conversation the shell listens by itself. */
   function listenAgain() {}
 
   voice.onclick = async () => {
     speaking = !speaking;
-    await assi.native('pref.set', 'tts.on', speaking ? 'on' : 'off');
-    if (!speaking) assi.native('speech.stop');
+    await axiko.native('pref.set', 'tts.on', speaking ? 'on' : 'off');
+    if (!speaking) axiko.native('speech.stop');
     voice.replaceChildren(ui.icon(speaking ? 'speaker' : 'mute'));
     voice.classList.toggle('on', speaking);
     if (speaking) {
-      const roles = await assi.native('models.roles');
+      const roles = await axiko.native('models.roles');
       ui.toast(roles.tts && roles.tts.model ? 'Ответы будут озвучиваться' : 'Выберите голос в настройках, раздел «Голос»');
     }
   };
@@ -1964,11 +1964,11 @@
   document.getElementById('mark').onclick = pickAgent;
   document.getElementById('model').onclick = pickModel;
   document.getElementById('threads').onclick = pickThread;
-  document.getElementById('close').onclick = () => assi.native('ui.chat', false);
+  document.getElementById('close').onclick = () => axiko.native('ui.chat', false);
 
 
-  assi.on('agent', onAgent);
-  assi.on('chat.agent', id => switchTo(id));
+  axiko.on('agent', onAgent);
+  axiko.on('chat.agent', id => switchTo(id));
   // The first time the chat is opened it is shown around.
   const showAround = () => ui.tour.offer('chat', [
     { target: '#input', title: 'Просьба', text: 'Сюда пишут, что сделать, изменить или узнать. Пока идёт работа, можно писать ещё — сообщение дойдёт между шагами.' },
@@ -1979,16 +1979,16 @@
     { target: '#voice', title: 'Ответы вслух', text: 'Включите, чтобы ответы зачитывались голосом.' },
     { title: 'Что бы ни изменилось — можно вернуть', text: 'Под ответом, который что-то поменял, есть список изменённых файлов и кнопка отмены. Большую переделку вам покажут черновиком: приложение не изменится, пока вы её не примете.' },
   ], { askAt: '#input' });
-  assi.on('chat.visible', async visible => {
+  axiko.on('chat.visible', async visible => {
     if (visible) showAround();
     if (!visible) return;
     // Another screen may have started a new chat or sent a request while this one was hidden.
-    if ((await assi.native('agent.thread', agentId)) !== threadId) load();
+    if ((await axiko.native('agent.thread', agentId)) !== threadId) load();
     else { header().then(toBottom); refreshModel(); }
   });
   refreshSend();
   // In the hub on a computer the chat is always in sight: it is shown around as it loads.
-  load().then(() => { if (assi.platform === 'web') showAround(); }).catch(error => failRow(error.message));
+  load().then(() => { if (axiko.platform === 'web') showAround(); }).catch(error => failRow(error.message));
 </script>
 </body>
 </html>

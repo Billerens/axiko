@@ -32,7 +32,7 @@
 <body>
 <main class="page">
   <header class="topbar">
-    <button class="icon-btn" onclick="assi.back()" aria-label="Назад" data-icon="back"></button>
+    <button class="icon-btn" onclick="axiko.back()" aria-label="Назад" data-icon="back"></button>
     <h1>Маскот</h1>
   </header>
   <p class="muted">Персонаж приложения. Его можно перекрасить, заменить любым другим или убрать совсем — приложение работает и без него.</p>
@@ -85,9 +85,9 @@
   }
 
   async function save() {
-    await assi.eval('require("lib/assi").files.writeJson(' + JSON.stringify(FILE) + ', ' + JSON.stringify(config) + ')');
+    await axiko.eval('require("lib/axiko").files.writeJson(' + JSON.stringify(FILE) + ', ' + JSON.stringify(config) + ')');
     // Every screen that shows the mascot, and the chat button, draw it anew.
-    await assi.native('mascot.changed');
+    await axiko.native('mascot.changed');
     await ui.mascot.ready(true);
     render();
   }
@@ -152,7 +152,7 @@
     if (!file) return;
     try {
       const svg = await asSvg(file);
-      await assi.eval('require("lib/assi").files.write("ui/mascot/own.svg", ' + JSON.stringify(svg) + ')');
+      await axiko.eval('require("lib/axiko").files.write("ui/mascot/own.svg", ' + JSON.stringify(svg) + ')');
       // One picture stands for every pose; the phrases of the old character go with it.
       config.poses = { idle: 'own.svg' };
       config.colors = {};
@@ -169,7 +169,7 @@
 
   document.getElementById('reset').onclick = async () => {
     if (!(await ui.confirm('Вернуть заводского маскота? Свой окрас и своя картинка перестанут использоваться.', 'Вернуть'))) return;
-    await assi.native('safe.resetUi', 'ui/mascot/');
+    await axiko.native('safe.resetUi', 'ui/mascot/');
     await load();
     await ui.mascot.ready(true);
     pose = 'hello';

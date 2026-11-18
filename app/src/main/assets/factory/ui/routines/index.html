@@ -22,7 +22,7 @@
 <body>
 <main class="page">
   <header class="topbar">
-    <button class="icon-btn" onclick="assi.back()" aria-label="Назад" data-icon="back"></button>
+    <button class="icon-btn" onclick="axiko.back()" aria-label="Назад" data-icon="back"></button>
     <h1>Рутины</h1>
   </header>
 
@@ -42,7 +42,7 @@
 <script>
   // Routines live in data/routines.json and are run by lib/routines.js.
   const h = ui.h;
-  const lib = (fn, ...args) => assi.call('lib/routines.js', fn, ...args);
+  const lib = (fn, ...args) => axiko.call('lib/routines.js', fn, ...args);
   const DAYS = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'];
 
   function when(spec) {
@@ -126,12 +126,12 @@
     const text = wish.value.trim();
     if (!text) { wish.focus(); return; }
     wish.value = '';
-    await assi.native('agent.newThread', 'assi');
-    await assi.native('ui.chat', true, 'assi');
-    await assi.native('agent.send', 'assi', 'Заведи рутину: ' + text);
+    await axiko.native('agent.newThread', 'axiko');
+    await axiko.native('ui.chat', true, 'axiko');
+    await axiko.native('agent.send', 'axiko', 'Заведи рутину: ' + text);
   };
 
-  assi.on('routines', render);
+  axiko.on('routines', render);
   render();
   ui.tour.offer('routines', [
     { target: '#wish', title: 'Рутины', text: 'То, что приложение делает само: по расписанию или по событию. Опишите словами — «каждое утро в 8 рассказывай погоду», «когда приходит письмо от банка, запиши трату».' },

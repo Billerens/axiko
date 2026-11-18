@@ -2,7 +2,7 @@
 (function (root, make) {
   var api = make();
   if (typeof module === 'object' && module.exports) module.exports = api;
-  else root.AssiEditorModel = api;
+  else root.AxikoEditorModel = api;
 })(typeof window === 'object' ? window : this, function () {
   'use strict';
 

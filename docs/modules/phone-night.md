@@ -67,7 +67,7 @@
 
 **Источник 3 — `NetworkStatsManager.querySummary(type, null, start, end)`** для Wi-Fi и мобильной сети — байты по `uid`. Работает с `PACKAGE_USAGE_STATS`, без Shizuku. Точность — по корзинам (обычно 2 часа), поэтому в отчёте «примерно». **Сколько раз** приложение ходило в сеть, этот источник не говорит — только сколько байт.
 
-**Источник 4 — через Shizuku** (`assi.shell(cmd, { privileged: true })`) или от самого приложения, если `DUMP` выдан при `empower` (проверить: `assi.shell('dumpsys alarm')` без `privileged`):
+**Источник 4 — через Shizuku** (`axiko.shell(cmd, { privileged: true })`) или от самого приложения, если `DUMP` выдан при `empower` (проверить: `axiko.shell('dumpsys alarm')` без `privileged`):
 - `dumpsys alarm` — раздел статистики будильников по пакетам: «N wakeups, M alarms» с момента загрузки. Снимок вечером и утром, разница = пробуждения за ночь по приложениям. Перезагрузка между снимками (растущее время работы стало меньше) — разница недействительна, строка помечается.
 - `dumpsys batterystats --history` — лента ночи: уровень батареи по времени, `+screen`/`-screen`, `wake_reason`, `+wake_lock=uid:"тег"`, `+job=`, состояние Doze (`device_idle=light|full`). Отсюда шкала на экране и «сколько часов телефон спал глубоко». Формат строк у Samsung может отличаться — разбор держать терпимым, проверить на телефоне.
 - `dumpsys batterystats --checkin` — по `uid`: время удержания wakelock, пробуждения от будильников, процессорное время, оценка расхода (строки `wl`, `wua`, `cpu`, `pwi`). Снимок вечер–утро, разница. Счётчики обнуляются, когда телефон отключают от зарядки полностью заряженным, — если утренние меньше вечерних, данные «с зарядки» не используются, остаётся лента `--history`.
@@ -107,7 +107,7 @@
 
 ## Что нужно от оболочки
 
-Есть сейчас: `on('screen'|'notification'|'power'|'network')`, `job`, `assi.shell(..., { privileged: true })`, `native('shizuku.status')`, `PACKAGE_USAGE_STATS` (выдаётся через `appops` в `empower`), `DUMP` объявлен, Rhino с доступом к `UsageStatsManager`, `NetworkStatsManager`, `PackageManager`, `ai.ask`, `assi.notify`, `assi.widget.refresh`.
+Есть сейчас: `on('screen'|'notification'|'power'|'network')`, `job`, `axiko.shell(..., { privileged: true })`, `native('shizuku.status')`, `PACKAGE_USAGE_STATS` (выдаётся через `appops` в `empower`), `DUMP` объявлен, Rhino с доступом к `UsageStatsManager`, `NetworkStatsManager`, `PackageManager`, `ai.ask`, `axiko.notify`, `axiko.widget.refresh`.
 
 Проверить на телефоне:
 - выдаётся ли `DUMP` командой `pm grant` в `empower` и работает ли `dumpsys` от имени приложения без Shizuku (SELinux может не пустить);

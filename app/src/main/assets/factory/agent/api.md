@@ -6,25 +6,25 @@
 |---|---|---|
 | Где | WebView, файлы `ui/…`, `modules/…/ui/…` | Rhino, файлы `main.js`, `lib/`, `tools/`, `js_eval` |
 | JavaScript | современный: `async/await`, классы, модули | см. «Ограничения движка» |
-| Доступ | DOM и `window.assi` | весь Android: `Packages.android…`, `context`, `host` |
+| Доступ | DOM и `window.axiko` | весь Android: `Packages.android…`, `context`, `host` |
 | Проверка | `ui_check` (и по частям: `ui_open`, `ui_eval`, `ui_console`, `ui_screenshot`) | `js_eval` |
 
-Адрес экрана: `https://assi.local/<путь в рабочей папке>`; данные модулей — `https://assi.local/data/<путь>` (картинки, аудио).
+Адрес экрана: `https://axiko.local/<путь в рабочей папке>`; данные модулей — `https://axiko.local/data/<путь>` (картинки, аудио).
 
 Приложение работает и на телефоне, и на раскрытом складном (ширина от 320 до 800 точек), а чат на широком экране стоит сбоку и сужает экран модуля. Делайте вёрстку резиновой: сетки через `auto-fill`/`minmax`, никаких фиксированных ширин. `<input type="file">` на экранах работает — открывает системный выбор файла.
 
 Игры для Игротеки делайте по `modules/games/AGENT.md`: движок игр, запас модели, связки с жизнью («Пассажир», «Шаги — топливо», «Ставка дня»).
 
-## Экран: `window.assi`
+## Экран: `window.axiko`
 
 Доступен на любой локальной странице без подключения.
 
 ```js
-await assi.call('modules/notes/main.js', 'add', { text })  // функция модуля в движке; аргументы и результат — JSON
-await assi.eval('android.os.Build.MODEL')                   // код в движке, значение последнего выражения
-await assi.native('agent.send', 'assi', 'текст')            // операция оболочки (список ниже)
-assi.on('notes.changed', data => …)                         // событие из движка: emit('notes.changed', data)
-assi.open('modules/notes/ui/index.html'); assi.back(); assi.chat()
+await axiko.call('modules/notes/main.js', 'add', { text })  // функция модуля в движке; аргументы и результат — JSON
+await axiko.eval('android.os.Build.MODEL')                   // код в движке, значение последнего выражения
+await axiko.native('agent.send', 'axiko', 'текст')            // операция оболочки (список ниже)
+axiko.on('notes.changed', data => …)                         // событие из движка: emit('notes.changed', data)
+axiko.open('modules/notes/ui/index.html'); axiko.back(); axiko.chat()
 ```
 
 Помощники `window.ui` из `kit.js`: `ui.h(tag, attrs, ...children)` — создать элемент (`class`, `onclick`, `html`…); `ui.md(text)` — markdown в HTML; `ui.toast(text)`; `ui.sheet(content)` → функция закрытия; `await ui.confirm(text, 'Удалить', true)`; `ui.ago(time)`; `ui.guide(path?)` — инструкция модуля (`guide.md`) в модалке поверх экрана, `ui.guideExists(path?)` (см. справочник: «Инструкция модуля»); `ui.mascot(pose, { size, lights })` — маскот в позе (`idle`, `hello`, `listening`, `thinking`, `building`, `sleeping`, `oops`, `celebrating`, `safe`, `name`, `head`), скрытый элемент, если маскот выключен; `ui.mascot.pose(node, pose)`, `ui.mascot.lights(node, 0…6)`, `await ui.mascot.say(key, plain)` — его реплика или `plain`, `await ui.mascot.ready()` — `mascot.json` или `null`; `ui.mascot.climber({ width })` — маскот, выбирающийся из-за нижнего края своего места, и `ui.mascot.climb(node, state)` (см. справочник: «Маскот», «Кнопка чата»); `ui.tour(steps)` — тур по экрану с подсветкой, `ui.tour.offer(key, steps)` — он же, но один раз (см. справочник: «Обучение»).
@@ -39,7 +39,7 @@ assi.open('modules/notes/ui/index.html'); assi.back(); assi.chat()
 
 - `context` — Application; `host.activity` — видимая Activity или `null`, если приложение свёрнуто.
 - `android`, `androidx`, `java`, `javax`, `org`, `okhttp3`, `okio`, `kotlin`; остальное — `Packages.полное.имя`.
-- `require(path)` — модуль рабочей папки (`'lib/assi'`, `'./util'`); файл перечитывается сам, когда изменился.
+- `require(path)` — модуль рабочей папки (`'lib/axiko'`, `'./util'`); файл перечитывается сам, когда изменился.
 - `ui(fn)` — выполнить на главном потоке и вернуть значение (обязательно для всего, что трогает View, Toast, диалоги).
 - `spawn(fn)` — выполнить в фоне, не дожидаясь; `sleep(ms)`.
 - `emit(name, data)` — событие всем открытым экранам.
@@ -82,41 +82,41 @@ try { … } catch (e) { e.javaException }                     // исключе�
 
 В приложение заранее вложены библиотеки, которых нет в Android: почта — `javax.mail` (IMAP, SMTP: `javax.mail.Session`, `Store`, `Folder`), разбор HTML — `org.jsoup.Jsoup`, сеть — `okhttp3`. Новую Java-библиотеку на лету добавить нельзя; если без неё никак, скажите владельцу.
 
-Разрешения объявлены в манифесте почти все; опасные нужно запросить один раз: `assi.permission(['READ_CALENDAR'])`.
+Разрешения объявлены в манифесте почти все; опасные нужно запросить один раз: `axiko.permission(['READ_CALENDAR'])`.
 
-### `lib/assi.js`
+### `lib/axiko.js`
 
 ```js
-var assi = require('lib/assi');
-assi.files.read/write/exists/list/remove/readJson/writeJson(path)   // пути от рабочей папки; data/… — данные
-assi.store('notes').get(key, fallback) / .set(key, value) / .all()  // JSON в data/notes.json
-assi.db('notes').exec(sql, args) / .query(sql, args) / .lastId()    // SQLite в data/notes.db
-assi.http.get(url, headers) / .post(url, json, headers) / .request({ url, method, headers, json, body })
-     // → { status, ok, headers, text, json() };  assi.http.download(url, 'data/файл')
-assi.toast(text); assi.vibrate(ms) / assi.vibrate([пауза, вибрация, пауза, …])
-assi.notify({ title, text, open: 'modules/…/ui/index.html' }) → id; assi.notify.cancel(id)
+var axiko = require('lib/axiko');
+axiko.files.read/write/exists/list/remove/readJson/writeJson(path)   // пути от рабочей папки; data/… — данные
+axiko.store('notes').get(key, fallback) / .set(key, value) / .all()  // JSON в data/notes.json
+axiko.db('notes').exec(sql, args) / .query(sql, args) / .lastId()    // SQLite в data/notes.db
+axiko.http.get(url, headers) / .post(url, json, headers) / .request({ url, method, headers, json, body })
+     // → { status, ok, headers, text, json() };  axiko.http.download(url, 'data/файл')
+axiko.toast(text); axiko.vibrate(ms) / axiko.vibrate([пауза, вибрация, пауза, …])
+axiko.notify({ title, text, open: 'modules/…/ui/index.html' }) → id; axiko.notify.cancel(id)
      // ещё: id (тот же id заменяет), actions: [{ title, call: 'modules/x/main.js', fn, args, reply: true? }] — до трёх
      // кнопок, нажатие вызывает fn(args, текстОтвета) в движке, не открывая приложение; ongoing, when + chronometer
      // или countdown, progress: { max, value }, silent, channel: 'quiet'|'normal'|'alarm' (alarm — сквозь «не беспокоить»)
-assi.permission(['RECORD_AUDIO']) → true/false
-assi.clipboard.get() / .set(text); assi.openUrl(url); assi.share(text)
-assi.rows(uri, columns, where, args, order, limit)   // content-провайдеры: календарь, контакты, SMS
-assi.pref(key) / assi.pref(key, value)               // общие настройки приложения (строки)
-assi.secret.ask(name, title) → true/false; assi.secret.has(name) → true/false           // пароли и ключи
-// Значение не читают, а называют в запросе: assi.http.request({ url, headers: { Authorization: 'Bearer {{secret:имя}}' } })
+axiko.permission(['RECORD_AUDIO']) → true/false
+axiko.clipboard.get() / .set(text); axiko.openUrl(url); axiko.share(text)
+axiko.rows(uri, columns, where, args, order, limit)   // content-провайдеры: календарь, контакты, SMS
+axiko.pref(key) / axiko.pref(key, value)               // общие настройки приложения (строки)
+axiko.secret.ask(name, title) → true/false; axiko.secret.has(name) → true/false           // пароли и ключи
+// Значение не читают, а называют в запросе: axiko.http.request({ url, headers: { Authorization: 'Bearer {{secret:имя}}' } })
 // — оболочка подставит его сама (адрес, заголовок или тело; только HTTPS) и уберёт из ответа.
-assi.shell('ls -la') → { code, out }; assi.shell('pm list packages', { privileged: true })   // права ADB — через Shizuku
-assi.oauth.connect(name, { authUrl, tokenUrl, clientId, clientSecret, scope, extra }) → вход в браузере; assi.oauth.token(name) → токен доступа
-assi.mcp.servers() / .tools(server) / .call(server, tool, args)   // серверы MCP, подключённые владельцем
-assi.linux('python3 script.py') → { code, out }; assi.linux.spawn(name, cmd) / .stop(name) / .alive(name) / .log(name)   // Ubuntu; данные модулей там в /assi
+axiko.shell('ls -la') → { code, out }; axiko.shell('pm list packages', { privileged: true })   // права ADB — через Shizuku
+axiko.oauth.connect(name, { authUrl, tokenUrl, clientId, clientSecret, scope, extra }) → вход в браузере; axiko.oauth.token(name) → токен доступа
+axiko.mcp.servers() / .tools(server) / .call(server, tool, args)   // серверы MCP, подключённые владельцем
+axiko.linux('python3 script.py') → { code, out }; axiko.linux.spawn(name, cmd) / .stop(name) / .alive(name) / .log(name)   // Ubuntu; данные модулей там в /axiko
 require('lib/memory').save(text, tags) / .search(query, limit) / .recent(limit)        // долгая память
-assi.screen.read() → { app, package, outline }; assi.screen.click(n) / .type(text, n) / .scroll(n) / .tap(x, y) / .back() / .openApp(name) / .shot()
-assi.notifications.active() / .recent(limit) → [{ time, app, title, text, key, canReply, messages, … }]; .dismiss(key); .reply(key, text)
-assi.notifications.open(key) → true, если открылось то, что открывает нажатие (беседа мессенджера), — и после удаления уведомления
-assi.widget.refresh('notes')   // перерисовать виджеты модуля; модуль даёт виджет, экспортируя widget() → { title, text, open, image: 'data/…png' }
-assi.speech.listen() → текст одной реплики с микрофона; assi.speech.say(text); assi.speech.stop()
-assi.speech.transcribe('data/запись.ogg') → текст аудиофайла (wav, mp3, ogg, m4a…); с { segments: true } → [{ startMs, endMs, text }]
-assi.speech.render(text, 'data/x/фраза.wav', 'cloud'|'local') → путь записанного файла (расширение — по тому, что вернул голос)
+axiko.screen.read() → { app, package, outline }; axiko.screen.click(n) / .type(text, n) / .scroll(n) / .tap(x, y) / .back() / .openApp(name) / .shot()
+axiko.notifications.active() / .recent(limit) → [{ time, app, title, text, key, canReply, messages, … }]; .dismiss(key); .reply(key, text)
+axiko.notifications.open(key) → true, если открылось то, что открывает нажатие (беседа мессенджера), — и после удаления уведомления
+axiko.widget.refresh('notes')   // перерисовать виджеты модуля; модуль даёт виджет, экспортируя widget() → { title, text, open, image: 'data/…png' }
+axiko.speech.listen() → текст одной реплики с микрофона; axiko.speech.say(text); axiko.speech.stop()
+axiko.speech.transcribe('data/запись.ogg') → текст аудиофайла (wav, mp3, ogg, m4a…); с { segments: true } → [{ startMs, endMs, text }]
+axiko.speech.render(text, 'data/x/фраза.wav', 'cloud'|'local') → путь записанного файла (расширение — по тому, что вернул голос)
 ```
 
 ### `lib/usage.js`
@@ -164,7 +164,7 @@ s.get([1, 2, 3]); s.draw([4, 5]); s.ahead(рекорд, { ahead: 6 }); s.status(
 - **На экране.** Подключите `<script src="/modules/games/engine/art.js"></script>`. Затем `GameArt.el(svg, { cls, size })` даст `<img>`: у разных картинок не столкнутся `id` градиентов. При `prefers-reduced-motion` показывайте `GameArt.still(svg)`.
 - **В играх Игротеки** серию объявляют на виде запаса (`"artist"` в `game.json`, см. `modules/games/AGENT.md`): движок сам держит рисунки впрок и даёт настройки «Рисунки».
 
-## Операции оболочки (`native` в движке, `assi.native` на экране)
+## Операции оболочки (`native` в движке, `axiko.native` на экране)
 
 Оформление, меню, голос на телефоне, имя:
 
@@ -214,7 +214,7 @@ s.get([1, 2, 3]); s.draw([4, 5]); s.ahead(рекорд, { ahead: 6 }); s.status(
 
 ### Магазин модулей и игр
 
-Экран магазина — `ui/store/index.html`; наличие API обозначено `store.v1` в `shell.features`. На странице вызывайте `await assi.native('store.prepare', sourceId, packageId)`, в движке — `native('store.prepare', sourceId, packageId)`. Ошибка операции отклоняет вызов; не объявляйте установку завершённой по факту скачивания или отчёта `pass`.
+Экран магазина — `ui/store/index.html`; наличие API обозначено `store.v1` в `shell.features`. На странице вызывайте `await axiko.native('store.prepare', sourceId, packageId)`, в движке — `native('store.prepare', sourceId, packageId)`. Ошибка операции отклоняет вызов; не объявляйте установку завершённой по факту скачивания или отчёта `pass`.
 
 | Операция | Аргументы и результат |
 |---|---|
@@ -249,7 +249,7 @@ s.get([1, 2, 3]); s.draw([4, 5]); s.ahead(рекорд, { ahead: 6 }); s.status(
 
 Пути для чтения берите из `reviewFiles`: например, `code/main.js`, `assets/icon.svg`, `package.json`, `README.md`, `LICENSE`. `conflicts[].path` относителен каталогу установленного пакета: для чтения `main.js` используйте `code/main.js`, для `assets/…` оставляйте путь как есть. В `resolve` передавайте исходный `conflict.path`. Смещения чтения — символы, не байты; читайте до `eof`. Отсутствующая сторона удалённого файла не является пустым текстом. `entryPath` может быть пустым у модуля без экрана; открывайте только непустой локальный HTML-путь, не backend `main.js`.
 
-Открыть разговор проверки: `await assi.native('agent.openThread', task.agent, task.thread)`, затем `await assi.native('ui.chat', true, task.agent)` — обычная выдвижная панель чата поверх экрана (в web-хабе — боковая панель), которая закрывается как всегда; не открывайте `ui/chat/index.html` отдельным экраном. Для восстановления экрана используйте `store.plans` / `reviewTask` и актуальные `store.plan` + `store.review`. Проверяйте статус только пока экран видим; остановленная проверка не означает установленный пакет. После установки оболочка рассылает события `modules` и `store.changed`.
+Открыть разговор проверки: `await axiko.native('agent.openThread', task.agent, task.thread)`, затем `await axiko.native('ui.chat', true, task.agent)` — обычная выдвижная панель чата поверх экрана (в web-хабе — боковая панель), которая закрывается как всегда; не открывайте `ui/chat/index.html` отдельным экраном. Для восстановления экрана используйте `store.plans` / `reviewTask` и актуальные `store.plan` + `store.review`. Проверяйте статус только пока экран видим; остановленная проверка не означает установленный пакет. После установки оболочка рассылает события `modules` и `store.changed`.
 
 **Агенту:** для порученной владельцем установки используйте инструменты `store_sources`, `store_add_source`, `store_catalog`, `store_prepare`, `store_review_start`, `store_review_status` — именно этот путь, а не `store.apply` через Native или запись файлов. `store_review_status` (можно с `waitSeconds` до 600) возвращает `outcome`: `installed` — установлено; `needsOwnerDecision` — найдены подозрения, перескажите их владельцу (что, где, чем грозит) и назовите место кнопки из `ownerAction`; `banned` — выпуск забанен, назовите нарушения; `running`, `stopped`, `pending`. Сообщайте владельцу именно этот исход. Решить за владельца или снять бан вы не можете. Отдельный разговор связан с одним планом и допускает только `store_plan`, `store_read`, `store_resolve`, `store_review`, `store_apply`, `ask_owner`. Ограничение исполняется оболочкой; не обходите его через Native, JS, shell, MCP или делегирование. `store_plan` для агента выдаёт страницы `reviewFiles`, `conflicts`, `findings`: продолжайте по `nextFilesOffset`, `nextConflictsOffset`, `nextFindingsOffset` до `null`; аргументы — `filesOffset`, `filesLimit` (1–24), `conflictsOffset`, `findingsOffset`. В конфликтах есть готовый `readPath`. `store_read` агента возвращает до 12000 символов с контролем полного JSON-вывода; экранирование может уменьшить порцию, продолжайте строго с `nextOffset`. Манифест читается через `package.json`.
 

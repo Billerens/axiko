@@ -2,7 +2,7 @@
 // fetch in the metro: window.Sfx.
 //   Sfx.play('buy', 0.6)          tap buy deny level chest achievement prestige alarm
 //   Sfx.add('drill', [{type: 'sawtooth', f: [90, 60], d: 0.3}])     a sound of the game's own
-//   Sfx.add('bell', 'https://assi.local/data/games/<id>/assets/bell.ogg')   or a file in data/
+//   Sfx.add('bell', 'https://axiko.local/data/games/<id>/assets/bell.ogg')   or a file in data/
 // A voice: {type: sine|square|triangle|sawtooth|noise, f: [from, to] Hz, d: seconds, at: start,
 // v: loudness 0..1, a: attack seconds}. The engine (g.sfx) decides whether to sound at all.
 (function () {

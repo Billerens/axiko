@@ -37,7 +37,7 @@ def backup():
     target = OUT / 'emulator-before.tar'
     if not target.exists():
         with target.open('wb') as stream:
-            subprocess.run([str(ADB), '-s', DEVICE, 'exec-out', 'run-as', PACKAGE, 'tar', '-cf', '-', 'files/assi', 'files/data', 'files/state', 'shared_prefs'], stdout=stream, check=True, timeout=180)
+            subprocess.run([str(ADB), '-s', DEVICE, 'exec-out', 'run-as', PACKAGE, 'tar', '-cf', '-', 'files/axiko', 'files/data', 'files/state', 'shared_prefs'], stdout=stream, check=True, timeout=180)
         with tarfile.open(target) as archive:
             assert archive.getmembers()
     return {'backupBytes': target.stat().st_size, 'device': DEVICE}
@@ -46,10 +46,10 @@ def backup():
 def rpc(payload):
     guard()
     adb('forward', f'tcp:{PORT}', 'tcp:8765')
-    prefs = ET.fromstring(adb('exec-out', 'run-as', PACKAGE, 'cat', 'shared_prefs/assi.xml'))
+    prefs = ET.fromstring(adb('exec-out', 'run-as', PACKAGE, 'cat', 'shared_prefs/axiko.xml'))
     key = next(item.text for item in prefs if item.get('name') == 'lan.code')
-    token = hashlib.sha256(('assi:' + key).encode()).hexdigest()[:32]
-    request = urllib.request.Request(f'http://127.0.0.1:{PORT}/__assi/rpc', data=json.dumps(payload, ensure_ascii=False).encode(), headers={'Content-Type': 'application/json', 'Cookie': f'assi={token}'})
+    token = hashlib.sha256(('axiko:' + key).encode()).hexdigest()[:32]
+    request = urllib.request.Request(f'http://127.0.0.1:{PORT}/__axiko/rpc', data=json.dumps(payload, ensure_ascii=False).encode(), headers={'Content-Type': 'application/json', 'Cookie': f'axiko={token}'})
     with urllib.request.urlopen(request, timeout=180) as response:
         value = json.load(response)
     for _ in range(7):
@@ -84,11 +84,11 @@ def bundle(package_id, version, output):
         'code/module.json': json.dumps({'id': package_id, 'title': 'Проверка магазина', 'entry': 'ui/index.html', 'autostart': False}, ensure_ascii=False, indent=2),
         'code/main.js': f'exports.version = function () {{\n  return "{version}";\n}};\n',
         'code/local.js': 'exports.color = "blue";\n',
-        'code/checks.js': 'exports.run = function () {\n  require("lib/assi").fs.write("data/store-test-checks-ran.txt", "UNEXPECTED");\n  return [];\n};\n',
+        'code/checks.js': 'exports.run = function () {\n  require("lib/axiko").fs.write("data/store-test-checks-ran.txt", "UNEXPECTED");\n  return [];\n};\n',
         'code/ui/index.html': '<!doctype html>\n<html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">\n<link rel="stylesheet" href="/ui/kit/kit.css"><body><main class="page"><h1>Счётчик магазина</h1><p id="value">0</p><button class="btn primary" id="add">Добавить</button></main><script src="/ui/kit/kit.js"></script>\n<script>\nlet value = 0;\ndocument.getElementById("add").onclick = function () {\n  document.getElementById("value").textContent = String(++value);\n};\n</script></body></html>\n',
     }
     data = {path: text.encode() for path, text in files.items()}
-    manifest = {'schemaVersion': 1, 'id': package_id, 'kind': 'module', 'version': version, 'publisher': 'emulator', 'license': 'UNLICENSED', 'sourceFormat': 'readable', 'entry': 'code/ui/index.html', 'runtime': {'assiApi': 1}, 'capabilities': ['storage.own'], 'dependencies': [], 'optionalDependencies': [], 'files': [{'path': p, 'size': len(b), 'sha256': hashlib.sha256(b).hexdigest()} for p, b in data.items()]}
+    manifest = {'schemaVersion': 1, 'id': package_id, 'kind': 'module', 'version': version, 'publisher': 'emulator', 'license': 'UNLICENSED', 'sourceFormat': 'readable', 'entry': 'code/ui/index.html', 'runtime': {'axikoApi': 1}, 'capabilities': ['storage.own'], 'dependencies': [], 'optionalDependencies': [], 'files': [{'path': p, 'size': len(b), 'sha256': hashlib.sha256(b).hexdigest()} for p, b in data.items()]}
     manifest_bytes = json.dumps(manifest, ensure_ascii=False, indent=2).encode()
     data['package.json'] = manifest_bytes
     buffer = io.BytesIO()
@@ -99,7 +99,7 @@ def bundle(package_id, version, output):
     stem = f'{package_id}-{version}'
     (output / f'{stem}.zip').write_bytes(zipped)
     (output / f'{stem}.json').write_bytes(manifest_bytes)
-    return {'id': package_id, 'kind': 'module', 'title': 'Проверка магазина' if package_id.endswith('counter') else 'Проверка агентом', 'summary': 'Тестовый пакет эмулятора', 'version': version, 'publisher': 'emulator', 'license': 'UNLICENSED', 'manifestUrl': f'https://store-test.example/{stem}.json', 'archive': {'url': f'https://store-test.example/{stem}.zip', 'sha256': hashlib.sha256(zipped).hexdigest(), 'size': len(zipped), 'unpackedSize': sum(map(len, data.values())), 'fileCount': len(data)}, 'compatibility': {'minAssiApi': 1}}
+    return {'id': package_id, 'kind': 'module', 'title': 'Проверка магазина' if package_id.endswith('counter') else 'Проверка агентом', 'summary': 'Тестовый пакет эмулятора', 'version': version, 'publisher': 'emulator', 'license': 'UNLICENSED', 'manifestUrl': f'https://store-test.example/{stem}.json', 'archive': {'url': f'https://store-test.example/{stem}.zip', 'sha256': hashlib.sha256(zipped).hexdigest(), 'size': len(zipped), 'unpackedSize': sum(map(len, data.values())), 'fileCount': len(data)}, 'compatibility': {'minAxikoApi': 1}}
 
 
 def fixtures():
@@ -119,10 +119,10 @@ def fixtures():
     with tarfile.open(payload, 'w') as archive:
         for path in output.iterdir():
             archive.add(path, arcname='store-fixtures/' + path.name, recursive=False)
-    adb('push', str(payload), '/data/local/tmp/assi-store-fixtures.tar')
-    adb('shell', 'run-as', PACKAGE, 'tar', '-xf', '/data/local/tmp/assi-store-fixtures.tar', '-C', 'files/state')
+    adb('push', str(payload), '/data/local/tmp/axiko-store-fixtures.tar')
+    adb('shell', 'run-as', PACKAGE, 'tar', '-xf', '/data/local/tmp/axiko-store-fixtures.tar', '-C', 'files/state')
     code = '''(function () {
-      var W = Packages.app.assi.core.Workspace.INSTANCE;
+      var W = Packages.app.axiko.core.Workspace.INSTANCE;
       var mapping = JSON.parse(String(host.readText("REMOTE/mapping.json")));
       var transport = Packages.org.mozilla.javascript.Context.jsToJava({
         get: function (url, maxBytes, etag, modified) {
@@ -130,12 +130,12 @@ def fixtures():
           if (!path) throw new java.io.IOException("Fixture URL not mapped");
           var bytes = java.nio.file.Files.readAllBytes(new java.io.File(path).toPath());
           if (bytes.length > maxBytes) throw new java.io.IOException("Fixture limit");
-          return new Packages.app.assi.store.StoreFetch(bytes, 200, null, null, String(url));
+          return new Packages.app.axiko.store.StoreFetch(bytes, 200, null, null, String(url));
         }
-      }, Packages.app.assi.store.StoreTransport);
+      }, Packages.app.axiko.store.StoreTransport);
       var snapshot = Packages.org.mozilla.javascript.Context.jsToJava(function (label) { return W.snapshot(String(label)); }, Packages.kotlin.jvm.functions.Function1);
-      var service = new Packages.app.assi.store.StoreService(W.getRoot(), new java.io.File(W.getState(), "store-fixture-test"), transport, snapshot);
-      var cls = Packages.app.assi.store.Store.INSTANCE.getClass();
+      var service = new Packages.app.axiko.store.StoreService(W.getRoot(), new java.io.File(W.getState(), "store-fixture-test"), transport, snapshot);
+      var cls = Packages.app.axiko.store.Store.INSTANCE.getClass();
       var field = cls.getDeclaredField("current"); field.setAccessible(true); field.set(null, service);
       var root = cls.getDeclaredField("currentRoot"); root.setAccessible(true); root.set(null, W.getRoot().getCanonicalPath());
       return "fixture transport injected";

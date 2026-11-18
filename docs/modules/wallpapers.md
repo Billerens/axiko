@@ -13,7 +13,7 @@
 
 ## Что видит владелец
 
-**Утреннее уведомление** (тихий канал, `silent: true`): «Новые обои: Туман над Ладогой. Фото: Анна Петрова, Unsplash». Нажатие открывает экран модуля. Кнопок действий в уведомлении нет: `assi.notify` умеет только `title`, `text`, `open` (см. «Что нужно от оболочки»).
+**Утреннее уведомление** (тихий канал, `silent: true`): «Новые обои: Туман над Ладогой. Фото: Анна Петрова, Unsplash». Нажатие открывает экран модуля. Кнопок действий в уведомлении нет: `axiko.notify` умеет только `title`, `text`, `open` (см. «Что нужно от оболочки»).
 
 **Экран модуля** (`modules/wallpapers/ui/index.html`, кит, тёмные серые карточки без теней):
 
@@ -24,7 +24,7 @@
 
 **Виджет** (`widget()`): «Обои дня» / «Туман над Ладогой · Unsplash · 07:00».
 
-**Голос и чат**: «поменяй обои», «поставь что-нибудь с горами», «верни вчерашние», «больше не показывай города» — агент вызывает функции модуля (`assi.call` / `require('modules/wallpapers/main')`).
+**Голос и чат**: «поменяй обои», «поставь что-нибудь с горами», «верни вчерашние», «больше не показывай города» — агент вызывает функции модуля (`axiko.call` / `require('modules/wallpapers/main')`).
 
 **Настройки модуля** (все числа — настройки, хранятся в `data/wallpapers/settings.json`):
 
@@ -68,7 +68,7 @@
 | Openverse (`api.openverse.org/v1/images/`) | `q`, `size=large`, `aspect_ratio=tall`, `license_type=all` | CC и PD, поле `license` | Анонимный доступ с лимитами; ссылки ведут на исходный сайт |
 | NASA APOD (`api.nasa.gov/planetary/apod`) | только для темы «космос», `count=10` | чаще всего общественное достояние | Если в ответе есть поле `copyright` — картинку не берём (не PD) |
 | Art Institute of Chicago | `api.artic.edu/api/v1/artworks/search?query[term][is_public_domain]=true` + IIIF | CC0 для public domain | Размер через IIIF; какие размеры отдаются — проверить |
-| Unsplash API | ключ владельца (`assi.secret.ask('unsplash.key', …)`) | Unsplash License | По правилам API: показывать автора и Unsplash, при установке дёрнуть `links.download_location`; размер через параметры `w`, `h`, `fit=crop`, `crop=entropy` |
+| Unsplash API | ключ владельца (`axiko.secret.ask('unsplash.key', …)`) | Unsplash License | По правилам API: показывать автора и Unsplash, при установке дёрнуть `links.download_location`; размер через параметры `w`, `h`, `fit=crop`, `crop=entropy` |
 | Pexels API | ключ владельца | Pexels License | Подпись «Фото: автор, Pexels» |
 
 Обычный поиск картинок по всему интернету (`tools/web_search.js` и сбор `<img>`) по умолчанию выключен: права на такие картинки неизвестны. Включать или нет — решает владелец (см. «Открытые вопросы»).
@@ -86,7 +86,7 @@
 
 **Шаг 7 — установка.** `WallpaperManager.getInstance(context).setBitmap(bitmap, null, true, which)` с `FLAG_SYSTEM` и/или `FLAG_LOCK`. Как задать отдельно внешний и внутренний экраны Fold — неизвестно, см. «Что нужно от оболочки». Если установка недоступна (нет разрешения) — запасной путь: `WallpaperManager.getCropAndSetWallpaperIntent(uri)` открывает системный экран установки, владелец нажимает «Установить» сам.
 
-**Шаг 8 — запись.** История в SQLite, событие `emit('wallpapers.changed')`, `assi.widget.refresh('wallpapers')`, тихое уведомление.
+**Шаг 8 — запись.** История в SQLite, событие `emit('wallpapers.changed')`, `axiko.widget.refresh('wallpapers')`, тихое уведомление.
 
 **Модели.** `wallpapers.query` — 1 короткий запрос в день (сотни токенов). `wallpapers.judge` — 1 запрос в день с 8 миниатюрами по 384 px. Обе объявлены в `module.json` → `models`, владелец может назначить дешёвую или локальную модель.
 
@@ -125,7 +125,7 @@ SQLite `data/wallpapers.db`, таблица `history`:
 ## Что нужно от оболочки
 
 Есть сейчас:
-- `job`, `on('network')`, `assi.http.get/download`, `assi.notify`, `assi.widget.refresh`, `assi.store`, `assi.db`, `assi.secret.ask/get`, `ai.ask` с `images`, `native('models.roles')` (поле `vision`).
+- `job`, `on('network')`, `axiko.http.get/download`, `axiko.notify`, `axiko.widget.refresh`, `axiko.store`, `axiko.db`, `axiko.secret.ask/get`, `ai.ask` с `images`, `native('models.roles')` (поле `vision`).
 - Rhino с доступом к `android.graphics.Bitmap`, `BitmapFactory`, `android.app.WallpaperManager`, `ACCESS_COARSE_LOCATION` объявлено.
 
 Нужна правка оболочки:
@@ -134,7 +134,7 @@ SQLite `data/wallpapers.db`, таблица `history`:
   1. Скрытые флаги Samsung для второго дисплея в `WallpaperManager` — найти отражением прямо на телефоне: `js_eval` с `java.lang.Class.forName('android.app.WallpaperManager').getDeclaredFields()` и `getDeclaredMethods()`, отфильтровать имена с `SUB`, `COVER`, `FOLD`, `DISPLAY`, `WHICH`. Движок видит непубличные члены.
   2. `WallpaperManager.setBitmapWithCrops(...)` из Android 15+ (кадрирования для разных размеров экрана одной картинки) — есть ли он и доступен ли на One UI 8.
   3. Если ничего нет — один кадр на оба экрана, кадрирование под внутренний с безопасной центральной полосой; владелец узнаёт об этом в настройках модуля честной строкой.
-- **Кнопки в уведомлении** («Вернуть», «Нравится») — желательно: расширить `assi.notify` полем `actions: [{ title, call: 'modules/…/main.js', fn, args }]` через `Notify$ReplyReceiver` или новый приёмник. Без этого — нажатие открывает экран.
+- **Кнопки в уведомлении** («Вернуть», «Нравится») — желательно: расширить `axiko.notify` полем `actions: [{ title, call: 'modules/…/main.js', fn, args }]` через `Notify$ReplyReceiver` или новый приёмник. Без этого — нажатие открывает экран.
 
 ## Связи
 
@@ -153,7 +153,7 @@ SQLite `data/wallpapers.db`, таблица `history`:
 5. **Повторы.** dHash, запрет авторов и тем подряд.
 6. **Погода и сезон.** Open-Meteo, шаблон запроса.
 7. **Модель-судья.** Роль `wallpapers.judge`, точка фокуса, кадрирование по ней.
-8. **Остальные источники**, ключи Unsplash/Pexels через `assi.secret.ask`, избранное по выходным, «больше/меньше такого».
+8. **Остальные источники**, ключи Unsplash/Pexels через `axiko.secret.ask`, избранное по выходным, «больше/меньше такого».
 
 ## Как проверить
 

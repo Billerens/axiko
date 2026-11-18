@@ -1,7 +1,7 @@
 // The node side of the tests of «Игротека»: a tiny test runner and a workspace that runs the
 // hub's engine code as the phone does. The engine's modules are Rhino modules — a function of
 // (exports, module, require, __filename, __dirname) with the shell's globals around it — so the
-// loader here wraps them the same way and gives them job/on/emit/native/spawn/sleep and lib/assi
+// loader here wraps them the same way and gives them job/on/emit/native/spawn/sleep and lib/axiko
 // over the file system and node:sqlite. No java: the code takes its plain paths.
 'use strict';
 const fs = require('fs');
@@ -103,7 +103,7 @@ function workspace(o) {
     return handle;
   }
 
-  const assi = {
+  const axiko = {
     files, db,
     notify: (options) => {
       shell.notified.push(options);
@@ -123,7 +123,7 @@ function workspace(o) {
       return shell.ai(request);
     }
   };
-  const builtin = { 'lib/assi': assi, 'lib/usage': usage, 'lib/ai': ai };
+  const builtin = { 'lib/axiko': axiko, 'lib/usage': usage, 'lib/ai': ai };
 
   const globals = {
     job: (key, spec, fn) => { shell.jobs[key] = { spec, fn }; },
@@ -186,7 +186,7 @@ function workspace(o) {
   }
 
   return {
-    root, shell, files, assi, db,
+    root, shell, files, axiko, db,
     require: (p) => builtin[p] || load(resolve(root, p)),
     /** Runs what was spawned (the shell runs it on a thread of its own). */
     flush: () => {

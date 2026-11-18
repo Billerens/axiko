@@ -6,5 +6,5 @@ param(
 )
 
 $adb = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
-& $adb -s $Serial shell screencap -p /sdcard/assi-shot.png
-& $adb -s $Serial pull /sdcard/assi-shot.png $Out | Out-Null
+& $adb -s $Serial shell screencap -p /sdcard/axiko-shot.png
+& $adb -s $Serial pull /sdcard/axiko-shot.png $Out | Out-Null

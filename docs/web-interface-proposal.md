@@ -34,7 +34,7 @@
 
 В контрольном Chromium-тесте одна страница и пять iframe открыли шесть SSE; следующий RPC не дошёл до сервера и оставался в ожидании. Закрытие одного iframe сразу освободило ожидавшийся запрос. В настоящем desk уже три базовых потока, к которым добавляются виджеты.
 
-Основание: [desk.html:381](D:/Projects/Axiko/docs/research/2026-11-15/desk-before.html.txt:381), [page-lan.js:64](D:/Projects/Axiko/docs/research/2026-11-15/page-lan-before.js.txt:64), [Lan.kt:208](D:/Projects/Axiko/app/src/main/java/app/assi/core/Lan.kt:208).
+Основание: [desk.html:381](D:/Projects/Axiko/docs/research/2026-11-15/desk-before.html.txt:381), [page-lan.js:64](D:/Projects/Axiko/docs/research/2026-11-15/page-lan-before.js.txt:64), [Lan.kt:208](D:/Projects/Axiko/app/src/main/java/app/axiko/core/Lan.kt:208).
 
 **Предложение:** один EventHub в оболочке и доставка событий вложенным экранам. Для нескольких вкладок позже можно разделять соединение между ними.
 
@@ -44,7 +44,7 @@
 
 EventSource переподключается, но клиент не восстанавливает пропущенные изменения состояния. Сервер передаёт события без cursor/ID. Есть риск пропустить окончание задачи, часть ответа и обновление файлов. desk.rpc также не обрабатывает 401 отдельно от JSON и может попытаться разобрать HTML формы входа как ответ.
 
-Основание: [page-lan.js:64](D:/Projects/Axiko/docs/research/2026-11-15/page-lan-before.js.txt:64), [Lan.kt:158](D:/Projects/Axiko/app/src/main/java/app/assi/core/Lan.kt:158), [desk.html:250](D:/Projects/Axiko/docs/research/2026-11-15/desk-before.html.txt:250).
+Основание: [page-lan.js:64](D:/Projects/Axiko/docs/research/2026-11-15/page-lan-before.js.txt:64), [Lan.kt:158](D:/Projects/Axiko/app/src/main/java/app/axiko/core/Lan.kt:158), [desk.html:250](D:/Projects/Axiko/docs/research/2026-11-15/desk-before.html.txt:250).
 
 **Предложение:** статус связи, повторное получение состояния чата и задач после reconnect, последовательность событий и восстановление пропусков; ограничение ожидания RPC и идентификатор операции. Перед повтором записи различать «запрос не дошёл» и «возможно, уже выполнен».
 
@@ -54,7 +54,7 @@ EventSource переподключается, но клиент не восст�
 
 Desk имеет только «Экран / Файлы / Журнал» и не подключает общую ui/nav. Домашний экран при включённой общей навигации скрывает собственные ссылки на Настройки и Историю. В браузере эти привычные входы могут исчезнуть.
 
-Клиент ищет assiDesk только у непосредственного parent. У вложенного виджета parent — домашний iframe, поэтому assi.open из виджета может открыть полный модуль внутри маленькой карточки. Событие ui.opened также безусловно переключает все подключённые рабочие места.
+Клиент ищет axikoDesk только у непосредственного parent. У вложенного виджета parent — домашний iframe, поэтому axiko.open из виджета может открыть полный модуль внутри маленькой карточки. Событие ui.opened также безусловно переключает все подключённые рабочие места.
 
 Основание: [desk.html:218](D:/Projects/Axiko/docs/research/2026-11-15/desk-before.html.txt:218), [page-lan.js:6](D:/Projects/Axiko/docs/research/2026-11-15/page-lan-before.js.txt:6), [home/index.html:608](D:/Projects/Axiko/app/src/main/assets/factory/ui/home/index.html:608), [desk.html:384](D:/Projects/Axiko/docs/research/2026-11-15/desk-before.html.txt:384).
 
@@ -66,11 +66,11 @@ Desk имеет только «Экран / Файлы / Журнал» и не 
 
 Нужна явная цель проверки: телефон, browser или изолированное preview. Она должна включать surfaceId, viewport, draftId и ревизию. Проверяющий получает DOM, ошибки, измерения и изображение именно выбранной поверхности. Тестовый preview не должен переключать рабочий экран владельца.
 
-Основание: [Tools.kt:337](D:/Projects/Axiko/app/src/main/java/app/assi/agent/Tools.kt:337), [Tools.kt:407](D:/Projects/Axiko/app/src/main/java/app/assi/agent/Tools.kt:407).
+Основание: [Tools.kt:337](D:/Projects/Axiko/app/src/main/java/app/axiko/agent/Tools.kt:337), [Tools.kt:407](D:/Projects/Axiko/app/src/main/java/app/axiko/agent/Tools.kt:407).
 
 У черновиков необходим сквозной контекст: сейчас показ на телефоне учитывает ~draft, а broadcast в браузер передаёт исходный путь. draft.open открывает телефон. LAN RPC не переносит draft так, как Android Bridge; абсолютные ресурсы тоже могут смешиваться с рабочими.
 
-Основание: [Tools.kt:411](D:/Projects/Axiko/app/src/main/java/app/assi/agent/Tools.kt:411), [Native.kt:480](D:/Projects/Axiko/app/src/main/java/app/assi/core/Native.kt:480), [Lan.kt:394](D:/Projects/Axiko/app/src/main/java/app/assi/core/Lan.kt:394), [Pages.kt:259](D:/Projects/Axiko/app/src/main/java/app/assi/core/Pages.kt:259).
+Основание: [Tools.kt:411](D:/Projects/Axiko/app/src/main/java/app/axiko/agent/Tools.kt:411), [Native.kt:480](D:/Projects/Axiko/app/src/main/java/app/axiko/core/Native.kt:480), [Lan.kt:394](D:/Projects/Axiko/app/src/main/java/app/axiko/core/Lan.kt:394), [Pages.kt:259](D:/Projects/Axiko/app/src/main/java/app/axiko/core/Pages.kt:259).
 
 **Приёмка:** web-preview использует одну ревизию HTML, CSS, JS и backend; открытие и проверка черновика не меняют рабочее приложение.
 
@@ -97,7 +97,7 @@ Desk имеет только «Экран / Файлы / Журнал» и не 
 
 Корневая оболочка desk.html и page-lan.js сейчас читаются непосредственно из assets внутри APK. Обычные файловые инструменты работают с workspace, поэтому запись одноимённого файла туда не обновляет действующий desktop shell.
 
-Основание: [Lan.kt:215](D:/Projects/Axiko/app/src/main/java/app/assi/core/Lan.kt:215), [Lan.kt:266](D:/Projects/Axiko/app/src/main/java/app/assi/core/Lan.kt:266).
+Основание: [Lan.kt:215](D:/Projects/Axiko/app/src/main/java/app/axiko/core/Lan.kt:215), [Lan.kt:266](D:/Projects/Axiko/app/src/main/java/app/axiko/core/Lan.kt:266).
 
 Предлагается один раз добавить в native host загрузку ui/desk/ из workspace с заводским fallback. Версия transport bridge и поддерживаемые возможности должны быть явными. Тогда агент сможет дорабатывать саму web-оболочку через тот же цикл draft → preview → проверки → применение.
 

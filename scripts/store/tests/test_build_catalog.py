@@ -420,21 +420,21 @@ class CatalogBuildTests(unittest.TestCase):
         (self.store / 'kinds.json').write_text(json.dumps(kinds))
         self.build()
         cards = {card['id']: card for card in self.cards()}
-        self.assertEqual({'minAssiApi': 1, 'gamesEngine': 1}, cards['orbit']['compatibility'])
-        self.assertEqual({'minAssiApi': 1}, cards['sunset']['compatibility'])
+        self.assertEqual({'minAxikoApi': 1, 'gamesEngine': 1}, cards['orbit']['compatibility'])
+        self.assertEqual({'minAxikoApi': 1}, cards['sunset']['compatibility'])
         self.assertEqual('theme', cards['sunset']['kind'])
         with zipfile.ZipFile(self.out / 'sunset-0.1.0.zip') as archive:
             self.assertIn('code/look.json', archive.namelist())
-            self.assertEqual({'assiApi': 1}, json.loads(archive.read('package.json'))['runtime'])
+            self.assertEqual({'axikoApi': 1}, json.loads(archive.read('package.json'))['runtime'])
         with zipfile.ZipFile(self.out / 'orbit-0.1.0.zip') as archive:
-            self.assertEqual({'assiApi': 1, 'gamesEngine': 1}, json.loads(archive.read('package.json'))['runtime'])
+            self.assertEqual({'axikoApi': 1, 'gamesEngine': 1}, json.loads(archive.read('package.json'))['runtime'])
         # A package lives inside its host and nowhere else.
         described = json.loads((self.store / 'sunset/store.json').read_text())
         described['target'] = 'modules/sunset'
         self.write('sunset/store.json', json.dumps(described))
         self.assertIn('expected modules/themes/sunset', self.build(False)['blocked'][0]['error'])
         for bad in [{'module': {'host': 'x', 'descriptor': 'x.json'}}, {'theme': {'host': '../x', 'descriptor': 'x.json'}},
-                    {'theme': {'host': 'themes', 'descriptor': '../x.json'}}, {'theme': {'host': 'themes', 'descriptor': 'x.json', 'engine': 'assiApi', 'version': 1}},
+                    {'theme': {'host': 'themes', 'descriptor': '../x.json'}}, {'theme': {'host': 'themes', 'descriptor': 'x.json', 'engine': 'axikoApi', 'version': 1}},
                     {'theme': {'host': 'themes', 'descriptor': 'x.json', 'engine': 'themesEngine'}}, {'theme': {'host': 'themes', 'descriptor': 'x.json', 'root': '/'}}]:
             (self.store / 'kinds.json').write_text(json.dumps(bad))
             with self.assertRaises(builder.BuildError):
@@ -468,13 +468,13 @@ class CatalogBuildTests(unittest.TestCase):
         self.assertEqual(['clock-night'], [item['id'] for item in report['toPublish']])
         cards = {card['id']: card for card in self.cards()}
         card = cards['clock-night']
-        self.assertEqual(('mod', 'clock', {'minAssiApi': 1}, 'A dark face for the clock.'), (card['kind'], card['extends'], card['compatibility'], card['summary']))
+        self.assertEqual(('mod', 'clock', {'minAxikoApi': 1}, 'A dark face for the clock.'), (card['kind'], card['extends'], card['compatibility'], card['summary']))
         self.assertNotIn('extends', cards['clock'])
         with zipfile.ZipFile(self.out / 'clock-night-1.0.0.zip') as archive:
             self.assertEqual({'LICENSE', 'README.md', 'assets/moon.svg', 'base/main.js', 'mod/brief.md', 'package.json', 'reference/main.js', 'reference/ui/night.css'}, set(archive.namelist()))
             manifest = json.loads(archive.read('package.json'))
         self.assertNotIn('entry', manifest)
-        self.assertEqual(('mod', 'clock', {'assiApi': 1}), (manifest['kind'], manifest['extends'], manifest['runtime']))
+        self.assertEqual(('mod', 'clock', {'axikoApi': 1}), (manifest['kind'], manifest['extends'], manifest['runtime']))
         # What the sample was made on is recorded, down to the published archive of the target: information, not a requirement.
         before = builder.sha256(b"exports.start = function () { return 'local'; };\n")
         self.assertEqual({'version': '0.1.0', 'archiveSha256': cards['clock']['archive']['sha256'], 'base': {'main.js': before},

@@ -38,7 +38,7 @@ function hhmm(minutes) {
 function promptOf(hub, g, decl, want, names, local) {
   var md = '';
   try {
-    md = require('lib/assi').files.read('modules/games/' + g.id + '/' + (decl.prompt || 'prompts/' + decl.kind + '.md'));
+    md = require('lib/axiko').files.read('modules/games/' + g.id + '/' + (decl.prompt || 'prompts/' + decl.kind + '.md'));
   } catch (error) {
     md = '';
   }

@@ -8,7 +8,7 @@
   "sourceFormat": "readable",
   "entry": "code/main.js",
   "runtime": {
-    "assiApi": 1
+    "axikoApi": 1
   },
   "dependencies": [],
   "optionalDependencies": [],

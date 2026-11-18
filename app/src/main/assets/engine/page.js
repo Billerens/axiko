@@ -1,6 +1,6 @@
-// Injected into every local page before its own scripts: window.assi, the link to the app.
+// Injected into every local page before its own scripts: window.axiko, the link to the app.
 (function () {
-  if (window.assi) return;
+  if (window.axiko) return;
   var seq = 0;
   var pending = {};
   var listeners = {};
@@ -9,8 +9,8 @@
 
   function attach() {
     if (port) return true;
-    if (!window.__assi) return false;
-    port = window.__assi;
+    if (!window.__axiko) return false;
+    port = window.__axiko;
     port.onmessage = function (event) {
       var message = JSON.parse(event.data);
       if (message.event) {
@@ -43,29 +43,29 @@
 
   var rest = function (args, from) { return Array.prototype.slice.call(args, from); };
 
-  window.assi = {
-    /** Calls fn of a workspace module in the engine: assi.call('modules/notes/main.js', 'list'). */
+  window.axiko = {
+    /** Calls fn of a workspace module in the engine: axiko.call('modules/notes/main.js', 'list'). */
     call: function (path, fn) {
       return send('call', { path: path, fn: fn, args: JSON.stringify(rest(arguments, 2)) });
     },
     /** Runs code in the engine (all of Android is there) and returns its value. */
     eval: function (code) { return send('eval', { code: code }); },
-    /** A shell operation: assi.native('agent.send', 'assi', 'привет'). */
+    /** A shell operation: axiko.native('agent.send', 'axiko', 'привет'). */
     native: function (method) {
       return send('native', { method: method, args: JSON.stringify(rest(arguments, 1)) });
     },
     on: function (event, fn) {
       (listeners[event] = listeners[event] || []).push(fn);
-      return function () { window.assi.off(event, fn); };
+      return function () { window.axiko.off(event, fn); };
     },
     off: function (event, fn) {
       listeners[event] = (listeners[event] || []).filter(function (item) { return item !== fn; });
     },
-    open: function (path) { return window.assi.native('ui.open', path); },
-    back: function () { return window.assi.native('ui.back'); },
-    chat: function (open) { return window.assi.native('ui.chat', open !== false); },
+    open: function (path) { return window.axiko.native('ui.open', path); },
+    back: function () { return window.axiko.native('ui.back'); },
+    chat: function (open) { return window.axiko.native('ui.chat', open !== false); },
     /** The whole display for this screen: no chat button, no menu, no system bars. Ends on "back" or another screen. */
-    stage: function (on) { return window.assi.native('ui.stage', on !== false); }
+    stage: function (on) { return window.axiko.native('ui.stage', on !== false); }
   };
 
   // A screen that throws shows a small "mend" button: one tap hands the errors to the main agent.
@@ -84,7 +84,7 @@
       'font:600 14px system-ui,sans-serif;text-align:left';
     button.onclick = function () {
       button.remove();
-      window.assi.native('ui.fix', location.pathname.replace(/^\//, ''), faults.slice(0, 8).join('\n'));
+      window.axiko.native('ui.fix', location.pathname.replace(/^\//, ''), faults.slice(0, 8).join('\n'));
     };
     document.body.appendChild(button);
   }

@@ -125,7 +125,7 @@ The agent's own reference is the best guide to what a module can do:
 
 When a module is useful to you, it is probably useful to someone else. Share it:
 
-- **The official catalog** is [Billerens/assi-store](https://github.com/Billerens/assi-store):
+- **The official catalog** is [Billerens/axiko-store](https://github.com/Billerens/axiko-store):
   about forty modules and games at the moment. Its README describes the package layout, versions and
   listings in several languages.
 - **Your own repository.** Any HTTPS address or GitHub repository with an `index.json` is a store
@@ -199,10 +199,6 @@ Most documents are in Russian for now.
 | Web hub | [docs/web-hub.md](docs/web-hub.md) |
 | Mascot, colors, wording | [docs/brand.md](docs/brand.md) |
 | How this video was made | [docs/promo](docs/promo) |
-
-Axiko used to be called Assi. The application ID is `app.axiko`, while the Kotlin classes, the
-module API (`assi.*`) and the address `assi.local` keep the old name, so that store packages and
-everything the agent wrote keep working.
 
 ## License
 

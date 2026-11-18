@@ -167,7 +167,7 @@ function extend(type, impl) {
   return host.extend(type, impl, Array.prototype.slice.call(arguments, 2));
 }
 
-/** Sends an event to every open page: assi.on(name, data => ...). */
+/** Sends an event to every open page: axiko.on(name, data => ...). */
 function emit(name, data) {
   host.emit(name, __json(data === undefined ? null : data));
 }

@@ -254,7 +254,7 @@ test('ачивки уходят в «Ачивки за жизнь»: через 
   env.files.remove('data/games/reported.json');
   env.files.remove('data/games/achievements-outbox.json');
   env.files.write('modules/achievements/main.js',
-    'var files = require("lib/assi").files;\nexports.grant = function (item) { var l = files.readJson("data/granted.json", []); l.push(item.key); files.writeJson("data/granted.json", l); };');
+    'var files = require("lib/axiko").files;\nexports.grant = function (item) { var l = files.readJson("data/granted.json", []); l.push(item.key); files.writeJson("data/granted.json", l); };');
   main.setSetting(null, 'achievements.share', 'all');
   save(102, s, 'exit');
   assert.deepStrictEqual(env.files.readJson('data/granted.json'), ['games/fixture/first-cart', 'games/fixture/rich']);

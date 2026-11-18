@@ -1,5 +1,5 @@
 // Reads a web page for the agents: the text of its main part, without menus and scripts.
-var assi = require('lib/assi');
+var axiko = require('lib/axiko');
 
 exports.name = 'web_read';
 exports.description = 'Прочитать веб-страницу: заголовок и основной текст. Длинную страницу читайте частями через offset.';
@@ -18,7 +18,7 @@ var LIMIT = 20000;
 var BREAK = ' ';
 
 exports.run = function (args) {
-  var page = assi.http.request({ url: args.url, headers: { 'User-Agent': AGENT, 'Accept-Language': 'ru,en;q=0.8' } });
+  var page = axiko.http.request({ url: args.url, headers: { 'User-Agent': AGENT, 'Accept-Language': 'ru,en;q=0.8' } });
   if (!page.ok) return 'Страница ответила ошибкой ' + page.status + '.';
   var type = page.headers['content-type'] || '';
   var text;

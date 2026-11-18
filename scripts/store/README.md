@@ -1,6 +1,6 @@
 # Инструменты автора каталога
 
-Нужны Python 3.10+ и `jsonschema` из `requirements.txt`. Команды ниже выполняются из корня Axiko в PowerShell 7; в публичном assi-store замените `scripts/store` на `tools/store`.
+Нужны Python 3.10+ и `jsonschema` из `requirements.txt`. Команды ниже выполняются из корня Axiko в PowerShell 7; в публичном axiko-store замените `scripts/store` на `tools/store`.
 
 ```powershell
 python -m pip install -r scripts/store/requirements.txt
@@ -15,11 +15,11 @@ python -m unittest discover -s scripts/store/tests -p 'test_*.py' -v
 
 ```powershell
 python scripts/store/build_catalog.py `
-  --store ../assi-store `
-  --out ../assi-store-dist `
-  --download-url-template 'https://github.com/Billerens/assi-store/releases/download/{id}-v{version}' `
+  --store ../axiko-store `
+  --out ../axiko-store-dist `
+  --download-url-template 'https://github.com/Billerens/axiko-store/releases/download/{id}-v{version}' `
   --publisher billerens `
-  --licensefile ../assi-store/LICENSE `
+  --licensefile ../axiko-store/LICENSE `
   --exclude sparks-ring
 ```
 
@@ -42,9 +42,9 @@ python scripts/store/build_catalog.py `
 `language.py` отвечает на вопрос «можно ли пользоваться пакетом по-английски» отчётом, а не отказом: пакеты в основном написаны по-русски с неполным `i18n-en.json`, и жёсткая ошибка остановила бы каждый выпуск. Для пакета, написанного по-русски, он перечисляет тексты интерфейса без записи в `i18n-en.json` (число и до пяти примеров); пакет без русских текстов интерфейса проходит. Тексты интерфейса ищутся так же, как в `scripts/i18n.py` оболочки: разметка HTML и её читаемые атрибуты, строки скриптов (кусочки, склеенные `+` или шаблоном, — один текст с `{}`) и строковые значения JSON-файлов пакета. Тесты, `fixtures/`, `tools/`, проверки, промпты, `store/` и README в интерфейс не входят. Сеть не нужна, результат зависит только от файлов.
 
 ```powershell
-python scripts/store/language.py --store ../assi-store                   # таблица по всем пакетам
-python scripts/store/language.py --store ../assi-store --package focus   # один пакет (ID или папка)
-python scripts/store/language.py --store ../assi-store --json            # полный отчёт с примерами
+python scripts/store/language.py --store ../axiko-store                   # таблица по всем пакетам
+python scripts/store/language.py --store ../axiko-store --package focus   # один пакет (ID или папка)
+python scripts/store/language.py --store ../axiko-store --json            # полный отчёт с примерами
 ```
 
 Сборщик кладёт тот же отчёт в `build-report.json`: `packages[].language` — `source` (`ru` или `en`), `texts`, `dictionary`, `dictionaryEntries`, `untranslated`, `examples` (до пяти: текст и файл), `complete`, `listing` и `warnings`. `listing` отвечает на вопрос, написана ли витрина по-английски: `english` (в основных полях — `title`, `summary`, `tags`, подписи снимков, `store/description.md`, `store/changelog.md` — нет кириллицы), `notEnglish` (какие поля её содержат) и `languages` (на каких ещё языках витрина есть). Русский текст в основных полях — предупреждение в `warnings`, а не отказ: русский переносится в `locales.ru` и `store/*.ru.md`. Моды не проверяются: своего интерфейса у них нет. Сборка из-за этого не останавливается.
@@ -66,8 +66,8 @@ python scripts/store/language.py --store ../assi-store --json            # по�
 Сравниваются хеши файлов, а не байты ZIP, поэтому результат не зависит от версии Python и zlib на машине сборки. Ту же проверку без сборки делает `versions.py check`; она же входит в тесты. После публикации `versions.py record --built <папка сборки>` переносит манифесты новых выпусков в `released/`.
 
 ```powershell
-python scripts/store/versions.py check --store ../assi-store --licensefile ../assi-store/LICENSE --exclude sparks-ring
-python scripts/store/versions.py record --store ../assi-store --built ../assi-store-dist
+python scripts/store/versions.py check --store ../axiko-store --licensefile ../axiko-store/LICENSE --exclude sparks-ring
+python scripts/store/versions.py record --store ../axiko-store --built ../axiko-store-dist
 ```
 
 `--license-id` по умолчанию `UNLICENSED`: сборщик не выдаёт лицензию за автора. Файл `--licensefile` копируется в корень каждого ZIP как `LICENSE`; лицензии сторонних ресурсов должны оставаться рядом с ресурсами.
@@ -93,8 +93,8 @@ python scripts/store/versions.py record --store ../assi-store --built ../assi-st
 В исходном проекте Axiko есть дополнительный JVM-прогон всех архивов настоящим установщиком, без выполнения кода пакета:
 
 ```powershell
-$env:ASSI_STORE_CATALOG_DIST = (Resolve-Path ../assi-store-dist).Path
-./gradlew.bat :app:testDebugUnitTest --tests app.assi.StoreCatalogDistributionTest --rerun-tasks --console=plain
+$env:AXIKO_STORE_CATALOG_DIST = (Resolve-Path ../axiko-store-dist).Path
+./gradlew.bat :app:testDebugUnitTest --tests app.axiko.StoreCatalogDistributionTest --rerun-tasks --console=plain
 ```
 
 Он создаёт `catalog-validation.json`, привязанный к SHA-256 индекса. Проверяются архивы, которые есть в папке сборки; пакеты без изменений перечислены в `notRebuilt`. Исходники Axiko пока закрыты; этот JVM-тест не входит в публичный магазин. Независимым авторам доступны Python-проверки и проверка плана установки в совместимой сборке приложения.

@@ -130,7 +130,7 @@ Axiko намеренно выходит недоделанным. В первы�
 
 Если модуль полезен вам, он, скорее всего, полезен и кому-то ещё. Поделитесь им:
 
-- **Официальный каталог** — [Billerens/assi-store](https://github.com/Billerens/assi-store):
+- **Официальный каталог** — [Billerens/axiko-store](https://github.com/Billerens/axiko-store):
   сейчас в нём около сорока модулей и игр. Его README описывает устройство пакета, версии и
   описания на нескольких языках.
 - **Собственный репозиторий.** Любой HTTPS-адрес или репозиторий GitHub с `index.json` — это
@@ -203,10 +203,6 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 | Web-хаб | [docs/web-hub.md](docs/web-hub.md) |
 | Маскот, цвета, формулировки | [docs/brand.md](docs/brand.md) |
 | Как сделано это видео | [docs/promo](docs/promo) |
-
-Раньше Axiko назывался Assi. Идентификатор приложения — `app.axiko`, а классы Kotlin, API модулей
-(`assi.*`) и адрес `assi.local` сохранили старое имя, чтобы пакеты магазина и всё, что написал
-агент, продолжали работать.
 
 ## Лицензия
 

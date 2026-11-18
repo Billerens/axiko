@@ -27,7 +27,7 @@
 **Откуда шаги.** Сначала общая база: модуль «Здоровье и привычки» ([health.md](../modules/health.md))
 пишет шаги как `kind: 'steps'`; сумма за сегодня — `base.sum({kind: 'steps', by: 'day', since:
 полночь})`. Если таких записей нет, связка сама читает датчик `TYPE_STEP_COUNTER` (разрешение
-`ACTIVITY_RECOGNITION` объявлено, спросить `assi.permission(['ACTIVITY_RECOGNITION'])`):
+`ACTIVITY_RECOGNITION` объявлено, спросить `axiko.permission(['ACTIVITY_RECOGNITION'])`):
 
 - датчик отдаёт сумму шагов с загрузки телефона; связка запоминает отметки и считает разницу;
 - отметка — при каждом событии экрана (`on('screen')`), при открытии каталога или игры и
@@ -86,7 +86,7 @@
 
 ## Что нужно от оболочки
 
-Ничего нового: датчик через `SensorManager` в Rhino, `assi.permission`, `job`, `on('screen')`,
+Ничего нового: датчик через `SensorManager` в Rhino, `axiko.permission`, `job`, `on('screen')`,
 `lib/base.js`. Проверить на телефоне: как часто Samsung отдаёт `TYPE_STEP_COUNTER` (датчик
 пакетный, первое значение после подписки может прийти с задержкой) и совпадает ли счёт с
 Samsung Health.

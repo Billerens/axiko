@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://example.org/assi-marketplace/schema/v1/package.schema.json",
+  "$id": "https://example.org/axiko-marketplace/schema/v1/package.schema.json",
   "title": "Axiko readable package manifest v1",
   "description": "Manifest metadata only; validity does not establish archive integrity, readable code, enforced permissions or safety. package.json is excluded from files; archive total including it must be at most 512 files.",
   "type": "object",
@@ -65,14 +65,14 @@
     "runtime": {
       "type": "object",
       "required": [
-        "assiApi"
+        "axikoApi"
       ],
       "maxProperties": 2,
       "propertyNames": {
         "pattern": "^[a-z][A-Za-z0-9]{0,31}$"
       },
       "properties": {
-        "assiApi": {
+        "axikoApi": {
           "type": "integer",
           "minimum": 1
         }
@@ -81,7 +81,7 @@
         "type": "integer",
         "minimum": 1
       },
-      "description": "Besides assiApi, the version of its host's rules under the name the host declares, e.g. gamesEngine for games."
+      "description": "Besides axikoApi, the version of its host's rules under the name the host declares, e.g. gamesEngine for games."
     },
     "dependencies": {
       "type": "array",

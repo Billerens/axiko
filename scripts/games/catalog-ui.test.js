@@ -54,7 +54,7 @@ function page() {
     IntersectionObserver: Observer,
     requestAnimationFrame(fn) { frames.push(fn); },
     setTimeout(fn) { timers.push(fn); return timers.length; }, clearTimeout() {},
-    assi: {
+    axiko: {
       call(module, fn, ...args) {
         const request = { module, fn, args };
         requests.push(request);

@@ -142,7 +142,7 @@ source: 'games', data: {tags}})`.
 ## Что нужно от оболочки
 
 Есть: `ai.run` (агент с чистого листа, ждёт ответа), агенты в `agents/<id>/`, `job`,
-`assi.notify`, `speech.listen`, `memory`, `module_check`, `ui_screenshot`, `usage.summary`
+`axiko.notify`, `speech.listen`, `memory`, `module_check`, `ui_screenshot`, `usage.summary`
 для учёта цены. Правок нет. Проверить на телефоне: снимок WebGL на Fold5; хватает ли 40 минут
 работы агента в фоне при погашенном экране (служба оболочки держит процесс).
 

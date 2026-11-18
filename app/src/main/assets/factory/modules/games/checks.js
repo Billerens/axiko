@@ -3,8 +3,8 @@
 // check and removed by the last one with all it left: its saves, files, catalog marks, the
 // mirror in the screen's storage. The copy's achievements are not for life and it asks for no
 // stock or notifications, so nothing reaches the other modules.
-var assi = require('lib/assi');
-var files = assi.files;
+var axiko = require('lib/axiko');
+var files = axiko.files;
 var Core = require('./engine/core.js');
 var Big = require('./engine/big.js');
 
@@ -46,7 +46,7 @@ function cleanup() {
   } catch (ignored) { /* no archive */ }
   // main.saves() makes the table when the hub has never saved anything.
   main().saves(ID);
-  assi.db('games').exec('delete from saves where game = ?', [ID]);
+  axiko.db('games').exec('delete from saves where game = ?', [ID]);
   var cat = readJson('data/games/catalog.json', null);
   if (cat) {
     if (cat.opened) delete cat.opened[ID];

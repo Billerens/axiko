@@ -14,8 +14,8 @@ const ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fi
 </svg>
 `;
 
-const MAIN_JS = `var assi = require('lib/assi');
-var notes = assi.store('notes');
+const MAIN_JS = `var axiko = require('lib/axiko');
+var notes = axiko.store('notes');
 
 exports.list = function () {
   return notes.get('items', []);
@@ -44,7 +44,7 @@ const INDEX_HTML = `<!doctype html>
 <body>
 <main class="page">
   <header class="topbar">
-    <button class="icon-btn" onclick="assi.back()" aria-label="Назад" data-icon="back"></button>
+    <button class="icon-btn" onclick="axiko.back()" aria-label="Назад" data-icon="back"></button>
     <h1>Заметки</h1>
   </header>
   <div class="row">
@@ -67,15 +67,15 @@ const INDEX_HTML = `<!doctype html>
     list.replaceChildren(...items.map(item =>
       ui.h('div', {},
         ui.h('div', { class: 'grow' }, ui.h('div', {}, item.text), ui.h('div', { class: 'small muted' }, ui.ago(item.time))),
-        ui.h('button', { class: 'icon-btn', 'aria-label': 'Удалить', onclick: async () => render(await assi.call(MAIN, 'remove', item.id)) }, ui.icon('trash')))));
+        ui.h('button', { class: 'icon-btn', 'aria-label': 'Удалить', onclick: async () => render(await axiko.call(MAIN, 'remove', item.id)) }, ui.icon('trash')))));
   }
 
   document.getElementById('add').onclick = async () => {
     if (!text.value.trim()) return;
-    render(await assi.call(MAIN, 'add', text.value.trim()));
+    render(await axiko.call(MAIN, 'add', text.value.trim()));
     text.value = '';
   };
-  assi.call(MAIN, 'list').then(render);
+  axiko.call(MAIN, 'list').then(render);
 </script>
 </body>
 </html>

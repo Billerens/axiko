@@ -121,7 +121,7 @@
       head = ui.mascot('head', { lively: false });
       badge.replaceChildren(head);
     }
-    const info = await assi.native('button.face', shown);
+    const info = await axiko.native('button.face', shown);
     edge(info);
     if (!shown || look === 'badge') return;
     // Called into being: first the paws catch the edge, then it pulls itself up for a look.
@@ -129,12 +129,12 @@
     setTimeout(settle, 1400);
   }
 
-  assi.on('button.edge', edge);
+  axiko.on('button.edge', edge);
   // The mascot was changed or turned off: this page decides anew whether it has a look to show.
-  assi.on('mascot', () => location.reload());
+  axiko.on('mascot', () => location.reload());
   // The owner called: it climbs out while the chat opens, and goes back to peeking after.
-  assi.on('chat.visible', visible => { chatOpen = visible === true || visible === 'true'; settle(); });
-  assi.on('agent', event => {
+  axiko.on('chat.visible', visible => { chatOpen = visible === true || visible === 'true'; settle(); });
+  axiko.on('agent', event => {
     const key = event.agent + ':' + event.thread;
     if (event.type === 'idle' || event.type === 'stopped' || event.type === 'error') delete working[key];
     else {
