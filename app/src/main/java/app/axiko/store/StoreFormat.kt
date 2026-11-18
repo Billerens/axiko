@@ -58,10 +58,10 @@ object StoreFormat {
      * themselves are in the pages, so a large catalog is never one file (docs/marketplace/catalog-pages.md).
      */
     fun index(bytes: ByteArray): JSONObject = parse(bytes).also { value ->
-        fields(value, setOf("schemaVersion", "repository", "packageCount", "pages"))
+        listed(value, setOf("schemaVersion", "repository", "packageCount", "pages"))
         require(integer(value, "schemaVersion", 1, 1) == 1L)
         val repository = obj(value, "repository")
-        fields(repository, setOf("id", "title", "homepage"), setOf("description"))
+        listed(repository, setOf("id", "title", "homepage"))
         id(str(repository, "id", 96)); str(repository, "title", 120); https(str(repository, "homepage", 2048))
         if (repository.has("description")) str(repository, "description", 600)
         val total = integer(value, "packageCount", 0, MAX_PACKAGES.toLong())
@@ -69,7 +69,7 @@ object StoreFormat {
         val paths = ArrayList<String>(); var counted = 0L
         for (i in 0 until pages.length()) {
             val page = pages.optJSONObject(i) ?: error("pages[$i] должен быть объектом.")
-            fields(page, setOf("path", "sha256", "size", "count"))
+            listed(page, setOf("path", "sha256", "size", "count"))
             paths.add(path(str(page, "path", 240)).also { require(it.endsWith(".json")) { "Страница каталога должна быть файлом .json." } })
             hash(str(page, "sha256", 64)); integer(page, "size", 2, MAX_METADATA.toLong())
             counted += integer(page, "count", 1, MAX_PAGE_PACKAGES.toLong())
@@ -80,7 +80,7 @@ object StoreFormat {
 
     /** One page of a catalog: cards of packages. Whether an ID repeats on another page is the reader's to check. */
     fun page(bytes: ByteArray): JSONObject = parse(bytes).also { value ->
-        fields(value, setOf("schemaVersion", "packages"))
+        listed(value, setOf("schemaVersion", "packages"))
         require(integer(value, "schemaVersion", 1, 1) == 1L)
         val packages = array(value, "packages", MAX_PAGE_PACKAGES)
         val ids = HashSet<String>()
@@ -93,13 +93,13 @@ object StoreFormat {
 
     /** A card: what the list shows and what an installation is decided by. Long texts and screenshots are in [details]. */
     fun packageEntry(value: JSONObject): JSONObject = value.also {
-        fields(it, setOf("id", "kind", "title", "summary", "version", "publisher", "license", "manifestUrl", "archive", "compatibility"), setOf("tags", "locales", "icon", "updated", "details", "extends"))
+        listed(it, setOf("id", "kind", "title", "summary", "version", "publisher", "license", "manifestUrl", "archive", "compatibility"))
         // A mod is a change to another package and names it; nothing else may.
         require(it.has("extends") == (it.optString("kind") == MOD)) { "Поле extends есть у мода и только у него." }
         if (it.has("extends")) require(id(str(it, "extends", 96)) != it.optString("id")) { "Мод не может менять сам себя." }
         identity(it); str(it, "title", 120); str(it, "summary", 600); https(str(it, "manifestUrl", 2048))
         val archive = obj(it, "archive")
-        fields(archive, setOf("url", "sha256", "size", "unpackedSize", "fileCount"))
+        listed(archive, setOf("url", "sha256", "size", "unpackedSize", "fileCount"))
         https(str(archive, "url", 2048)); hash(str(archive, "sha256", 64))
         integer(archive, "size", 1, MAX_ARCHIVE.toLong()); integer(archive, "unpackedSize", 1, MAX_UNPACKED.toLong()); integer(archive, "fileCount", 4, MAX_FILES.toLong())
         val compatibility = obj(it, "compatibility")
@@ -110,7 +110,7 @@ object StoreFormat {
         if (it.has("updated")) require(datePattern.matches(str(it, "updated", 10))) { "Дата выпуска должна иметь вид ГГГГ-ММ-ДД." }
         if (it.has("details")) {
             val details = obj(it, "details")
-            fields(details, setOf("path", "sha256", "size"))
+            listed(details, setOf("path", "sha256", "size"))
             require(path(str(details, "path", 240)).endsWith(".json")) { "Подробности пакета должны быть файлом .json." }
             hash(str(details, "sha256", 64)); integer(details, "size", 2, MAX_DETAILS.toLong())
         }
@@ -130,7 +130,7 @@ object StoreFormat {
         languages(locales)
         locales.keys().forEach { code ->
             val shown = obj(locales, code)
-            fields(shown, emptySet(), setOf("title", "summary", "tags"))
+            listed(shown, emptySet())
             require(shown.length() > 0) { "Язык $code не содержит ни одного текста." }
             if (shown.has("title")) str(shown, "title", 120)
             if (shown.has("summary")) str(shown, "summary", 600)
@@ -148,7 +148,7 @@ object StoreFormat {
         val shots = details.optJSONArray("screenshots")
         locales.keys().forEach { code ->
             val shown = obj(locales, code)
-            fields(shown, emptySet(), setOf("description", "changes", "captions"))
+            listed(shown, emptySet())
             require(shown.length() > 0) { "Язык $code не содержит ни одного текста." }
             if (shown.has("description")) {
                 str(shown, "description", 20_000)
@@ -176,7 +176,7 @@ object StoreFormat {
 
     /** What is read when a package is opened: its description, screenshots, what changed, where to ask. */
     fun details(bytes: ByteArray): JSONObject = parse(bytes, MAX_DETAILS).also { value ->
-        fields(value, setOf("schemaVersion", "id", "version"), setOf("description", "screenshots", "changes", "locales", "links"))
+        listed(value, setOf("schemaVersion", "id", "version"))
         require(integer(value, "schemaVersion", 1, 1) == 1L)
         id(str(value, "id", 96)); version(str(value, "version", 96))
         if (value.has("description")) str(value, "description", 20_000)
@@ -194,7 +194,7 @@ object StoreFormat {
             val changes = array(value, "changes", 20); val seen = HashSet<String>()
             for (i in 0 until changes.length()) {
                 val change = changes.optJSONObject(i) ?: error("changes[$i] должен быть объектом.")
-                fields(change, setOf("version", "notes"), setOf("date"))
+                listed(change, setOf("version", "notes"))
                 require(seen.add(version(str(change, "version", 96)))) { "Повторяющаяся версия в списке изменений." }
                 str(change, "notes", 4000)
                 if (change.has("date")) require(datePattern.matches(str(change, "date", 10))) { "Дата должна иметь вид ГГГГ-ММ-ДД." }
@@ -203,7 +203,7 @@ object StoreFormat {
         if (value.has("locales")) detailsLocales(obj(value, "locales"), value)
         if (value.has("links")) {
             val links = obj(value, "links")
-            fields(links, emptySet(), setOf("homepage", "source", "support"))
+            listed(links, emptySet())
             links.keys().forEach { https(str(links, it, 2048)) }
         }
     }
@@ -222,7 +222,7 @@ object StoreFormat {
 
     /** A picture of the listing: a path next to the index, pinned by size and hash; returns the path. */
     private fun media(value: JSONObject, max: Int, types: Set<String>, required: Set<String> = emptySet(), optional: Set<String> = emptySet()): String {
-        fields(value, setOf("path", "sha256", "size", "type") + required, optional)
+        listed(value, setOf("path", "sha256", "size", "type") + required)
         hash(str(value, "sha256", 64)); integer(value, "size", 1, max.toLong())
         require(str(value, "type", 32) in types) { "Неподдерживаемый тип картинки." }
         return path(str(value, "path", 240))
@@ -377,6 +377,17 @@ object StoreFormat {
     fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
     fun sha256(file: File): String { val digest = MessageDigest.getInstance("SHA-256"); file.inputStream().use { input -> val b = ByteArray(16384); while (true) { val n = input.read(b); if (n < 0) break; digest.update(b, 0, n) } }; return digest.digest().joinToString("") { "%02x".format(it) } }
     private fun identity(value: JSONObject) { id(str(value, "id", 96)); require(kindPattern.matches(str(value, "kind", 32))) { "Некорректный вид пакета." }; version(str(value, "version", 96)); id(str(value, "publisher", 96)); str(value, "license", 128) }
+    /**
+     * A structure of the catalog itself (its head, a page, a card, a listing, a picture): the fields this
+     * version needs must be there, and each one it knows is checked where it is read. A field it does not
+     * know is left alone: a catalog that says more than this version reads still opens, and a newer
+     * catalog does not shut the store of an older app. What a package is made of is another matter: its
+     * manifest is checked by [fields], which refuses anything it does not know.
+     */
+    private fun listed(value: JSONObject, required: Set<String>) {
+        require(required.all(value::has)) { "Отсутствуют обязательные поля: ${(required - value.keys().asSequence().toSet()).sorted().joinToString()}." }
+    }
+
     private fun fields(value: JSONObject, required: Set<String>, optional: Set<String> = emptySet()) { require(required.all(value::has)) { "Отсутствуют обязательные поля: ${(required - value.keys().asSequence().toSet()).joinToString()}." }; require(value.keys().asSequence().all { it in required || it in optional }) { "Неизвестные поля метаданных." } }
     private fun str(value: JSONObject, key: String, max: Int): String = (value.opt(key) as? String)?.also { require(it.isNotEmpty() && it.length <= max) { "Недопустимая длина $key." } } ?: error("$key должен быть строкой.")
     private fun integer(value: JSONObject, key: String, min: Long, max: Long): Long { val n = value.opt(key); require(n is Number && n !is Double && n !is Float && n.toLong() in min..max) { "Некорректное целое число $key." }; return n.toLong() }
