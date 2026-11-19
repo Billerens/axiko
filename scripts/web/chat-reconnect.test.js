@@ -22,8 +22,11 @@ function fixture() {
   const rendered = [], calls = [], notices = [];
   let sequence = 0;
   let implementation = () => Promise.resolve(false);
+  const loads = [];
   const scope = {
     agentId: 'axiko', threadId: 'thread-1', chatLoadVersion: 1, agentEventsVersion: 0,
+    // The rest of the page the handlers read: what was dropped while hidden, the work, and a full load.
+    unseen: false, busy: false, load: async () => { loads.push(true); },
     document: { visibilityState: 'visible', addEventListener: (name, fn) => documentHandlers.set(name, fn) },
     axiko: {
       on: (name, fn) => handlers.set(name, fn),
@@ -37,7 +40,7 @@ function fixture() {
   vm.createContext(scope);
   vm.runInContext(controller, scope);
   return {
-    scope, calls, timers, rendered, notices,
+    scope, calls, timers, rendered, notices, loads,
     rpc: fn => { implementation = fn; },
     event: (name, data) => handlers.get(name)(data),
     agent: (type, extra = {}) => scope.noteAgentEvent(Object.assign({ type }, extra)),
@@ -58,23 +61,41 @@ function fixture() {
   };
 }
 
-test('reconnect during streaming preserves the live view and restores the complete reply after idle', async () => {
+test('reconnect during the work shows what was missed at once, then the complete reply after idle', async () => {
   const f = fixture();
   let busy = true;
+  const sofar = [{ type: 'user', text: 'Запрос' }, { type: 'assistant', text: 'Начало отв', live: true }];
   const final = [{ type: 'user', text: 'Запрос' }, { type: 'assistant', text: 'Полный ответ, включая пропущенную середину.' }];
-  f.rpc(async method => method === 'agent.busy' ? busy : final);
+  f.rpc(async method => method === 'agent.busy' ? busy : busy ? sofar : final);
   f.event('desk.reconnected');
   await f.run();
-  assert.equal(f.rendered.length, 0, 'a busy snapshot must not erase the partial live bubble');
-  assert.deepEqual(f.calls.map(c => c[0]), ['agent.busy']);
+  assert.equal(f.rendered.length, 1, 'the request and the answer so far are shown without waiting for the end');
+  assert.deepEqual(f.rendered[0][0], sofar);
+  assert.equal(f.rendered[0][1], true, 'shown as work in progress: the live answer goes on in its bubble');
+  assert.deepEqual(f.calls.map(c => c[0]), ['agent.busy', 'agent.history']);
+  await f.run();
+  assert.equal(f.rendered.length, 1, 'the catch-up happens once; later polls only wait for the end');
   busy = false;
   f.agent('message');
   f.agent('idle', { more: false });
   await f.run();
-  assert.equal(f.rendered.length, 1);
-  assert.deepEqual(f.rendered[0][0], final);
-  assert.equal(f.rendered[0][1], false);
+  assert.equal(f.rendered.length, 2);
+  assert.deepEqual(f.rendered[1][0], final);
+  assert.equal(f.rendered[1][1], false);
   assert.equal(f.timers.size, 0);
+});
+
+test('a chat switched before the catch-up arrives keeps the newly selected conversation', async () => {
+  const f = fixture(), history = later();
+  f.rpc(async method => method === 'agent.busy' ? true : history.promise);
+  f.event('desk.reconnected');
+  const pending = f.start();
+  await tick();
+  f.scope.chatLoadVersion++;
+  f.scope.threadId = 'thread-2';
+  history.resolve([{ type: 'assistant', text: 'Чужой ответ', live: true }]);
+  await pending;
+  assert.equal(f.rendered.length, 0);
 });
 
 test('an idle missed during the outage is recovered without waiting for a new agent event', async () => {
@@ -164,6 +185,18 @@ test('offline and hidden pages defer reconciliation until connection and visibil
   assert.equal(f.rendered.length, 1);
 });
 
+test('a page that dropped live events while hidden reads the conversation anew when seen again', async () => {
+  const f = fixture();
+  f.visibility('hidden');
+  f.scope.unseen = true;
+  f.visibility('visible');
+  assert.equal(f.loads.length, 1);
+  assert.equal(f.scope.unseen, false);
+  f.visibility('hidden');
+  f.visibility('visible');
+  assert.equal(f.loads.length, 1, 'nothing was dropped the second time, and no work is going on');
+});
+
 test('temporary RPC failure keeps reconciliation pending without repeated error toasts', async () => {
   const f = fixture();
   let fail = true;
@@ -188,11 +221,14 @@ test('an idle with queued work does not finish reconciliation before the final q
   f.rpc(async method => method === 'agent.busy' ? busy : [{ type: 'assistant', text: 'Все задания завершены' }]);
   f.event('desk.reconnected');
   await f.run();
+  assert.equal(f.rendered.length, 1, 'the work in progress is shown once at once');
   f.agent('idle', { more: true });
   await f.run();
-  assert.equal(f.rendered.length, 0);
+  assert.equal(f.rendered.length, 1, 'an idle with more work queued is not the end');
   busy = false;
   f.agent('idle', { more: false });
   await f.run();
-  assert.equal(f.rendered[0][0][0].text, 'Все задания завершены');
+  assert.equal(f.rendered.length, 2);
+  assert.equal(f.rendered[1][0][0].text, 'Все задания завершены');
+  assert.equal(f.rendered[1][1], false);
 });

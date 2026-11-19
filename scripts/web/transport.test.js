@@ -9,6 +9,7 @@ const ROOT = path.resolve(__dirname, '../..');
 const transportSource = fs.readFileSync(path.join(ROOT, 'app/src/main/assets/factory/ui/desk/transport.js'), 'utf8');
 const clientSource = fs.readFileSync(path.join(ROOT, 'app/src/main/assets/factory/ui/desk/client.js'), 'utf8');
 const settle = () => new Promise(resolve => setImmediate(resolve));
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 function world(options = {}) {
   const sources = [];
@@ -52,8 +53,11 @@ function world(options = {}) {
       },
       fetch: (...args) => fetcher(...args),
       EventSource: class {
-        constructor(url) { this.url = url; this.closed = false; sources.push(this); }
-        close() { this.closed = true; }
+        constructor(url) { this.url = url; this.closed = false; this.readyState = 0; this.named = new Map(); sources.push(this); }
+        addEventListener(name, fn) { if (!this.named.has(name)) this.named.set(name, []); this.named.get(name).push(fn); }
+        /** A named event of the stream, as the phone's `event: <name>` lines give it. */
+        emit(name, data) { for (const fn of this.named.get(name) || []) fn({ type: name, data }); }
+        close() { this.closed = true; this.readyState = 2; }
       }
     };
     w.window = w;
@@ -410,3 +414,93 @@ test('a standalone game uses browser document visibility and stops on pagehide',
   assert.equal(values.at(-1), false);
 });
 
+test('a stream that falls silent is opened anew within a few of its pings, and one that pings is kept', async t => {
+  const env = world(); t.after(() => env.close());
+  const hub = env.makeWindow('http://axiko.local/');
+  hub.runTransport();
+  const reconnected = [];
+  hub.AxikoTransport.subscribe(event => { if (event.event === 'desk.reconnected') reconnected.push(event.data.reconnects); });
+  const first = env.sources[0];
+  first.emit('hello', '{"ping":1000}');
+  first.onopen();
+  for (let i = 0; i < 6; i++) { await sleep(500); first.emit('ping', '{}'); }
+  assert.equal(env.sources.length, 1, 'a stream that pings is never replaced');
+  // The phone's network blinked: the browser still holds the connection, nobody writes to it.
+  const started = Date.now();
+  while (env.sources.length === 1 && Date.now() - started < 5000) await sleep(50);
+  const elapsed = Date.now() - started;
+  assert.equal(env.sources.length, 2);
+  assert.ok(first.closed, 'the silent stream is closed');
+  assert.ok(elapsed >= 2000 && elapsed < 3500, 'after about two and a half pings: ' + elapsed + ' ms');
+  env.sources[1].onopen();
+  assert.deepEqual(reconnected, [1], 'pages hear of the reconnection and read what they missed');
+});
+
+test('a stream the browser gave up on is opened again from the hub, later each time', async t => {
+  const env = world(); t.after(() => env.close());
+  const hub = env.makeWindow('http://axiko.local/');
+  hub.runTransport();
+  const first = env.sources[0];
+  first.onopen();
+  // A lost connection: the browser retries it by itself, the hub opens nothing else.
+  first.readyState = 0;
+  first.onerror();
+  await sleep(1300);
+  assert.equal(env.sources.length, 1);
+  assert.equal(hub.AxikoTransport.status.state, 'offline');
+  // An error page instead of events: the browser closes the stream for good.
+  first.readyState = 2;
+  first.onerror();
+  await sleep(1300);
+  assert.equal(env.sources.length, 2, 'opened again after a second');
+  const second = env.sources[1];
+  second.readyState = 2;
+  second.onerror();
+  await sleep(1300);
+  assert.equal(env.sources.length, 2, 'the next try waits longer');
+  await sleep(1000);
+  assert.equal(env.sources.length, 3);
+  env.sources[2].onopen();
+  assert.equal(hub.AxikoTransport.status.state, 'online');
+});
+
+test('coming back to the page opens a quiet stream anew at once and leaves a fresh one alone', async t => {
+  const env = world(); t.after(() => env.close());
+  const hub = env.makeWindow('http://axiko.local/');
+  hub.runTransport();
+  const first = env.sources[0];
+  first.emit('hello', '{"ping":1000}');
+  first.onopen();
+  hub.dispatchEvent({ type: 'focus' });
+  assert.equal(env.sources.length, 1, 'a stream heard a moment ago is kept');
+  // Longer than a ping and its margin, shorter than the watch's own limit.
+  await sleep(2200);
+  hub.dispatchEvent({ type: 'visibilitychange' });
+  assert.equal(env.sources.length, 2, 'a stream quiet for longer than its pings allow is opened anew');
+});
+
+test('a page that lost its events asks the hub to open the stream anew, without the phone', async t => {
+  const env = world(); t.after(() => env.close());
+  const hub = env.makeWindow('http://axiko.local/');
+  hub.runTransport();
+  hub.axikoDesk = { rpc: hub.AxikoTransport.rpc, subscribe: hub.AxikoTransport.subscribe, reconnect: () => hub.AxikoTransport.reconnect() };
+  env.sources[0].onopen();
+  const chat = env.makeWindow('http://axiko.local/ui/chat/index.html', hub);
+  chat.runClient();
+  assert.equal(await chat.axiko.native('desk.reconnect'), true);
+  assert.equal(env.sources.length, 2);
+  assert.ok(env.sources[0].closed);
+  assert.equal(env.calls.length, 0, 'it never reaches the phone as an operation');
+});
+
+test('a phone that never said hello pings in a way a page cannot see: its quiet stream is left alone', async t => {
+  const env = world(); t.after(() => env.close());
+  const hub = env.makeWindow('http://axiko.local/');
+  hub.runTransport();
+  env.sources[0].onopen();
+  await sleep(1200);
+  hub.dispatchEvent({ type: 'visibilitychange' });
+  hub.dispatchEvent({ type: 'focus' });
+  assert.equal(env.sources.length, 1);
+  assert.equal(hub.AxikoTransport.status.state, 'online');
+});

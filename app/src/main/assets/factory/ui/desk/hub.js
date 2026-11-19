@@ -396,6 +396,7 @@
       subscribers.add(callback);
       return () => subscribers.delete(callback);
     },
+    reconnect: () => T.reconnect(),
     where: currentPath,
     ready: frameReady,
     open: path => openScreen(path),

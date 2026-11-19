@@ -14,6 +14,19 @@
   var status = { state: 'connecting', connected: false, since: Date.now(), reconnects: 0 };
   var DEFAULT_TIMEOUT = 60000;
 
+  // The stream can die without a word: the phone's network blinks, the computer sleeps, and the
+  // browser goes on holding a connection nobody writes to. The phone pings every `pingEvery`
+  // (its hello says how often); a stream that has said nothing for a few pings is opened anew.
+  // A phone that never said hello pings in a way a page cannot see: its stream is not watched.
+  // A stream the browser gave up on (an error page instead of events) is not retried by the
+  // browser itself: that is done here as well, a little later each time.
+  var pingEvery = 0;
+  var lastHeard = 0;
+  var watchdog = null;
+  var retryTimer = null;
+  var refusals = 0;
+  var STALE_PINGS = 2.5;
+
   function notify(event) {
     subscribers.forEach(function (listener) {
       try { listener(event); } catch (error) { console.error('Axiko event listener:', error); }
@@ -35,6 +48,38 @@
   function stopEvents() {
     if (source) source.close();
     source = null;
+    if (retryTimer !== null) clearTimeout(retryTimer);
+    retryTimer = null;
+  }
+
+  function heard() { lastHeard = Date.now(); }
+
+  /** Nothing from the stream for longer than `limit` (by default a few of its pings): it is gone. */
+  function stale(limit) {
+    if (!pingEvery) return false;
+    return !source || Date.now() - lastHeard > (limit || pingEvery * STALE_PINGS);
+  }
+
+  function restart() {
+    if (closed || suspended || status.state === 'auth-required') return;
+    stopEvents();
+    startEvents();
+  }
+
+  function watch() {
+    if (watchdog !== null || closed) return;
+    watchdog = setTimeout(function () {
+      watchdog = null;
+      if (closed) return;
+      if (!suspended && status.state !== 'auth-required' && source && stale()) restart();
+      watch();
+    }, pingEvery ? Math.max(300, Math.min(5000, pingEvery / 3)) : 5000);
+  }
+
+  /** When the owner comes back (the tab shown, the window focused, the network up), a doubtful stream is opened anew at once. */
+  function verify() {
+    if (closed || suspended || status.state === 'auth-required') return;
+    if (stale(pingEvery + Math.min(5000, pingEvery))) restart();
   }
 
   function startEvents() {
@@ -42,8 +87,28 @@
     setStatus('connecting');
     var active = new EventSource('/__axiko/events');
     source = active;
+    // The attempt itself counts: a stream that never opens is caught by the same watch.
+    heard();
+    watch();
+    active.addEventListener('hello', function (message) {
+      if (source !== active) return;
+      heard();
+      try {
+        var hello = JSON.parse(message.data);
+        if (hello && hello.ping > 0) {
+          pingEvery = Math.min(Math.max(Number(hello.ping), 1000), 120000);
+          // The watch keeps pace with the period the phone named.
+          if (watchdog !== null) clearTimeout(watchdog);
+          watchdog = null;
+          watch();
+        }
+      } catch (error) { /* an older phone: the usual period */ }
+    });
+    active.addEventListener('ping', function () { if (source === active) heard(); });
     active.onopen = function () {
       if (source !== active) return;
+      heard();
+      refusals = 0;
       var reconnect = opened;
       if (reconnect) status.reconnects++;
       opened = true;
@@ -55,11 +120,20 @@
     };
     active.onerror = function () {
       if (source !== active || closed || suspended) return;
-      // EventSource owns its retry policy. RPCs are never retried automatically.
+      // EventSource owns its retry policy for a lost connection. RPCs are never retried automatically.
       setStatus('offline', 'Связь с телефоном потеряна. Подключаюсь снова…');
+      // A refused stream is closed for good by the browser: it is opened again from here.
+      if (active.readyState === 2 && retryTimer === null) {
+        var delay = Math.min(30000, 1000 * Math.pow(2, refusals++));
+        retryTimer = setTimeout(function () {
+          retryTimer = null;
+          if (source === active) restart();
+        }, delay);
+      }
     };
     active.onmessage = function (message) {
       if (source !== active) return;
+      heard();
       try {
         var event = JSON.parse(message.data);
         if (event && typeof event.event === 'string') notify(event);
@@ -160,12 +234,16 @@
       stopEvents();
       startEvents();
     },
+    /** Opens the stream anew if it has been quiet for longer than its pings allow. */
+    verify: verify,
     // Explicit login keeps a failed request from repeatedly reloading unsaved editors.
     login: function () { window.location.assign('/'); },
     close: function () {
       if (closed) return;
       closed = true;
       stopEvents();
+      if (watchdog !== null) clearTimeout(watchdog);
+      watchdog = null;
       controllers.forEach(function (controller) { controller.abort(); });
       controllers.clear();
       setStatus('closed');
@@ -187,4 +265,11 @@
       startEvents();
     }
   });
+  window.addEventListener('online', verify);
+  window.addEventListener('focus', verify);
+  if (window.document && typeof window.document.addEventListener === 'function') {
+    window.document.addEventListener('visibilitychange', function () {
+      if (window.document.visibilityState !== 'hidden') verify();
+    });
+  }
 })();

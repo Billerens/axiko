@@ -1401,8 +1401,10 @@
   }
 
   // ---- reconnect reconciliation ---------------------------------------------------------------
-  // History contains completed messages only. Keep the live bubble until the agent is idle,
-  // then replace it with an authoritative snapshot. No token replay is attempted here.
+  // What the stream lost while it was down is read from the history. If the work is still going,
+  // the history is shown once at once — the request, the steps so far and the answer being written —
+  // and the live events go on from there; when the work ends, the authoritative history replaces
+  // whatever the two may have overlapped or missed. No token replay is attempted here.
   let historyRefreshWanted = false;
   let historyRefreshRunning = false;
   let historyRefreshTimer = null;
@@ -1410,12 +1412,14 @@
   let historyIdleSeen = false;
   let historyOnline = true;
   let historyRefreshError = false;
+  let historyCatchUp = false;
 
   function resetHistoryRefresh() {
     historyRefreshWanted = false;
     historyWatchIdle = false;
     historyIdleSeen = false;
     historyRefreshError = false;
+    historyCatchUp = false;
     if (historyRefreshTimer !== null) clearTimeout(historyRefreshTimer);
     historyRefreshTimer = null;
   }
@@ -1444,7 +1448,15 @@
     const who = agentId, thread = threadId, ticket = chatLoadVersion;
     const sameChat = () => ticket === chatLoadVersion && who === agentId && thread === threadId;
     try {
-      if (await axiko.native('agent.busy', who, thread)) return;
+      if (await axiko.native('agent.busy', who, thread)) {
+        if (historyCatchUp && sameChat()) {
+          historyCatchUp = false;
+          const history = await axiko.native('agent.history', who, thread);
+          if (sameChat() && historyOnline) renderHistory(history, true, who, thread, ticket);
+        }
+        return;
+      }
+      historyCatchUp = false;
       if (!sameChat()) return;
       const version = agentEventsVersion;
       const history = await axiko.native('agent.history', who, thread);
@@ -1473,6 +1485,7 @@
     historyWatchIdle = true;
     historyIdleSeen = false;
     historyRefreshError = false;
+    historyCatchUp = true;
     scheduleHistoryRefresh();
   });
   axiko.on('connection', connection => {
@@ -1724,8 +1737,25 @@
     if (!text) return;
     input.value = '';
     grow();
+    const who = agentId, thread = threadId, version = agentEventsVersion;
     const accepted = await axiko.native('agent.send', agentId, text, threadId, attached);
-    if (accepted) showAttach(null);
+    if (accepted) { showAttach(null); expectEcho(who, thread, version); }
+  }
+
+  // The phone answers every request at once with an event of this chat: the request itself, or its
+  // place in the queue when the agent is busy. If nothing comes back, the events no longer reach this
+  // screen (in a browser, the stream can die without a word): the conversation is read anew and the
+  // stream is opened again, instead of a chat that looks frozen while the work goes on.
+  const ECHO_MS = 4000;
+  let echoTimer = null;
+  function expectEcho(who, thread, version) {
+    clearTimeout(echoTimer);
+    echoTimer = setTimeout(() => {
+      echoTimer = null;
+      if (version !== agentEventsVersion || who !== agentId || thread !== threadId) return;
+      if (axiko.platform === 'web') axiko.native('desk.reconnect').catch(() => {});
+      load().catch(error => failRow(error.message));
+    }, ECHO_MS);
   }
 
   function grow() {

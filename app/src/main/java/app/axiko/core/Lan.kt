@@ -17,7 +17,6 @@ import java.net.Socket
 import java.net.URI
 import java.net.URLDecoder
 import java.security.SecureRandom
-import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 
 /**
@@ -32,7 +31,18 @@ object Lan {
     private const val COOKIE = "axiko"
     private const val FACTORY_COOKIE = "axiko_factory"
     private val workers = Executors.newCachedThreadPool { task -> Thread(task, "axiko-lan").apply { isDaemon = true } }
-    private val streams = CopyOnWriteArrayList<OutputStream>()
+    private val streams = EventStreams { workers.execute(it) }
+
+    /**
+     * How often an event stream speaks when nothing happens. Its keep-alive is an event a page can
+     * see, not a comment: a page that has heard nothing for a few of these knows its stream is gone
+     * even when the browser still holds the connection open (see ui/desk/transport.js).
+     */
+    private const val PING_MS = 15_000L
+    private val PING = "event: ping\ndata: {}\n\n".toByteArray()
+
+    /** The first words of every stream: how soon to reconnect, and how often to expect a ping. */
+    private val HELLO = "retry: 3000\nevent: hello\ndata: {\"ping\":$PING_MS}\n\n".toByteArray()
 
     @Volatile
     private var server: ServerSocket? = null
@@ -136,10 +146,10 @@ object Lan {
                 workers.execute { runCatching { serve(client) } }
             }
         }, "axiko-lan-accept").apply { isDaemon = true }.start()
-        // Dead event streams are noticed only on a write: a comment line every so often does it.
+        // Dead event streams are noticed only on a write, on either side: a ping every so often does it.
         Thread({
             while (server === socket) {
-                Thread.sleep(20_000)
+                Thread.sleep(PING_MS)
                 push(null)
             }
         }, "axiko-lan-ping").apply { isDaemon = true }.start()
@@ -151,23 +161,15 @@ object Lan {
         server = null
         Mdns.stop()
         Pages.onBroadcast = null
-        streams.forEach { runCatching { it.close() } }
-        streams.clear()
+        streams.closeAll()
     }
 
-    /** Sends an event to every browser that listens; null is a keep-alive. */
+    /**
+     * Sends an event to every browser that listens; null is a keep-alive. Only queues it: the agent
+     * that emits never waits for a browser (see EventStreams).
+     */
     private fun push(message: String?) {
-        val bytes = (if (message == null) ": ping\n\n" else "data: $message\n\n").toByteArray()
-        for (stream in streams) {
-            try {
-                synchronized(stream) {
-                    stream.write(bytes)
-                    stream.flush()
-                }
-            } catch (gone: Exception) {
-                streams.remove(stream)
-            }
-        }
+        streams.send(if (message == null) PING else "data: $message\n\n".toByteArray())
     }
 
     // ---- HTTP ---------------------------------------------------------------------------------
@@ -345,10 +347,10 @@ object Lan {
                     out.write("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-store\r\nConnection: keep-alive\r\n\r\n".toByteArray())
                     out.flush()
                     socket.soTimeout = 0
-                    streams.add(out)
+                    val listener = streams.add(out, HELLO) { runCatching { socket.close() } }
                     // Held open until the browser leaves: reading notices that.
                     runCatching { while (socket.getInputStream().read() >= 0) Unit }
-                    streams.remove(out)
+                    listener.cut()
                 }
                 request.path == "/__axiko/rpc" && request.method == "POST" -> {
                     val answer = JSONObject()

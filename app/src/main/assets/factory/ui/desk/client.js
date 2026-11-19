@@ -257,6 +257,12 @@
       return true;
     },
     'ui.ready': reportReady,
+    // The page saw that events stopped reaching it (a request it sent never came back): the stream is opened anew.
+    'desk.reconnect': function () {
+      var host = available();
+      if (host && typeof host.reconnect === 'function') host.reconnect();
+      return true;
+    },
     'ui.reload': function () { location.reload(); return true; },
     'ui.where': function () {
       var path = where();
