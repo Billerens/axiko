@@ -251,6 +251,7 @@ modules/games/<id>/
 | `tick(state, dt, ctx)` | Шаг на `dt` секунд, меняет `state` на месте; доход умножайте на `ctx.mult` |
 | `offline(state, sec, ctx)` → `{gains?, events?}` | Необяз.: офлайн формулой за `sec` секунд (уже с долей `offline.efficiency`), меняет `state`. `gains` — то, чего нет в валютах; `events` — строки сводки (или `ctx.report(text)`) |
 | `prestigeGain(state, layerId, cfg)` → Big | Сколько валюты слоя даст сброс сейчас |
+| `prestigeHint(state, layerId, cfg, info)` → `true` \| `false` \| `null` | Необяз.: своя метка «выгодно» на сбросе (`info` — из `Core.prestigeInfo`: `gain`, `have`, `after`); `null` — как у движка (прирост не меньше `prestige.hintRatio` от накопленного) |
 | `bonus(state, layerId, amount, cfg)` → число \| Big \| строка | Необяз.: бонус при `amount` валюты слоя — лист престижа покажет «×1,40 → ×1,52» |
 | `onPrestige(state, layerId, before, ctx)` | Необяз.: перенести в новый забег что нужно (`before` — копия до сброса) |
 | `migrate(state, fromVer)` → state | Перевод сохранения со старой версии (обязателен, если `saveVersion` > 1) |

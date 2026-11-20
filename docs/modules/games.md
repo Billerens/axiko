@@ -199,6 +199,7 @@ data/games/
 | `tick(state, dt, ctx)` | Шаг логики на `dt` секунд; меняет `state` на месте |
 | `offline(state, sec, ctx)` → `{gains, events}` | Необяз.: быстрый подсчёт за `sec` секунд формулой |
 | `prestigeGain(state, layerId)` → Big | Сколько валюты слоя даст сброс сейчас |
+| `prestigeHint(state, layerId, cfg, info)` → `true` / `false` / `null` | Необяз.: своя метка «выгодно» на сбросе; `null` — как у движка |
 | `onPrestige(state, layerId)` | Необяз.: что перенести в новый забег |
 | `migrate(state, fromVer)` → состояние | Перевод сохранения со старой версии |
 | `validate(state)` → `null` или текст ошибки | Своя проверка целостности |

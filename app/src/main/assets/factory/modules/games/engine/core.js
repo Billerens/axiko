@@ -627,6 +627,13 @@
       layer: layer, gain: gain, have: have, after: after, can: can, minGain: minGain,
       hint: can && Big.gte(gain, Big.mul(have, ratio)), bonusBefore: null, bonusAfter: null
     };
+    // A game whose resets pay something on every run knows better when one is worth it.
+    if (can && typeof sim.prestigeHint === 'function') {
+      try {
+        var own = sim.prestigeHint(state, layerId, cfg || {}, info);
+        if (typeof own === 'boolean') info.hint = own;
+      } catch (ignored) { /* the engine's own mark stays */ }
+    }
     if (typeof sim.bonus === 'function') {
       try {
         info.bonusBefore = sim.bonus(state, layerId, have, cfg || {});
