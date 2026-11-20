@@ -216,6 +216,10 @@ class StoreServiceTest {
         val waiting = service.catalogPage(JSONObject().put("only", "updates"))
         assertEquals(listOf("demo.notes", "demo.clock"), ids(waiting)); assertEquals(2, waiting.getJSONObject("counts").getInt("updates"))
         assertEquals(listOf("unmanaged", "update"), (0..1).map { waiting.getJSONArray("items").getJSONObject(it).getString("status") })
+        // The catalog tab offers what is not on the device: the installed clock and the notes that stand without the store are elsewhere.
+        val fresh = service.catalogPage(JSONObject().put("only", "notInstalled"))
+        assertEquals(listOf("demo.atlas", "demo.zoo", "demo.counter"), ids(fresh))
+        assertEquals(3, fresh.getJSONObject("counts").getInt("notInstalled")); assertEquals(5, fresh.getJSONObject("counts").getInt("all"))
     }
 
     /** A package of a kind some module hosts: the descriptor and the version of the host's rules are the host's to name. */
@@ -348,6 +352,8 @@ class StoreServiceTest {
         assertEquals(counterMain, File(folder, "main.js").readText())
         apply(service, plan)
         assertEquals(nightMain, File(folder, "main.js").readText()); assertTrue(File(folder, "ui/night.css").isFile)
+        // A mod laid over its package is installed too: the catalog tab no longer offers it, nor the package.
+        assertEquals(0, service.catalogPage(JSONObject().put("only", "notInstalled")).getInt("total"))
 
         // The package is still itself, at its own version, with a layer that says whose its differences are.
         val record = service.installed().getJSONObject(0)

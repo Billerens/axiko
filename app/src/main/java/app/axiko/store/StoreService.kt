@@ -170,6 +170,7 @@ class StoreService(
                 (tag.isEmpty() || tag in view.ids || view.tags.any { it.lowercase(Locale.ROOT) == tag }) &&
                 (extends.isEmpty() || entry.optString("extends") == extends) &&
                 (only != "updates" || entry.getString("status") in PENDING) &&
+                (only != "notInstalled" || absent(entry)) &&
                 (query.isEmpty() || (listOf(entry.getString("title"), entry.getString("summary"), view.title, view.summary, entry.getString("id"), entry.getString("publisher")) + view.ids + view.tags)
                     .any { it.lowercase(Locale.ROOT).contains(query) })
         }
@@ -194,10 +195,17 @@ class StoreService(
         }
         return JSONObject().put("items", JSONArray(portion))
             .put("total", sorted.size).put("offset", offset).put("limit", limit)
-            .put("counts", JSONObject().put("all", all.size).put("updates", all.count { it.getString("status") in PENDING }))
+            .put("counts", JSONObject().put("all", all.size).put("updates", all.count { it.getString("status") in PENDING }).put("notInstalled", all.count(::absent)))
             .put("tags", JSONArray(top.map { JSONObject().put("tag", it.key).put("label", labels[it.key] ?: it.key).put("count", it.value) }))
             .put("kinds", JSONArray(counted(all)))
     }
+
+    /**
+     * Nothing of this card stands on the device: not installed from this source or another, not put
+     * there without the store, not laid over its package as a mod. What does stand is under
+     * «Установленные» and «Обновления»; the catalog tab offers the rest.
+     */
+    private fun absent(entry: JSONObject): Boolean = entry.optString("installedVersion").isEmpty() && entry.getString("status") !in STANDING
 
     /**
      * The kinds the catalog's packages are of, with the words their hosts gave them. What the catalog
@@ -745,6 +753,8 @@ class StoreService(
         private const val LISTING_TTL_MS = 3000L
         /** What the «Обновления» tab shows: a newer release, or a module to take over. */
         private val PENDING = setOf("update", "unmanaged")
+        /** On the device without a version of this card: standing without the store, or installed from another source. */
+        private val STANDING = setOf("unmanaged", "sourceConflict")
         private const val VALIDATOR_RESOLUTION = "Не устанавливать. Автору нужно исправить пакет и выпустить его с новым номером версии."
     }
 }

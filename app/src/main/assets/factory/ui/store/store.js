@@ -4,7 +4,7 @@
   const h = ui.h, tr = (...args) => ui.t(...args), raw = value => ui.raw(String(value == null ? '' : value));
   const $ = id => document.getElementById(id);
   const PORTION = 24;
-  const state = { tab: 'catalog', sources: [], items: [], total: 0, counts: { all: 0, updates: 0 }, tags: [], kinds: [], tag: '', sort: 'title', view: 'grid', listing: false, listSerial: 0, installed: [], plans: [], bans: [], query: '', kind: 'all', source: 'all', sourceUrl: '', loaded: false, operations: new Set(), pending: null, reviewTask: null, dialog: null, token: 0, acknowledged: new Set(), poll: null, visible: true, loadSerial: 0 };
+  const state = { tab: 'catalog', sources: [], items: [], total: 0, counts: { all: 0, updates: 0 }, tags: [], kinds: [], tag: '', sort: 'title', view: 'grid', listing: false, listSerial: 0, installed: [], plans: [], bans: [], query: '', kind: 'all', source: 'all', sourceUrl: '', loaded: false, operations: new Set(), pending: null, reviewTask: null, dialog: null, token: 0, acknowledged: new Set(), poll: null, visible: true, loadSerial: 0, picked: new Set(), batch: null, batchAck: '' };
   const api = (method, ...args) => axiko.native('store.' + method, ...args);
   const listOf = (value, key) => Array.isArray(value) ? value : value && Array.isArray(value[key]) ? value[key] : [];
   const packageId = item => item.packageId || item.id;
@@ -94,7 +94,9 @@
 
   // The catalog is never asked for or drawn whole: the shell cuts it into portions over what it keeps
   // on disk, and the next portion is asked for when the end of the list comes near.
-  function listOptions(offset) { return { query: state.query, kind: state.kind, sourceId: state.source, tag: state.tag, only: state.tab === 'updates' ? 'updates' : '', sort: state.sort, offset: offset, limit: PORTION }; }
+  // The catalog tab offers what is not on the device yet: what stands is under «Установленные», its new
+  // versions under «Обновления». Updates come as one list to pick from, not in portions.
+  function listOptions(offset) { return { query: state.query, kind: state.kind, sourceId: state.source, tag: state.tag, only: state.tab === 'updates' ? 'updates' : state.tab === 'catalog' ? 'notInstalled' : '', sort: state.sort, offset: offset, limit: state.tab === 'updates' ? 200 : PORTION }; }
   async function list(reset) {
     if (!listed()) return;
     if (!reset && (state.listing || state.items.length >= state.total)) return;
@@ -110,6 +112,8 @@
       if (page && page.counts) state.counts = page.counts;
       state.tags = listOf(page, 'tags'); state.kinds = listOf(page, 'kinds');
       state.listing = false;
+      // What is picked is what the owner sees: a package that left the list is no longer picked.
+      if (reset && state.tab === 'updates') { const here = new Set(state.items.map(pickKey)); [...state.picked].forEach(key => { if (!here.has(key)) state.picked.delete(key); }); }
       if (reset) render(); else extend(items);
     } finally { if (serial === state.listSerial) state.listing = false; }
   }
@@ -137,20 +141,23 @@
     if (state.tag && !known.some(row => row[0] === state.tag)) known.unshift([state.tag, state.tag]);
     state.tag = fill(tags, ['', tr('Все теги')], known, state.tag);
     $('store-sort').hidden = !listed(); $('store-sort').value = state.sort;
+    $('store-view').hidden = state.tab === 'updates';
     document.querySelectorAll('#store-view [data-view]').forEach(node => node.setAttribute('aria-pressed', String(node.dataset.view === state.view)));
   }
 
   function render() {
-    updateCount('catalog', state.counts.all); updateCount('installed', state.installed.length); updateCount('updates', state.counts.updates); updateCount('sources', state.sources.length);
+    updateCount('catalog', state.counts.notInstalled != null ? state.counts.notInstalled : state.counts.all); updateCount('installed', state.installed.length); updateCount('updates', state.counts.updates); updateCount('sources', state.sources.length);
     facets(); renderPending();
     const content = $('store-content'); content.setAttribute('aria-busy', String(!state.loaded || listed() && state.listing && !state.items.length));
     if (!state.loaded) return;
     if (state.tab === 'sources') { renderSources(content); return; }
     if (listed() && state.listing && !state.items.length) { content.replaceChildren(h('div', { class: 'store-loading' }, tr('Загружаем каталог…'))); return; }
     const items = state.tab === 'installed' ? state.installed.filter(matches) : state.items;
+    if (state.tab === 'updates' && (items.length || state.batch)) { renderUpdates(content, items); return; }
     if (!items.length) {
       if (filtered()) content.replaceChildren(empty(tr('Ничего не найдено'), tr('Попробуйте другое название или измените фильтры.')));
       else if (state.tab === 'updates') content.replaceChildren(empty(tr('Всё актуально'), tr('Когда в подключённых источниках появятся новые версии, они будут здесь.'), tr('Проверить источники'), refreshSources));
+      else if (state.tab === 'catalog' && state.counts.all && state.counts.notInstalled != null) content.replaceChildren(empty(tr('Всё из каталога уже установлено'), tr('Установленное — во вкладке «Установленные», новые версии — в «Обновлениях».'), tr('Открыть установленные'), () => pickTab('installed', true)));
       else if (state.tab === 'installed') content.replaceChildren(empty(tr('Пакетов из каталога пока нет'), tr('Ваши существующие модули остаются на месте. Здесь появятся пакеты, установленные через магазин.'), tr('Открыть каталог'), () => pickTab('catalog', true)));
       else content.replaceChildren(empty(tr(state.sources.length ? 'В источниках пока нет пакетов' : 'Подключите первый источник'), tr(state.sources.length ? 'Проверьте, включён ли источник, и обновите его каталог.' : 'Добавьте GitHub-репозиторий или ссылку на index.json. Каталог проверит формат перед подключением.'), tr('Добавить источник'), () => pickTab('sources', true)));
       return;
@@ -161,8 +168,9 @@
   // The next portion is appended to what is already on the screen; nothing drawn is drawn again.
   function extend(items) {
     const grid = $('store-list'); if (!grid || !listed()) { render(); return; }
-    items.forEach(item => grid.append(packageCard(item, false)));
+    items.forEach(item => grid.append(state.tab === 'updates' ? updateRow(item) : packageCard(item, false)));
     more($('store-content'));
+    if (state.tab === 'updates') paintPicks();
   }
   let nearEnd = null;
   function more(content) {
@@ -171,7 +179,7 @@
     if (!listed() || state.items.length >= state.total) return;
     const next = () => list(false).catch(error => status(errorText(error), true));
     const node = h('div', { class: 'store-more', id: 'store-more' }, h('span', { id: 'store-shown' }, tr('Показано {} из {}', state.items.length, state.total)), button(tr('Показать ещё'), next, { id: 'store-more-button' }));
-    content.append(node);
+    const bar = $('store-batch'); if (bar) bar.before(node); else content.append(node);
     if (typeof IntersectionObserver === 'function') { nearEnd = new IntersectionObserver(entries => { if (entries.some(entry => entry.isIntersecting)) next(); }, { rootMargin: '800px 0px' }); nearEnd.observe(node); }
   }
 
@@ -305,6 +313,201 @@
     else if (!installed || item.status === 'update' || item.updateAvailable) actions.append(button(tr(installed ? 'Обновить' : unmanaged(item) ? 'Принять модуль' : 'Установить'), event => prepare(item, event.currentTarget), { class: 'btn primary', disabled: item.compatible === false || item.status === 'incompatible' || item.status === 'banned' || item.status === 'targetMissing', 'data-install': packageId(item) }));
     else if (entryPath(installed)) actions.append(button(tr('Открыть'), () => openInstalled(installed), { class: 'btn primary' }));
     card.append(actions); return card;
+  }
+
+  // «Обновления» is a list to pick from. What is picked goes, one package after another, the way the owner's
+  // own «Обновить» goes: a plan, then the owner's install of exactly that plan and digest. Whatever needs a
+  // decision — a conflict with the owner's edits, an obstacle, warnings of an earlier review, a mod an agent has
+  // to carry over — stays a prepared plan and is listed for the owner; nothing is decided for them here. An agent
+  // installs only through a review of its own (store_review_start): this screen is the owner's, not its way round.
+  function pickKey(item) { return item.sourceId + ':' + packageId(item); }
+  function pickable(item) { return item.compatible !== false && (item.status === 'update' || item.status === 'unmanaged'); }
+  function versions(item) { return unmanaged(item) ? tr('без версии → {}', item.version || '') : (item.installedVersion || '?') + ' → ' + (item.version || ''); }
+  function shownUpdates() { return state.tab === 'updates' ? state.items.filter(pickable) : []; }
+  function chosen() { return shownUpdates().filter(item => state.picked.has(pickKey(item))); }
+  // The owner's permission is for these packages at these versions: picking another one asks for it again.
+  function chosenSign(items) { return items.map(item => pickKey(item) + '@' + item.version).sort().join('|'); }
+  function running() { return !!state.batch && state.batch.running; }
+  function newer(a, b) {
+    const parse = value => String(value || '').split(/[-+]/)[0].split('.').map(part => Number(part) || 0);
+    const x = parse(a), y = parse(b);
+    for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+    return false;
+  }
+  // What changed since the installed version, from the package's listing, read when the owner asks for it.
+  function news(item) {
+    if (!item.details) return null;
+    const body = h('div', { class: 'store-update-news-body', 'aria-busy': 'true' });
+    const node = h('details', { class: 'store-update-news', 'data-news': packageId(item) }, h('summary', {}, tr('Что нового')), body);
+    node.addEventListener('toggle', () => {
+      if (!node.open || node.dataset.loaded) return;
+      node.dataset.loaded = '1';
+      api('details', item.sourceId, packageId(item)).then(details => {
+        const all = listOf(details, 'changes'), since = item.installedVersion ? all.filter(change => newer(change.version, item.installedVersion)) : all.slice(0, 1);
+        body.replaceChildren(...(since.length ? since.slice(0, 5).map(change => h('div', { class: 'store-change', 'data-change': change.version },
+          h('strong', {}, raw(change.version + (change.date ? ' · ' + change.date : ''))), authorText(change.notes))) : [note(tr('Автор не описал, что изменилось.'))]));
+      }).catch(error => { delete node.dataset.loaded; body.replaceChildren(note(tr('Описание не загрузилось: {}', errorText(error)))); })
+        .then(() => body.setAttribute('aria-busy', 'false'));
+    });
+    return node;
+  }
+  const OUTCOMES = { queued: 'В очереди', working: 'Обновляется…', done: 'Обновлено', attention: 'Ждёт вашего решения', error: 'Не удалось', skipped: 'Пропущено' };
+  function resultChip(result) {
+    const tone = { done: ' success', attention: ' changed', error: ' problem' }[result.state] || '';
+    return h('span', { class: 'store-chip' + tone, 'data-outcome': result.state }, tr(OUTCOMES[result.state] || result.state));
+  }
+  function updateRow(item) {
+    const id = pickKey(item), title = item.title || packageId(item), result = running() && state.batch.results.get(id);
+    const box = h('input', { type: 'checkbox', 'data-pick': packageId(item), checked: state.picked.has(id), disabled: !pickable(item) || running(), 'aria-label': tr('Выбрать «{}»', title) });
+    box.addEventListener('change', () => { if (box.checked) state.picked.add(id); else state.picked.delete(id); paintPicks(); });
+    const chips = [];
+    if (unmanaged(item)) chips.push(h('span', { class: 'store-chip changed', 'data-unmanaged': '' }, tr('Стоит без магазина')));
+    if (item.localModified) chips.push(h('span', { class: 'store-chip changed' }, tr('Есть свои правки')));
+    if (item.compatible === false) chips.push(h('span', { class: 'store-chip problem' }, tr('Нужна другая версия Axiko')));
+    if (Array.isArray(item.previousBans) && item.previousBans.length) chips.push(h('span', { class: 'store-chip changed', 'data-previous-ban': '' }, tr('Прежняя версия забанена')));
+    // The first line is what the row is: the tick, the icon, the name and «было → станет». The rest goes under it
+    // across the whole row, so a narrow screen is not left with an empty strip under the tick and the icon.
+    return h('li', { class: 'store-update', 'data-package': packageId(item), 'data-source': item.sourceId, 'data-key': id },
+      h('label', { class: 'store-update-pick' }, box),
+      packageIcon(item, false),
+      h('div', { class: 'store-update-head' },
+        h('button', { class: 'store-update-title', type: 'button', 'data-details': packageId(item), onclick: event => operation('details-' + id, event.currentTarget, () => showPackage(item, installedFor(item))) }, raw(title)),
+        h('div', { class: 'store-meta' }, h('span', {}, raw(kindItem(item.kind))), h('span', { class: 'store-versions', 'data-versions': '' }, raw(versions(item))),
+          item.archive && item.archive.size ? h('span', {}, bytes(item.archive.size)) : null, h('span', { 'data-row-result': '' }, result ? resultChip(result) : null))),
+      h('div', { class: 'store-update-body' },
+        isMod(item) ? h('div', { class: 'store-mod-target', 'data-mod-target': item.extends || '' }, tr('Для пакета «{}»', item.targetTitle || item.extends || '')) : null,
+        chips.length ? h('div', { class: 'store-meta store-badges' }, chips) : null,
+        h('div', { class: 'store-update-foot' }, news(item),
+          button(tr(unmanaged(item) ? 'Принять модуль' : 'Обновить'), event => prepare(item, event.currentTarget), { 'data-install': packageId(item), disabled: !pickable(item) || running() }))));
+  }
+  function renderUpdates(content, items) {
+    const report = batchReport();
+    if (!items.length) {
+      content.replaceChildren(...[report, filtered() ? empty(tr('Ничего не найдено'), tr('Попробуйте другое название или измените фильтры.'))
+        : empty(tr('Всё актуально'), tr('Когда в подключённых источниках появятся новые версии, они будут здесь.'), tr('Проверить источники'), refreshSources)].filter(Boolean));
+      return;
+    }
+    const toggle = button('', () => {
+      const all = shownUpdates(), every = all.length > 0 && all.every(item => state.picked.has(pickKey(item)));
+      all.forEach(item => { if (every) state.picked.delete(pickKey(item)); else state.picked.add(pickKey(item)); });
+      document.querySelectorAll('#store-list [data-key]').forEach(row => { const box = row.querySelector('[data-pick]'); if (box) box.checked = state.picked.has(row.dataset.key); });
+      paintPicks();
+    }, { id: 'store-pick-all' });
+    content.replaceChildren(...[report,
+      h('div', { class: 'store-updates-head' }, toggle, h('span', { class: 'store-note', id: 'store-picked', 'aria-live': 'polite' })),
+      h('ul', { class: 'store-updates', id: 'store-list' }, items.map(updateRow)),
+      h('div', { class: 'store-batch', id: 'store-batch' })].filter(Boolean));
+    more(content); paintPicks();
+  }
+  function paintPicks() {
+    const all = shownUpdates(), picked = chosen(), count = $('store-picked'), toggle = $('store-pick-all');
+    if (count) count.replaceChildren(raw(tr('Выбрано {} из {}', picked.length, all.length)));
+    if (toggle) { toggle.replaceChildren(raw(tr(all.length > 0 && picked.length === all.length ? 'Снять все' : 'Выбрать все'))); toggle.disabled = !all.length || running(); }
+    paintBar();
+  }
+  // The bar under the list: the owner's permission and the button while nothing runs, the progress while it does.
+  function paintBar() {
+    const bar = $('store-batch'); if (!bar) return;
+    const batch = state.batch, busy = running(), mode = busy ? 'running' : 'idle';
+    // The bar stays in sight while there is something to do with it; with nothing picked it waits at the end of the list.
+    bar.classList.toggle('armed', busy || chosen().length > 0);
+    if (bar.dataset.mode !== mode) {
+      bar.dataset.mode = mode;
+      if (busy) bar.replaceChildren(h('div', { class: 'store-batch-progress', role: 'status', 'aria-live': 'polite' }, h('progress', { id: 'store-batch-meter', 'aria-label': tr('Обновлено пакетов') }), h('span', { id: 'store-batch-step' })),
+        button('', () => { if (state.batch) state.batch.stop = true; paintBar(); }, { id: 'store-batch-stop' }));
+      else {
+        const ack = h('input', { type: 'checkbox', id: 'store-batch-ack' });
+        ack.addEventListener('change', () => { state.batchAck = ack.checked ? chosenSign(chosen()) : ''; paintBar(); });
+        bar.replaceChildren(h('label', { class: 'store-trust' }, ack, h('span', {}, tr('Разрешаю запуск выбранных пакетов с возможностями Axiko'),
+          h('small', {}, tr('Для этих версий. Пакет с конфликтом ваших правок или с подозрениями проверки не ставится: он останется подготовленным, решение за вами.')))),
+          button('', event => runBatch(event.currentTarget), { class: 'btn primary', id: 'store-batch-run' }));
+      }
+    }
+    if (busy) {
+      const meter = $('store-batch-meter'), now = batch.current, stop = $('store-batch-stop');
+      meter.max = batch.total; meter.value = batch.done;
+      $('store-batch-step').replaceChildren(raw(now ? tr('Обновляем {} из {}: {}', batch.done + 1, batch.total, now.title || packageId(now)) : tr('Обновлено {} из {}', batch.done, batch.total)));
+      stop.disabled = batch.stop; stop.replaceChildren(raw(tr(batch.stop ? 'Остановим после текущего' : 'Остановить')));
+      return;
+    }
+    const picked = chosen(), agreed = picked.length > 0 && state.batchAck === chosenSign(picked), ack = $('store-batch-ack'), run = $('store-batch-run');
+    ack.checked = agreed; ack.disabled = !picked.length;
+    run.replaceChildren(raw(picked.length ? tr('Обновить выбранные ({})', picked.length) : tr('Отметьте, что обновить')));
+    run.disabled = !agreed;
+  }
+  function paintRow(id) {
+    const row = [...document.querySelectorAll('#store-list [data-key]')].find(node => node.dataset.key === id), result = state.batch && state.batch.results.get(id);
+    if (row && result) row.querySelector('[data-row-result]').replaceChildren(resultChip(result));
+  }
+  function blockerText(reason) { return typeof reason === 'string' ? reason : reason && (reason.message || reason.reason) || JSON.stringify(reason); }
+  // One package of the picked ones, prepared as the owner's own «Обновить» prepares it and installed only when
+  // there is nothing to decide. Everything else is answered with why it waits; its plan stays for the owner.
+  async function updateOne(item) {
+    const plan = await (unmanaged(item) ? api('prepare', item.sourceId, packageId(item), true) : api('prepare', item.sourceId, packageId(item)));
+    const report = await api('review', plan.id).catch(() => null);
+    const waits = text => ({ state: 'attention', text: text, planId: plan.id });
+    if (plan.status === 'banned' || plan.ban) return { state: 'error', text: tr('Этот выпуск забанен'), planId: plan.id };
+    const blockers = Array.isArray(plan.blockers) ? plan.blockers : [];
+    if (plan.status === 'blocked' || blockers.length) return waits(tr('Препятствие: {}', blockers.length ? blockerText(blockers[0]) : ''));
+    if (plan.status === 'carrying') return waits(tr('Доработку нужно перенести на ваш пакет с агентом'));
+    const conflicts = Array.isArray(plan.conflicts) ? plan.conflicts.filter(conflict => !conflict.resolved) : [];
+    if (plan.status === 'conflicts' || conflicts.length) return waits(tr(plan.adoption ? 'Файлы отличаются от выпуска ({}): решите, что оставить' : 'Конфликт с вашими правками, файлов: {}', conflicts.length));
+    const verdict = report && report.status === 'pending' && report.inherited ? report.inherited : report;
+    if (verdict && verdict.status === 'reject') return { state: 'error', text: tr('Проверка отклонила этот выпуск'), planId: plan.id };
+    if (verdict && verdict.status === 'needsAttention') return waits(tr('Прежняя проверка этого выпуска нашла подозрения'));
+    if (plan.status !== 'ready') return waits(tr('План ждёт вашего решения'));
+    try { await api('apply', plan.id, plan.digest, true); } catch (error) { return { state: 'error', text: errorText(error), planId: plan.id }; }
+    return { state: 'done' };
+  }
+  async function runBatch(control) {
+    const items = chosen();
+    if (!items.length || state.batchAck !== chosenSign(items) || running()) return;
+    await operation('batch', control, async () => {
+      const batch = state.batch = { running: true, stop: false, total: items.length, done: 0, current: null, results: new Map() };
+      items.forEach(item => batch.results.set(pickKey(item), { item: item, state: 'queued' }));
+      render();
+      try {
+        for (const item of items) {
+          const id = pickKey(item);
+          if (batch.stop) { batch.results.set(id, { item: item, state: 'skipped' }); paintRow(id); continue; }
+          batch.current = item; batch.results.set(id, { item: item, state: 'working' }); paintRow(id); paintBar();
+          // One package that fails does not stop the others.
+          let outcome;
+          try { outcome = await updateOne(item); } catch (error) { outcome = { state: 'error', text: errorText(error) }; }
+          batch.results.set(id, Object.assign({ item: item }, outcome)); batch.done++; batch.current = null;
+          paintRow(id); paintBar();
+        }
+      } finally {
+        batch.running = false; batch.current = null; state.picked.clear(); state.batchAck = '';
+        await load({ keepStatus: true });
+      }
+    });
+  }
+  // What came of the last run, kept until the owner hides it. A plan the owner installed afterwards counts as done.
+  function outcomeOf(row) {
+    const now = row.state !== 'done' && installedFor(row.item);
+    return now && now.version === row.item.version ? Object.assign({}, row, { state: 'done', text: '' }) : row;
+  }
+  function batchReport() {
+    const batch = state.batch; if (!batch || batch.running) return null;
+    const rows = [...batch.results.values()].map(outcomeOf), count = name => rows.filter(row => row.state === name).length;
+    const waiting = count('attention'), failed = count('error'), skipped = count('skipped');
+    return h('section', { class: 'store-batch-report', id: 'store-batch-report', 'aria-label': tr('Итог обновления') },
+      h('div', { class: 'store-batch-report-head' }, h('strong', {}, raw(tr('Обновлено {} из {}', count('done'), rows.length))), button(tr('Скрыть'), () => { state.batch = null; render(); }, { id: 'store-batch-hide' })),
+      waiting ? note(tr('Ждут вашего решения: {}. Их планы подготовлены: откройте план, посмотрите, что мешает, и решите сами.', waiting)) : null,
+      failed ? note(tr('Не удалось: {}. Остальные пакеты это не остановило.', failed)) : null,
+      skipped ? note(tr('Пропущено после остановки: {}', skipped)) : null,
+      h('ul', { class: 'store-batch-results' }, rows.map(row => h('li', { class: 'store-batch-result', 'data-result': packageId(row.item), 'data-outcome': row.state },
+        h('div', { class: 'grow' }, h('div', { class: 'store-batch-result-head' }, h('strong', {}, raw(row.item.title || packageId(row.item))), h('span', { class: 'store-versions' }, raw(versions(row.item))), resultChip(row)),
+          row.text ? note(raw(row.text)) : null),
+        row.planId && row.state !== 'done' ? button(tr('Открыть план'), event => openPlan(row.planId, event.currentTarget), { 'data-open-plan': packageId(row.item) }) : null))));
+  }
+  function openPlan(id, control) {
+    return operation('open-plan-' + id, control, async () => {
+      const [fresh, report] = await Promise.all([api('plan', id), api('review', id).catch(() => null)]);
+      if (!fresh) throw new Error(tr('Этого плана больше нет: подготовьте обновление заново.'));
+      showPlan(fresh, report || undefined);
+    });
   }
   async function load(options) {
     const serial = ++state.loadSerial;
@@ -751,7 +954,8 @@
   window.addEventListener('pagehide', () => { if (state.poll) clearTimeout(state.poll); state.poll = null; });
   if (axiko.on) {
     axiko.on('app.visible', event => { state.visible = !event || event.on !== false; schedulePoll(); });
-    axiko.on('store.changed', () => { if (visible()) load({ keepStatus: true }).catch(error => status(errorText(error), true)); });
+    // While picked updates are installed one by one, each install says the store changed: the list is read once, when they are done.
+    axiko.on('store.changed', () => { if (visible() && !running()) load({ keepStatus: true }).catch(error => status(errorText(error), true)); });
   }
   // How the list looks is the owner's habit, kept between visits.
   Promise.all([axiko.native('pref.get', 'store.view', 'grid'), axiko.native('pref.get', 'store.sort', 'title')]).then(([view, sort]) => {
@@ -760,6 +964,6 @@
   }).catch(() => {}).then(() => load()).catch(error => { state.loaded = true; state.listing = false; render(); status(errorText(error), true, () => load()); }).then(() => ui.tour && ui.tour.offer('store', [
     { target: '#store-tab-catalog', title: 'Каталог', text: 'Готовые модули и игры из подключённых источников. Установка идёт через план: сначала видно, какие файлы изменятся, и только потом что-то меняется.' },
     { target: '#store-tab-sources', title: 'Источники', text: 'Откуда берётся каталог. Источник — это репозиторий с модулями; добавляйте только те, авторам которых доверяете: пакеты работают с возможностями всего приложения.' },
-    { target: '#store-tab-updates', title: 'Обновления и откат', text: 'Новые версии установленного. Ваши данные и ваши правки сохраняются, а прежнюю версию можно вернуть.' },
+    { target: '#store-tab-updates', title: 'Обновления и откат', text: 'Новые версии установленного. Отметьте нужные и обновите их разом: пакет с конфликтом ваших правок или с подозрениями проверки останется вам на решение. Данные и правки сохраняются, а прежнюю версию можно вернуть.' },
   ]));
 })();

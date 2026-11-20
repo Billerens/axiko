@@ -294,4 +294,49 @@
   .store-grid:not([data-view="grid"]) .store-card-actions > .btn { flex: 1 1 100px; }
   .store-shot { height: 240px; }
 }
+/* «Обновления»: a list to pick from, one button for what is picked, and what came of it. */
+.store-updates-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin-bottom: 10px; }
+.store-updates-head .btn { width: auto; flex: none; }
+.store-updates { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.store-update { display: grid; grid-template-columns: auto auto minmax(0,1fr); grid-template-areas: "pick icon head" "pick icon body"; align-items: center; gap: 2px 12px; padding: 8px 14px 10px 4px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.store-update:has([data-pick]:checked) { border-color: var(--accent); }
+.store-update-pick { grid-area: pick; align-self: start; width: 44px; height: 44px; display: grid; place-items: center; cursor: pointer; }
+.store-update-pick input { width: 22px; height: 22px; margin: 0; accent-color: var(--accent); cursor: inherit; }
+.store-update-pick:has(input:disabled) { cursor: default; opacity: .5; }
+.store-update > .store-icon { grid-area: icon; align-self: start; }
+.store-update-head { grid-area: head; min-width: 0; display: flex; flex-direction: column; }
+.store-update-body { grid-area: body; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.store-update-body:empty { display: none; }
+.store-update-title { align-self: flex-start; max-width: 100%; min-height: 44px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; font-size: 16px; font-weight: 650; line-height: 1.3; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
+.store-versions { font-family: var(--mono); font-size: 12px; color: var(--ink); }
+.store-update-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.store-update-foot > .btn { width: auto; margin-left: auto; padding: 8px 14px; }
+.store-update-news { flex: 1 1 auto; min-width: 0; }
+.store-update-news[open] { flex-basis: 100%; }
+.store-update-news > summary { min-height: 44px; width: max-content; display: flex; align-items: center; cursor: pointer; font-size: 14px; color: var(--accent); }
+.store-update-news-body { display: flex; flex-direction: column; }
+.store-batch { z-index: 5; margin-top: 12px; padding: 12px 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; border: 1px solid var(--line); border-radius: 15px; background: var(--surface); }
+.store-batch.armed { position: sticky; bottom: 8px; border-color: var(--accent); box-shadow: 0 -4px 18px rgba(0,0,0,.2); }
+.store-batch .store-trust { flex: 1 1 320px; }
+.store-batch .btn { width: auto; flex: 0 1 auto; }
+.store-batch-progress { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.store-batch-progress progress { width: 100%; height: 8px; accent-color: var(--accent); }
+#store-batch-step { overflow-wrap: anywhere; }
+.store-batch-report { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; padding: 14px; border: 1px solid var(--accent); border-radius: 15px; background: var(--accent-soft); }
+.store-batch-report-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.store-batch-report-head .btn { width: auto; flex: none; }
+.store-batch-results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.store-batch-result { display: flex; align-items: center; gap: 10px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); }
+.store-batch-result .grow { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.store-batch-result-head { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; }
+.store-batch-result-head strong { overflow-wrap: anywhere; }
+.store-batch-result .btn { width: auto; flex: none; }
+@media (max-width: 560px) {
+  .store-update { grid-template-columns: auto auto minmax(0,1fr); grid-template-areas: "pick icon head" "body body body"; column-gap: 8px; padding: 6px 12px 10px 2px; }
+  .store-update > .store-icon { width: 38px; height: 38px; border-radius: 11px; margin-top: 3px; }
+  .store-update-body { padding-left: 12px; }
+  .store-batch { padding: 10px 12px; }
+  .store-batch .btn { flex: 1 1 100%; }
+  .store-batch-result { flex-direction: column; align-items: stretch; }
+}
 @media (prefers-reduced-motion: reduce) { .store-dialog-backdrop { animation: none; } }
