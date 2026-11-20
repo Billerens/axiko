@@ -170,8 +170,11 @@ Tell people about Axiko, show what yours has turned into, and publish what you b
 
 ## Get started
 
-There is no build in an app store. You build Axiko and install it over `adb`. You need a phone with
-Android 11 or newer, the Android SDK (platform 36) and JDK 17 or newer.
+On an arm64 phone running Android 11 or newer, download the APK from
+[GitHub Releases](https://github.com/Billerens/axiko/releases/latest) and open it to install Axiko.
+Android may ask you to allow installation from your browser or file manager.
+
+To build Axiko yourself, install Android SDK platform 36 and JDK 17 or newer, then run:
 
 ```powershell
 scripts\fetch-libs.ps1                 # once: the speech recognition library (49 MB)
@@ -202,5 +205,6 @@ Most documents are in Russian for now.
 
 ## License
 
-No license has been chosen yet, for this repository or for the store. Until one is, ask before you
-reuse the code.
+Axiko's own code, including its factory modules, is licensed under the
+[Apache License, Version 2.0](LICENSE). Third-party components carry their own licenses.
+For example, the APK bundles the PRoot executable under GPL-2.0.
