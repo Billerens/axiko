@@ -40,7 +40,7 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 Axiko поставляет PRoot и два загрузчика для каждой из архитектур arm64 и x86_64. Их содержимое
 совпадает с Android-сборкой green-green-avk версии 0.15. Комплект включает исходники PRoot,
 статически связанной библиотеки talloc 2.1.14 и скрипты сборки. Его можно извлечь из APK
-по пути `assets/licenses/proot/proot-android-0.15-corresponding-source.tar.gz` или скачать из репозитория.
+по пути `assets/licenses/proot/proot-android-0.15-corresponding-source.tar` или скачать из репозитория.
 [Скачать исходники и скрипты сборки](../app/src/main/assets/licenses/proot/proot-android-0.15-corresponding-source.tar.gz) ·
 [Версии, SHA-256, лицензии и инструкция сборки](../app/src/main/assets/licenses/proot/README.md)
 
