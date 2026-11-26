@@ -859,7 +859,7 @@ check('folding: a conversation that outgrows the window is summarized', function
   }
 });
 
-// ---- what the shell gives modules (docs/shell-changes.md) ------------------------------------------------
+// ---- what the shell gives modules (docs/native-contracts.md) ---------------------------------------------
 
 check('shell.features: what this shell can do', function () {
   var features = native('shell.features');

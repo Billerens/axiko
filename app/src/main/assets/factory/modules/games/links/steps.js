@@ -1,4 +1,4 @@
-// «Шаги — топливо» (docs/games/steps-fuel.md): the steps of the day become the shared energy of
+// «Шаги — топливо» (docs/game-development.md): the steps of the day become the shared energy of
 // the games, and a walk before the metro charges the income for the trip.
 //
 // Steps come from the shared base (kind 'steps', written by «Здоровье») or, when it has none,

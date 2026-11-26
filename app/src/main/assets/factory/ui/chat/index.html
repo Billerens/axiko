@@ -195,6 +195,43 @@
     padding: 2px 4px;
   }
 
+  .participant-author {
+    padding: 0 4px;
+    margin: 4px 0 -8px;
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 650;
+  }
+
+  .participant-sheet .participant-row {
+    gap: 8px;
+    padding: 8px 10px;
+  }
+
+  .participant-row .btn {
+    flex: none;
+  }
+
+  .said {
+    align-self: flex-start;
+    margin: -8px 0 0 -6px;
+  }
+
+  .said .icon-btn {
+    width: 34px;
+    height: 34px;
+    color: var(--ink-3);
+  }
+
+  .said .icon-btn.on {
+    color: var(--accent);
+  }
+
+  .said .spinner {
+    width: 14px;
+    height: 14px;
+  }
+
   .tool {
     display: flex;
     align-items: center;
@@ -738,6 +775,43 @@
     height: 14px;
   }
 
+  .retry {
+    min-width: 0;
+    margin: 0 10px 6px;
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-s);
+    color: var(--ink-2);
+    font-size: 13px;
+  }
+
+  .retry.failed {
+    background: var(--danger-soft);
+    color: var(--danger);
+  }
+
+  .retry-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+  }
+
+  .retry-message {
+    overflow-wrap: anywhere;
+  }
+
+  .retry-partial {
+    margin-top: 5px;
+    color: var(--ink-2);
+  }
+
+  .retry-partial .md {
+    max-height: 22vh;
+    overflow: auto;
+  }
+
   /* With a mascot it shows the work instead of the spinner: a pose for what is being done and a
   lit gill for each agent at it. */
   .status .mascot {
@@ -811,6 +885,7 @@
     <button class="model" id="model" aria-label="Модель этого чата"><span class="truncate" id="model-text" data-raw></span><span data-icon="down"></span></button>
   </div>
   <button class="icon-btn" id="voice" aria-label="Озвучивать ответы"></button>
+  <button class="icon-btn" id="participants" aria-label="Участники чата" data-icon="user" disabled></button>
   <button class="icon-btn" id="threads" aria-label="Чаты" data-icon="message"></button>
   <button class="icon-btn" id="close" aria-label="Закрыть чат" data-icon="close"></button>
 </header>
@@ -821,6 +896,18 @@
   <span class="spinner"></span>
   <span class="grow truncate" id="status-text"></span>
   <span id="status-time"></span>
+</div>
+<div class="retry" id="retry" hidden>
+  <div class="retry-head">
+    <strong id="retry-status" role="status"></strong>
+    <button class="btn small" id="retry-action" hidden><span data-icon="refresh"></span>Повторить запрос</button>
+    <button class="btn small" id="retry-settings" hidden>Открыть настройки</button>
+  </div>
+  <div id="retry-message" class="retry-message" data-raw></div>
+  <details class="retry-partial" id="retry-partial" hidden>
+    <summary>Фрагмент ответа</summary>
+    <div class="md" data-raw></div>
+  </details>
 </div>
 <div class="queue" id="queue" hidden></div>
 <div class="attach" id="attach" hidden>
@@ -856,6 +943,13 @@
   const send = document.getElementById('send');
   const mic = document.getElementById('mic');
   const voice = document.getElementById('voice');
+  const retryBox = document.getElementById('retry');
+  const retryButton = document.getElementById('retry-action');
+  const retrySettings = document.getElementById('retry-settings');
+  const retryMessage = document.getElementById('retry-message');
+  const retryPartial = document.getElementById('retry-partial');
+  const retryLabel = document.getElementById('retry-status');
+  const participantsButton = document.getElementById('participants');
   let agentId = localStorage.getItem('chat.agent') || 'axiko';
   let attached = false;   // something waits to go with the next message: a screen, pictures, files
   let threadId = null;
@@ -868,6 +962,10 @@
   let drawing = false;
   let hearing = false;
   let speaking = false;
+  let retry = {};
+  let retryRevision = 0;
+  let retryPending = false;
+  let closeParticipants = null;
   const tools = {};       // tool call id -> its row
 
   const narrow = () => matchMedia('(max-width: 520px)').matches;
@@ -878,6 +976,7 @@
   function setBusy(value) {
     busy = value;
     refreshSend();
+    retryButton.disabled = busy || retryPending || !retry.available;
     if (!value) setStatus('');
   }
 
@@ -1012,6 +1111,56 @@
 
   function answerRow(text) {
     return add(h('div', { class: 'it md', 'data-raw': '', html: ui.md(text) }));
+  }
+
+  function finishedAnswer(text, author) {
+    if (author) add(h('div', { class: 'participant-author' }, ui.raw(author)));
+    answerRow(text);
+    if (text.trim()) add(sayRow(text));
+  }
+
+  // ---- an answer read aloud on request: once more, or for the first time ------------------------
+
+  let sayCount = 0;
+  const sayButtons = {};   // id → the button of an answer that is being read or waits to be
+
+  /** The button under a finished answer: a tap reads it aloud, a second tap stops it. */
+  function sayRow(text) {
+    const id = 'say-' + (++sayCount);
+    const button = h('button', { class: 'icon-btn' });
+    showSay(button, '');
+    button.onclick = async () => {
+      const was = button.dataset.state;
+      Object.keys(sayButtons).forEach(key => { showSay(sayButtons[key], ''); delete sayButtons[key]; });
+      await axiko.native('speech.stop');
+      if (was) return;
+      sayButtons[id] = button;
+      showSay(button, 'wait');
+      axiko.native('speech.say', text, '', id).catch(error => {
+        showSay(button, '');
+        delete sayButtons[id];
+        ui.toast(error.message);
+      });
+    };
+    return h('div', { class: 'said' }, button);
+  }
+
+  function showSay(button, state) {
+    button.dataset.state = state;
+    button.classList.toggle('on', !!state);
+    button.setAttribute('aria-label', state ? 'Остановить' : 'Озвучить');
+    button.replaceChildren(state === 'wait' ? h('span', { class: 'spinner' }) : ui.icon(state ? 'stop' : 'speaker'));
+  }
+
+  function onSay(event) {
+    if (event.state === 'stopped') {
+      (event.ids || []).forEach(id => { if (sayButtons[id]) { showSay(sayButtons[id], ''); delete sayButtons[id]; } });
+      return;
+    }
+    const button = sayButtons[event.say];
+    if (!button) return;
+    if (event.state === 'start') showSay(button, 'on');
+    else if (event.state === 'end') { showSay(button, ''); delete sayButtons[event.say]; }
   }
 
   /** Long runs of tool rows fold into one line so the conversation stays readable. */
@@ -1315,6 +1464,62 @@
       needsSetup && h('button', { class: 'btn small', onclick: openSettings }, 'Открыть настройки')));
   }
 
+  function showRetry(state) {
+    const becameFailure = state?.phase === 'failed' && retry.phase !== 'failed';
+    retry = state || {};
+    retryRevision++;
+    const failed = retry.phase === 'failed';
+    const waiting = retry.phase === 'waiting';
+    const active = retry.phase === 'retrying';
+    retryBox.hidden = !failed && !waiting && !active;
+    retryBox.classList.toggle('failed', failed);
+    retryLabel.textContent = failed ? ui.t('Ответ прерван') : waiting
+      ? ui.t('Повтор через {} с · {} из {}', Math.ceil(retry.delayMs / 1000), retry.attempt, retry.limit)
+      : active ? ui.t('Повторяю запрос') : '';
+    retryButton.hidden = !failed;
+    retryButton.disabled = busy || retryPending || !retry.available;
+    retrySettings.hidden = !failed || !/Настройки/.test(retry.message || '');
+    retryMessage.textContent = failed ? retry.message || '' : '';
+    if (becameFailure || retryPartial.hidden || !retry.partial) retryPartial.open = failed;
+    retryPartial.hidden = !retry.partial;
+    retryPartial.lastElementChild.innerHTML = ui.md(retry.partial || '');
+  }
+
+  async function refreshRetry() {
+    const who = agentId, thread = threadId, ticket = chatLoadVersion, revision = retryRevision;
+    if (!thread) return;
+    try {
+      const state = await axiko.native('agent.retryStatus', who, thread);
+      if (sameChat(who, thread, ticket) && revision === retryRevision) showRetry(state);
+    } catch { /* Retry state will be read on the next successful connection or chat load. */ }
+  }
+
+  async function retryRequest() {
+    if (retryButton.disabled || !threadId) return;
+    const who = agentId, thread = threadId, ticket = chatLoadVersion, version = agentEventsVersion;
+    const revision = retryRevision;
+    retryPending = true;
+    retryButton.disabled = true;
+    try {
+      const accepted = await axiko.native('agent.retry', who, thread);
+      if (!sameChat(who, thread, ticket)) return;
+      if (accepted) {
+        if (revision === retryRevision) {
+          setBusy(true);
+          showRetry({ ...retry, phase: 'retrying', available: false });
+        }
+        expectEcho(who, thread, version);
+      } else await refreshRetry();
+    } catch (error) {
+      if (sameChat(who, thread, ticket)) ui.toast(error.message);
+    } finally {
+      if (sameChat(who, thread, ticket)) {
+        retryPending = false;
+        retryButton.disabled = busy || !retry.available;
+      }
+    }
+  }
+
   function openSettings() {
     if (narrow()) axiko.native('ui.chat', false);
     axiko.open('ui/settings/index.html');
@@ -1330,7 +1535,7 @@
 
   // What the work sends many times a minute. A chat nobody sees does not draw it: it reads the
   // conversation anew when it is seen again (the shell keeps it whole).
-  const STREAM = { delta: 1, thought: 1, message: 1, tool: 1, status: 1, usage: 1, part: 1 };
+  const STREAM = { delta: 1, thought: 1, message: 1, tool: 1, status: 1, usage: 1, part: 1, participant: 1 };
   let unseen = false;
 
   function onAgent(event) {
@@ -1340,7 +1545,7 @@
     switch (event.type) {
       case 'user':
         // What the owner said in the middle of the work joins it; anything else starts a new one.
-        if (!event.steer) { step = 1; setStatus('Отправляю запрос'); mood('thinking'); }
+        if (!event.steer) { showRetry(null); step = 1; setStatus('Отправляю запрос'); mood('thinking'); }
         setBusy(true);
         userRow(event.text);
         toBottom();
@@ -1367,12 +1572,36 @@
       case 'queue': showQueue(event.items); break;
       case 'model': showModel(event.model); break;
       case 'asked': { const form = document.getElementById(event.id); if (form) form.remove(); break; }
+      case 'retry': {
+        const state = event.retry;
+        if (state.phase === 'waiting' || state.phase === 'failed') {
+          bubble?.remove();
+          bubble = null;
+          written = '';
+          thoughtDone();
+          setStatus('');
+        }
+        if (state.phase === 'retrying') setBusy(true);
+        showRetry(state);
+        break;
+      }
       case 'delta':
+        if (retry.phase === 'retrying' && retry.partial) showRetry({ ...retry, partial: '' });
         if (!bubble) { thoughtDone(); setStatus('Пишет ответ'); mood('point'); bubble = answerRow(''); written = ''; }
         written += event.text;
         if (!drawing) { drawing = true; requestAnimationFrame(draw); }
         break;
-      case 'message': draw(); thoughtDone(); bubble = null; written = ''; break;
+      case 'message':
+        draw();
+        thoughtDone();
+        if (bubble && written.trim()) bubble.after(sayRow(written));
+        bubble = null;
+        written = '';
+        break;
+      case 'participant':
+        thoughtDone();
+        finishedAnswer(event.text, event.agentName);
+        break;
       case 'attach': attachRow(event.text); break;
       case 'changes': changesRow(event, true); break;
       case 'limit': limitRow(event, true); break;
@@ -1380,9 +1609,15 @@
         toolRow(Object.assign({ live: true }, event));
         if (event.status === 'run') { setStatus('Выполняю: ' + event.name); mood(TOOL_POSE[event.name] || 'working'); }
         break;
-      case 'error': failRow(event.message); break;
+      case 'error': if (retry.phase !== 'failed' || retry.message !== event.message) failRow(event.message); break;
       case 'done': foldTools(); break;
-      case 'idle': setBusy(false); thoughtDone(); bubble = null; if (dialog) listenAgain(); break;
+      case 'idle':
+        setBusy(Boolean(event.more));
+        thoughtDone();
+        bubble = null;
+        if (retry.phase === 'failed') refreshRetry();
+        if (dialog) listenAgain();
+        break;
     }
   }
 
@@ -1502,23 +1737,28 @@
   });
   // ---- end reconnect reconciliation -----------------------------------------------------------
 
+  function sameChat(who, thread, ticket) {
+    return ticket === chatLoadVersion && who === agentId && thread === threadId;
+  }
+
   function renderHistory(history, running, who = agentId, thread = threadId, ticket = chatLoadVersion) {
-    const sameChat = () => ticket === chatLoadVersion && who === agentId && thread === threadId;
+    const stillCurrent = () => sameChat(who, thread, ticket);
     Object.keys(tools).forEach(id => delete tools[id]);
     bubble = null;
     written = '';
     thought = null;
     setMeter(0, 0);
-    axiko.native('agent.plan', who, thread).then(value => { if (sameChat()) setPlan(value); }).catch(() => {});
-    axiko.native('agent.queue', who, thread).then(value => { if (sameChat()) showQueue(value); }).catch(() => {});
-    axiko.native('agent.model', who, thread).then(value => { if (sameChat()) showModel(value); }).catch(() => {});
+    axiko.native('agent.plan', who, thread).then(value => { if (stillCurrent()) setPlan(value); }).catch(() => {});
+    axiko.native('agent.queue', who, thread).then(value => { if (stillCurrent()) showQueue(value); }).catch(() => {});
+    axiko.native('agent.model', who, thread).then(value => { if (stillCurrent()) showModel(value); }).catch(() => {});
+    refreshRetry();
     log.replaceChildren();
-    if (!history.length) blank(sameChat).catch(error => { if (sameChat()) failRow(error.message); });
+    if (!history.length) blank(stillCurrent).catch(error => { if (stillCurrent()) failRow(error.message); });
     for (const item of history) {
       if (item.type === 'user') userRow(item.text);
       // An answer still being written: what comes next is added to it.
       else if (item.type === 'assistant' && item.live) { bubble = answerRow(item.text); written = item.text; }
-      else if (item.type === 'assistant') answerRow(item.text);
+      else if (item.type === 'assistant') finishedAnswer(item.text, item.author);
       else if (item.type === 'tool') toolRow(item);
       else if (item.type === 'attach') attachRow(item.text);
       else if (item.type === 'shot') shotRow(item.image);
@@ -1538,12 +1778,17 @@
   async function load() {
     const ticket = ++chatLoadVersion;
     resetHistoryRefresh();
+    closeParticipants?.();
+    participantsButton.disabled = true;
+    retryPending = false;
+    showRetry(null);
     await header();
     if (ticket !== chatLoadVersion) return;
     const who = agentId;
     const selectedThread = await axiko.native('agent.thread', who);
     if (ticket !== chatLoadVersion || who !== agentId) return;
     threadId = selectedThread;
+    participantsButton.disabled = !selectedThread;
     const version = agentEventsVersion;
     const [history, running] = await Promise.all([
       axiko.native('agent.history', who, selectedThread), axiko.native('agent.busy', who, selectedThread),
@@ -1869,6 +2114,71 @@
     ]);
   }
 
+  async function pickParticipants() {
+    if (!threadId || closeParticipants) return;
+    const who = agentId, thread = threadId, ticket = chatLoadVersion;
+    const stillCurrent = () => sameChat(who, thread, ticket);
+    participantsButton.disabled = true;
+    try {
+      const [catalog, members] = await Promise.all([
+        axiko.native('agent.list'), axiko.native('agent.participants', who, thread),
+      ]);
+      if (!stillCurrent()) return;
+      const currentMembers = new Set((members || []).map(member => member.id));
+      const available = catalog.filter(agent => agent.id !== who);
+      const rows = available.map(agent => {
+        const title = agent.title || agent.id;
+        const addressLabel = ui.t('Написать агенту «{}»', title);
+        let joined = currentMembers.has(agent.id);
+        const address = h('button', {
+          class: 'icon-btn', 'aria-label': addressLabel, title: addressLabel,
+          onclick: () => {
+            if (!stillCurrent()) return;
+            closeParticipants?.();
+            const prefix = '@' + agent.id + ', ';
+            if (!input.value.startsWith(prefix)) input.value = prefix + input.value;
+            grow();
+            input.focus();
+          },
+        }, ui.icon('message'));
+        const button = h('button', { class: 'btn small', onclick: async () => {
+          if (!stillCurrent()) return;
+          button.disabled = true;
+          try {
+            if (!await axiko.native('agent.participant', who, thread, agent.id, !joined)) {
+              if (stillCurrent() && button.isConnected) ui.toast('Не удалось изменить участников');
+              return;
+            }
+            joined = !joined;
+            renderMember();
+          } catch (error) {
+            if (stillCurrent() && button.isConnected) ui.toast(error.message);
+          } finally {
+            button.disabled = false;
+          }
+        } });
+        function renderMember() {
+          address.hidden = !joined;
+          button.setAttribute('aria-pressed', String(joined));
+          button.textContent = ui.t(joined ? 'Убрать участника' : 'Позвать агента');
+        }
+        renderMember();
+        return h('div', { class: 'participant-row' },
+          h('span', { class: 'well' }, ui.mark(agent)),
+          h('span', { class: 'grow truncate', title }, ui.raw(title)), address, button);
+      });
+      closeParticipants = ui.sheet([
+        h('h3', {}, 'Участники чата'),
+        h('p', { class: 'small muted' }, 'Вопрос участнику можно адресовать через @имя.'),
+        rows.length ? h('div', { class: 'list participant-sheet' }, rows) : h('p', { class: 'empty' }, 'Других агентов пока нет.'),
+      ], () => { closeParticipants = null; });
+    } catch (error) {
+      if (stillCurrent()) ui.toast(error.message);
+    } finally {
+      if (stillCurrent()) participantsButton.disabled = false;
+    }
+  }
+
   async function pickThread() {
     const threads = await axiko.native('agent.threads', agentId);
     let close = null;
@@ -1937,7 +2247,12 @@
     mic.classList.toggle('wait', event.state === 'processing');
     if (event.level !== undefined) mic.style.setProperty('--level', Math.min(1, event.level * 6));
   });
-  axiko.on('tts', event => { if (event.error) ui.toast(event.error); });
+  axiko.on('tts', event => {
+    if (event.error) ui.toast(event.error);
+    // An answer read on request that could not be said ends here too.
+    if (event.error) Object.keys(sayButtons).forEach(key => { showSay(sayButtons[key], ''); delete sayButtons[key]; });
+    else onSay(event);
+  });
 
   // ---- a live conversation: the microphone stays open, and the owner can speak over the answer ------
 
@@ -1993,6 +2308,9 @@
   document.getElementById('pick').onclick = pickAgent;
   document.getElementById('mark').onclick = pickAgent;
   document.getElementById('model').onclick = pickModel;
+  participantsButton.onclick = pickParticipants;
+  retryButton.onclick = retryRequest;
+  retrySettings.onclick = openSettings;
   document.getElementById('threads').onclick = pickThread;
   document.getElementById('close').onclick = () => axiko.native('ui.chat', false);
 

@@ -1,84 +1,44 @@
-# Моды: доработки поверх пакетов
+English · [Русский](mods.ru.md)
 
-Спецификация от 17 ноября 2026. Опирается на формат каталога ([catalog-pages.md](catalog-pages.md)) и на установщик с планами ([implementation.md](implementation.md)).
+# Mods: customizations layered over packages
 
-## Что уже работает
+A mod is a catalog package that changes another package. It describes the intended result and supplies reference files and resources. It is not a standalone application or a line-based patch. It uses the [catalog format](catalog-pages.md) and the same [installation plans](implementation.md) as ordinary packages.
 
-| Часть | Состояние |
-|---|---|
-| Формат мода: карточка, манифест, архив, схемы | готово |
-| Сборка мода сборщиком каталога, проверка версий | готово |
-| Прямое наложение (та же версия цели, те же файлы), слой в реестре | готово |
-| Снятие мода с возвратом файлов к состоянию до него | готово |
-| Витрина: мод в каталоге, раздел «Доработки» у пакета, планы установки и снятия | готово |
-| Перенос исполнителем на другую версию цели | готово; проверено тестами оболочки и экрана, на живой модели ещё не опробовано |
-| Мод поверх правок владельца в тех же файлах | готово: это тот же перенос |
-| Обновление стоящего мода до новой версии | готово: новая версия ложится поверх пакета без прежней; если не ложится как есть — перенос |
-| «Перенести заново» для стоящего мода | готово: тот же перенос, начатый владельцем для версии мода, которая стоит |
-| «Поделиться доработкой» | готово: черновик мода из своих правок остаётся на устройстве; публикует его владелец в своём магазине |
+When the target version and relevant base files match, a mod can apply directly. Otherwise a dedicated agent carries the intent and reference implementation onto the owner's installed version, preserving local edits and asking the owner when choices are needed. The result is a reviewable candidate, not an automatically trusted installation.
 
-## Как устроен перенос
+## Catalog identity
 
-`store.prepare` для мода всегда возвращает план. Если образец ложится как есть, план готов (`mod.mode: "direct"`). Иначе план ждёт в статусе `carrying`: в нём ничего не изменено, применить его нельзя, а `mod.carry.reasons` говорит, почему образец не подошёл (другая версия цели, другие файлы у владельца, файлы прежней версии мода изменены после установки).
+A mod card has `"kind": "mod"` and `"extends": "<target-package-id>"`. `mod` is owned by the shell, like `module`; a host module cannot claim it. Icons, tags, descriptions, screenshots, changes and their translations use the same `store/` listing format as other packages.
 
-Перенос начинает владелец: кнопка «Перенести с агентом» в плане или инструмент `store_mod_carry` в чате. Открывается отдельный разговор, привязанный к этому плану, с набором инструментов только для него:
+A mod's `compatibility` contains only `minAxikoApi`; the target's own requirements establish its host compatibility. A mod knows its target, not dependencies on other mods.
 
-| Инструмент | Что делает |
-|---|---|
-| `store_mod_task` | Что переносится: мод, пакет, причины, файлы с пометками (где файл есть, равен ли он тому, с чего начинал автор, есть ли в нём правки владельца, есть ли в моде его исходный вид), материал мода |
-| `store_mod_read` | Текст одной стороны: `brief`, `reference`, `base`, `current`, `release`, `candidate`, `asset` |
-| `store_mod_copy` | Взять файл целиком со стороны `reference`, `asset`, `base`, `current` или `release` |
-| `store_mod_write`, `store_mod_edit`, `store_mod_delete` | Записать текст, заменить точный фрагмент, удалить файл в кандидате |
-| `ask_owner` | Спросить владельца |
-| `store_mod_done` | Сдать перенос с отчётом |
+## Archive layout
 
-Исполнитель пишет только в кандидат своего плана. Всё, что он записывает, проходит ту же проверку, что файлы выпуска (нечитаемый и бинарный код, загрузка кода извне); отказ здесь — ошибка переноса, а не бан мода. Других инструментов в этом разговоре нет: он не ставит пакеты, не читает рабочую папку и не запускает код.
-
-Отчёт `{summary, verbatim, adapted, skipped, questions}` называет каждый изменённый файл один раз: взят у автора как есть или сделан иначе и почему. Оболочка сверяет названное «как есть» с образцом, проверяет, что пакет запустится, и сама отмечает файлы, где были правки владельца (`mod.ownerEdits`) и которые перенесены без исходного вида (`report.withoutBase`). После сдачи план становится обычным: владелец видит отчёт перед списком файлов, может поручить проверку по правилам магазина (в отдельном разговоре) и устанавливает сам.
-
-Проверка, отклонившая перенесённый мод, не банит выпуск автора: нарушение могло появиться при переносе. План отклоняется, мод можно подготовить и перенести заново.
-
-
-## Идея
-
-Мод — пакет каталога, который не ставится сам по себе, а описывает доработку другого пакета: что меняется и зачем, плюс образец — файлы автора и ресурсы. На устройстве владельца мод не накладывается как патч: **агент-исполнитель переносит его на ту версию пакета, которая стоит у владельца**. Он читает описание и образец, берёт из них код, картинки, иконки и другие ресурсы, при необходимости переосмысляет решение под текущий код и может спросить владельца. Владелец получает свой вариант мода, возможно лучше оригинала.
-
-Что из этого следует:
-
-- **Образец, а не патч.** Мод не ломается, когда пакет обновился: его переносят заново.
-- **Без привязки к версии.** Версия, на которой сделан образец, записана как сведение: по ней исполнитель видит точную правку автора, а при совпадении версий мод ставится без агента.
-- **Без зависимостей между модами.** Мод знает только свою цель.
-- **Результат переноса — обычный план установки**: тот же просмотр изменений, проверка по правилам магазина, снимок и подтверждение владельца.
-
-## Мод в каталоге
-
-Карточка мода — обычная карточка с двумя отличиями: `"kind": "mod"` и `"extends": "<id пакета-цели>"`. Вид `mod` принадлежит оболочке, как `module`: модуль-хозяин его объявить не может. Иконка, теги, описание, снимки экрана и список изменений — как у любого пакета, из папки `store/`.
-
-Поле `compatibility` у мода содержит только `minAxikoApi`: требования к правилам хозяина цели проверяются у самой цели.
-
-## Архив мода
-
-```
-package.json        манифест
+```text
+package.json           Manifest
 README.md
 LICENSE
-mod/brief.md        задание исполнителю
-reference/…         файлы цели в том виде, какими их сделал автор (пути как в пакете-цели)
-base/…              те же файлы, какими они были до правки автора
-assets/…            материал для исполнителя: картинки, звуки, тексты, которые можно взять как есть
+mod/brief.md           Instructions describing the intended customization
+reference/…            Target files as changed by the author, using target-relative paths
+base/…                 The same target files before the author's edits
+assets/…               Material available to the carrying agent: images, sounds, text, etc.
 ```
 
-В пакет-цель попадает только то, что лежит в `reference/`: новый файл цели — это файл в `reference/` без пары в `base/`. Папка `assets/` при прямом наложении никуда не копируется; это запас для исполнителя, когда мод приходится переносить.
+There is no `code/` directory and no executable entry point. Direct application copies only `reference/` into the target. A reference file without a base counterpart is a new target file. `assets/` is not automatically copied by the direct path; it is material the carrying agent can use.
 
-Лимиты размера, правила читаемого кода и запреты на бинарные файлы — те же, что у пакетов.
+Package size, readable-source and executable-binary restrictions also apply to mods.
 
-**`base/`** делает мод самодостаточным: точная правка автора — это разница между `base/` и `reference/`, и она видна всегда, даже когда выпуск цели, на котором сделан образец, уже нигде не скачать. Папку заполняют инструменты (сборщик каталога и «Поделиться доработкой»), автор её руками не ведёт. Для добавленных файлов пары в `base/` нет.
+`base/` makes the mod self-contained: the author's exact change is the difference between `base/` and `reference/`, even if the corresponding target release can no longer be downloaded. The builder and Share customization supply base files; authors do not maintain their hashes by hand. Added files have no base counterpart.
 
-Мод содержит код цели — изменённый и исходный, — поэтому публиковать его можно, только если лицензия цели разрешает производные работы. Сборщик предупреждает, когда лицензия цели этого не говорит, а издатель мода — не издатель цели.
+The mod includes original and changed target code. Publish it only when the target's license permits that derivative use. The builder warns when this permission is not evident from the target license and publishers differ; that warning is not a legal authorization.
 
-**`mod/brief.md`** — главный файл мода. В нём автор пишет: что меняется для владельца, зачем, что должно получиться (по чему видно, что перенос удался), что трогать нельзя, какие части образца важны дословно (тексты, числа баланса, картинки), а какие можно сделать иначе.
+### The brief
 
-**Манифест** сверх обычных полей:
+`mod/brief.md` is the main human-readable specification. State what changes for the owner, why, the expected outcome and how to recognize success, what must remain untouched, which reference details must be preserved exactly (wording, balance values, images), and which implementation choices may be adapted.
+
+### Manifest additions
+
+Beyond ordinary manifest fields, a mod contains:
 
 ```json
 {
@@ -87,106 +47,114 @@ assets/…            материал для исполнителя: карти
   "reference": {
     "version": "0.1.1",
     "archiveSha256": "…",
-    "base": { "outpost.js": "<sha256 исходного файла>", "ui/outpost.js": "…" },
+    "base": {"outpost.js": "<original-file-sha256>", "ui/outpost.js": "…"},
     "added": ["ui/dragon-den.js"],
     "removed": ["ui/old-panel.js"]
   }
 }
 ```
 
-`reference` — сведение, не требование: на какой версии цели сделан образец и какими были изменённые файлы до правки. Мод ставится на любую версию цели.
+`reference.version` is provenance, not a supported-version constraint. It identifies the target release used to create the reference. `reference.base` must describe exactly the archived `base/` files; `added` lists reference files without a base counterpart; a removed file cannot also appear in `reference/`. A base file must be changed in the reference or named in `removed`. The mod must make at least one change.
 
-## Установка
+## Preparation and carrying
 
-1. **Подготовка.** Архив мода скачивается и проверяется как пакет. Цель должна быть установлена и стоять под управлением магазина; модуль «без магазина» сначала принимается, отсутствующая цель предлагается к установке.
-2. **Прямое наложение.** Если у владельца стоит та же версия цели, что в `reference`, и каждый файл из `reference.base` на устройстве совпадает с исходным, кандидат собирается без агента: файлы образца ложатся поверх. Это бесплатно, работает без сети и даёт у всех одно и то же.
-3. **Перенос исполнителем.** Во всех остальных случаях открывается отдельный разговор с ограниченным набором инструментов:
-   - читать задание, образец, исходные файлы образца (`base/`) и текущие файлы цели; для файлов, где у владельца есть свои правки, — ещё и их отличие от основы;
-   - писать только в кандидат плана этой одной цели; брать ресурсы из `assets/` и `reference/`;
-   - задавать вопросы владельцу: уточнить намерение, выбрать вариант, сообщить, что часть мода к текущей версии неприменима;
-   - сдать отчёт: что перенесено дословно, что сделано иначе и почему, что не удалось, какие были вопросы.
-4. **План.** Получается обычный план установки для пакета-цели: список изменений, отчёт исполнителя, замечания установщика. Проверка по правилам магазина идёт по кандидату, то есть по тому, что реально будет исполняться, и в отдельном разговоре: исполнитель сам себя не проверяет.
-5. **Применение.** Владелец смотрит изменения и отчёт и подтверждает. Перед заменой делается снимок.
+`store.prepare` always returns a plan. If direct application is valid, the plan is ready with `mod.mode: "direct"`. Otherwise it remains `carrying`: no live files have changed and it cannot be applied. `mod.carry.reasons` explains mismatched target versions, owner-edited files or changes made after an earlier mod installation.
 
-В карточке мода до установки честно сказано: совпадает ли версия, и если нет — что перенос выполнит агент, для этого нужна модель и запросы к ней, а результат может отличаться от образца.
+The owner starts carrying with Carry with agent in the plan or `store_mod_carry` in chat. The dedicated conversation is bound to that one plan and exposes only:
 
-## Что записывается
+| Tool | Scope |
+|---|---|
+| `store_mod_task` | Mod, target, reasons, material and file annotations: available sides, base equality, owner edits and whether original reference files exist. |
+| `store_mod_read` | Read text from `brief`, `reference`, `base`, `current`, `release`, `candidate` or `asset`. |
+| `store_mod_copy` | Copy a complete file from `reference`, `asset`, `base`, `current` or `release`. |
+| `store_mod_write`, `store_mod_edit`, `store_mod_delete` | Write text, replace an exact fragment or remove a file in this plan's candidate. |
+| `ask_owner` | Clarify the owner's intent or a conflicting choice. |
+| `store_mod_done` | Submit the candidate and report. |
 
-У установленного пакета-цели в реестре появляется слой мода:
+Every written file passes the release-file checks for unreadable/hidden code, executable binaries and remote code loading. A refusal while carrying is a failed adaptation, not automatically a ban on the author's original mod. The agent cannot install packages, read arbitrary workspace files, execute code or use other tools in this conversation.
+
+The carrying report is `{summary, verbatim, adapted, skipped, questions}`. Each changed file is accounted for once: copied verbatim or adapted, with a reason. The shell compares claims of verbatim copying with the reference, validates package structure and entry, and records owner-edited files in `mod.ownerEdits` and files carried without an original in `report.withoutBase`. This does not execute the candidate or prove that it will run correctly.
+
+After submission, the candidate returns to the ordinary plan flow. The owner sees the carrying report before the file changes, may request a separate rule-based review conversation, and decides whether to install. The carrying agent does not review its own output.
+
+A rejected adapted candidate does not ban the author's original release: the violation may have been introduced during adaptation. The plan is rejected and the mod can be prepared and carried again.
+
+## Installation flow
+
+1. **Prepare:** download and validate the mod archive. Its target must exist and be store-managed. Adopt an unmanaged target first; offer installation for an absent target.
+2. **Direct application:** if the installed target version matches the reference and each relevant base file is unchanged, build the candidate by overlaying reference files without an agent. Once the mod is available locally, this needs no model call and has a deterministic result.
+3. **Carry when necessary:** read the brief, reference, base and current target; inspect owner edits; write only into this target's candidate; use reference/assets; ask the owner about intent, alternatives or inapplicable features; submit the adaptation report.
+4. **Review the plan:** show the target changes, carrying report and installer findings. Any store safety review examines the actual candidate in a separate conversation.
+5. **Apply:** the owner confirms after inspecting the plan/report, and the installer snapshots before replacement.
+
+Before installation, the UI states whether the target version matches and whether a model-assisted carry is needed, including that model requests are required and the result may differ from the reference.
+
+## Recorded mod layer
+
+The managed target records a layer such as:
 
 ```json
 "mods": [{
-  "id": "forge-dragon-den", "sourceId": "…", "version": "1.2.0", "title": "Логово дракона",
-  "mode": "direct" | "ported", "laying": "<id этой установки мода>",
+  "id": "forge-dragon-den",
+  "sourceId": "…",
+  "version": "1.2.0",
+  "title": "Dragon den",
+  "mode": "ported",
+  "laying": "<this-mod-installation-id>",
   "targetVersion": "0.1.2",
-  "files": { "outpost.js": "<sha256 после переноса>" },
-  "added": ["ui/dragon-den.js"], "removed": [],
+  "files": {"outpost.js": "<post-carry-sha256>"},
+  "added": ["ui/dragon-den.js"],
+  "removed": [],
   "ownerEdits": ["outpost.js"],
-  "appliedAt": 1794900000000, "report": "…"
+  "appliedAt": 1794900000000,
+  "report": "…"
 }]
 ```
 
-Слой отвечает на вопрос «чьё это отличие»: файл, который отличается от основы и совпадает со слоем, принадлежит моду; всё остальное — правки владельца. В слое записано и то, какие файлы мод застал такими, как в выпуске (`pristine`): «без мода» для них — файл пакета в его нынешней версии, а не старая копия. Поэтому мод, снятый после обновления пакета, не возвращает файл прежней версии. Рядом с реестром, вне рабочей папки, хранятся копии затронутых файлов, какими они были до мода: по ним мод снимается там, где до него были правки владельца. Копии лежат отдельно для каждой установки мода (`laying`): новая версия мода не затирает копии стоящей, пока её план не применён.
+`mode` is `direct` or `ported`. A live file that differs from the release base but matches a mod layer is attributed to the mod; other differences are owner edits. The layer also records which files were initially `pristine`.
 
-## Жизнь после установки
+Pre-mod copies of affected files live beside the registry, outside the workspace, separately for each `laying`. Preparing an update does not overwrite the installed layer's copies before apply. For initially pristine files, “without the mod” means the current target release's file, not an old version. For owner-edited files, the saved pre-mod copy retains those edits.
 
-- **Обновление цели.** Слой мода проходит обычное трёхстороннее слияние, как любые локальные отличия. Агент нужен только при конфликте в файле мода; тогда выбор: перенести мод заново на новую версию, оставить прежний файл, снять мод.
-- **Новая версия мода.** Ложится поверх пакета, каким он был бы без прежней версии: файлы, которые всё ещё такие, какими их сделала прежняя версия, сначала возвращаются к состоянию до неё. Если после этого образец подходит как есть, план готов сразу; если нет (в том числе когда файлы прежней версии меняли после установки) — перенос. Снятие новой версии возвращает пакет к состоянию до первой.
-- **Перенести заново.** Владелец может отдать стоящий мод агенту ещё раз: после обновления пакета под модом или если перенос не устроил. План готовится из выпуска мода, сохранённого на устройстве; кандидат — пакет без мода в его нынешней версии.
-- **Снятие.** Файлы возвращаются к тому, какими они были бы без мода: правки владельца, сделанные до мода, остаются на месте, а файл, который мод застал нетронутым, становится файлом нынешнего выпуска пакета. Добавленные модом файлы удаляются. Если файл меняли уже после мода, он проходит слияние (что было до мода, что стало с модом, что сейчас); при конфликте — выбор владельца.
-- **Несколько модов на один пакет.** Ставятся по очереди: следующий перенос видит результат предыдущего как текущую версию. Если снимается мод, чьи файлы трогал более поздний, владелец предупреждён и может перенести оставшиеся заново.
-- **Откат.** Снимок перед применением возвращает пакет к состоянию до мода, как при любой установке.
+## After installation
 
-## Поделиться доработкой
+- **Target update:** the mod's changes go through the ordinary three-way comparison. A conflicting mod file requires a decision: carry again, retain the previous file or remove the mod.
+- **Mod update:** prepare against the target as it would be without the old mod. Files still matching the old layer are restored to their pre-mod state in the candidate. Apply directly if the new reference fits, otherwise carry it, including when the old mod's files were edited later. Removing the new mod version returns to the state before the first layer.
+- **Carry again:** the owner can re-adapt an installed mod after a target update or an unsatisfactory adaptation. Use the locally retained mod release and the current target without that mod as the candidate base.
+- **Remove:** restore the state without the mod. Keep earlier owner edits, restore pristine files from the target's current release, and remove mod-added files. Later edits use a three-way comparison of pre-mod, post-mod and current content; conflicts require an owner decision.
+- **Several mods:** install sequentially; each sees the previous result. Removing a mod touched by later mods warns the owner, who may carry the remaining mods again.
+- **Rollback:** the pre-apply snapshot restores code to the state before the mod. It does not roll back personal databases.
 
-Магазин знает у каждого установленного пакета, какие файлы изменил владелец (файлы, которые сделал стоящий мод, сюда не входят). Из них собирается черновик мода — папка в том виде, какой берёт сборщик каталога:
+## Share a customization
 
-```
+The store identifies owner edits separately from installed-mod changes. Share customization creates an author-ready local draft:
+
+```text
 data/mod-drafts/<id>/
-  store.json      id, kind: mod, version 1.0.0, title, summary, extends, reference: {version}, removed?
+  store.json            id, kind: mod, version 1.0.0, title, summary, extends, reference.version, removed?
   README.md
-  mod/brief.md    заготовка задания с перечнем файлов
-  reference/…     изменённые и добавленные файлы, какими их сделал владелец
-  base/…          изменённые и удалённые файлы, какими они были в выпуске
+  mod/brief.md          Starter brief listing changed files
+  reference/…           Owner-modified and added files
+  base/…                Changed/deleted files as they were in the release
 ```
 
-1. Владелец нажимает «Поделиться доработкой» у пакета и называет доработку: ID, название, что она меняет.
-2. Каждый файл проходит ту же проверку, что файлы выпуска; файл, которого выпуск содержать не может, и файл с сохранённым секретом в черновик не попадают, а черновик не создаётся.
-3. Задание (`mod/brief.md`) может написать агент: в отдельном разговоре он сравнивает `base/` и `reference/`, уточняет намерение у владельца и проверяет, нет ли в файлах личного.
-4. Публикация — дело владельца: папку кладут в репозиторий своего магазина, сборщик каталога собирает из неё мод. С устройства ничего не публикуется.
+The owner supplies ID, title and intended change. Every included file passes release-file checks; a forbidden file or detected saved secret prevents draft creation. A separate agent conversation may compare base/reference, clarify intent and help write the brief while checking for personal material.
 
-Для самоизменяющегося приложения это основной путь появления модов: правка, которую агент сделал по просьбе владельца, становится тем, чем можно поделиться.
+The draft stays on the device. The owner places it in a chosen source repository and publishes through the catalog builder; sharing a draft does not upload anything automatically.
 
-## Витрина
+## UI and boundaries
 
-- У карточки пакета — раздел «Доработки»: моды из подключённых источников, у которых `extends` равен этому пакету.
-- У установленного пакета — стоящие моды: как каждый поставлен (как у автора или перенесён агентом на такую-то версию), «Перенести заново», «Снять» и, если вышла новая версия, «Обновить».
-- У установленного пакета с правками владельца — «Поделиться доработкой».
-- В общем каталоге моды — отдельный раздел по виду `mod`, с названием цели в карточке.
+Package details list available mods whose `extends` matches the target. Installed targets list applied mods, their direct/ported provenance, Carry again, Remove and available updates. Owner-edited managed packages offer Share customization. Mods also have their own catalog kind with the target named on the card.
 
-## Безопасность
+The brief and reference are untrusted author data; they cannot expand tool permissions or override shell rules. The carrying agent writes only into one candidate, never owner data, saves or arbitrary workspace paths. A violation present in the author's reference can ban that mod release; a violation introduced by adaptation rejects the plan without attributing it to the author.
 
-- Задание и образец — недоверенные данные автора мода. Они не меняют правила оболочки и не дают исполнителю новых прав.
-- Исполнитель пишет только в кандидат одной цели. Он не ставит пакеты, не добавляет источники, не трогает данные и сохранения, не выходит за папку цели.
-- Нарушение правил, видимое в самом образце, — бан выпуска мода, как у пакета. Нарушение, появившееся при переносе, — отклонённый план без бана: автор мода за него не отвечает.
-- Мод не меняет данные и сохранения цели. Если доработка требует другого формата сохранений, это отдельный вопрос миграций.
+Mods do not migrate target saves. A change requiring another data format needs a separate migration design. v1 has no dependencies between mods, target-version ranges, line-based patch format or mods of the shell itself.
 
-## Чего в моде нет
+## Versioning and owner edits
 
-Зависимостей между модами, диапазонов версий цели, построчных патчей, модов на саму оболочку.
+A mod has one SemVer: the author's reference release version. Carrying does not create a new release version. The layer records `direct`/`ported` and the target version; catalog update detection continues to use the author's version.
 
-## Принятые решения
+There is no separate mod-specific question or pricing policy; ordinary conversation bounds and the owner's daily model-spending limit apply.
 
-**Версия мода после переноса.** У мода одна версия — версия его образца, SemVer автора: по ней каталог понимает, что вышла новая. Перенос новой версии не создаёт. В записи слоя отмечено, как мод поставлен (`direct` или `ported`) и на какую версию цели; владелец видит «Логово дракона 1.2.0 · перенесён на Кузницу 0.1.2» либо «как у автора».
+`base/` normally supplies the exact original. If an original is unavailable for a file, direct application is not used. The carrier is told that the exact diff is unknown and must infer intent from the brief and full reference file. Both plan and report mark the missing base for closer owner review.
 
-**Пределы для исполнителя.** Отдельных пределов на число вопросов и на стоимость переноса нет. Действует общий дневной лимит расходов владельца, как для любого разговора с агентом.
-
-**Исходных файлов образца нет.** Обычно такого не бывает: `base/` лежит в самом моде. Если автор всё же опубликовал мод без исходника какого-то файла, перенос не запрещается. Исполнителю сказано, что для этого файла точная правка неизвестна и намерение нужно брать из задания и из файла целиком; в отчёте и в плане такие файлы помечены «перенесён без исходника, проверьте внимательнее». Прямое наложение для такого мода не используется.
-
-**Мод поверх правок владельца в тех же файлах.** Ставить можно, заранее решать судьбу правок не нужно. Правки владельца — часть версии, на которую переносится мод, и исполнитель обязан их сохранить:
-
-- прямое наложение в этом случае не применяется, перенос всегда выполняет исполнитель;
-- исполнитель знает, в каких файлах есть правки владельца, и видит их отличие от основы;
-- если мод и правка владельца прямо противоречат друг другу, исполнитель спрашивает владельца, что важнее, а не решает сам;
-- в плане такие файлы помечены «здесь были ваши правки», чтобы владелец посмотрел именно их;
-- в записи слоя они перечислены в `ownerEdits`, а снятие мода возвращает файл к состоянию до мода, то есть вместе с правками владельца.
+Owner edits in affected files are part of the version being customized and must be preserved. They force a carry, are identified to the agent and shown in the plan, and are recorded in `ownerEdits`. If a mod's intent directly conflicts with an owner edit, ask the owner rather than silently choosing. Removing the mod restores the earlier owner-edited state where appropriate.

@@ -8,25 +8,29 @@ import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.media.ToneGenerator
+import android.os.SystemClock
 import app.axiko.App
 import app.axiko.agent.Agent
 import app.axiko.core.Archive
 import app.axiko.core.Engine
 import app.axiko.core.Pages
+import app.axiko.sense.AssistService
+import app.axiko.sense.OnScreenAssistant
 import com.k2fsa.sherpa.onnx.FeatureConfig
 import com.k2fsa.sherpa.onnx.KeywordSpotter
 import com.k2fsa.sherpa.onnx.KeywordSpotterConfig
 import com.k2fsa.sherpa.onnx.OnlineModelConfig
 import com.k2fsa.sherpa.onnx.OnlineTransducerModelConfig
 import com.k2fsa.sherpa.onnx.Vad
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.Executors
 
 /**
- * The name the assistant answers to. With the wake word on, the microphone is listened to all
- * the time; a phrase that starts with the name ("Axiko, который час?") goes to the main agent,
- * and the answer is spoken.
+ * Wake phrases for the assistant and individual agents. With wake enabled, a phrase starting
+ * with a configured name can open the system assistant panel with the
+ * rest of the phrase. The established voice-only route is available without the system role.
  *
  * Two ways to listen. The thorough one recognizes every phrase heard with the big speech model
  * and looks for the name in the text: accurate, but it costs battery. The light one keeps a
@@ -42,6 +46,7 @@ object Wake {
     const val MEGABYTES = 23
     private const val RATE = 16000
     private const val WINDOW = 512
+    private const val ALIASES = "wake.aliases"
     private val FILES = listOf("encoder.int8.onnx", "decoder.onnx", "joiner.int8.onnx", "tokens.txt")
     private val LEADS = setOf("эй", "окей", "ок", "слушай", "привет", "hey", "ok", "okay")
 
@@ -61,12 +66,12 @@ object Wake {
     private val thorough: Boolean get() = App.prefs.getString("wake.mode", "light") == "full"
 
     fun status(): JSONObject {
-        val spottable = lightReady && runCatching { keywords(name).isNotEmpty() }.getOrDefault(false)
+        val targets = targets()
+        val spottable = lightReady && runCatching { keywordLines(targets).isNotEmpty() }.getOrDefault(false)
         return JSONObject()
             .put("on", wanted).put("name", name).put("mode", if (thorough) "full" else "light")
             .put("lightReady", lightReady).put("downloading", downloading).put("megabytes", MEGABYTES)
-            // The small model spells words with Russian letters only: another name is left to the big one.
-            .put("spottable", spottable)
+            .put("spottable", spottable).put("aliasCount", targets.size - 1)
             .put("running", running).put("captures", captures).put("captureErrors", captureErrors)
             .put("lastError", lastError)
     }
@@ -95,9 +100,49 @@ object Wake {
         if (on) start() else stop()
     }
 
+    @Synchronized
     fun rename(value: String) {
+        val key = phraseKey(value.trim().ifEmpty { "Axiko" })
+        require(targets().drop(1).none { phraseKey(it.phrase) == key }) { "Это имя уже задано как фраза вызова агента" }
         Agent.rename(value)
         restart()
+    }
+
+    private fun storedAliases(): JSONObject = runCatching { JSONObject(App.prefs.getString(ALIASES, "{}").orEmpty()) }
+        .getOrElse { JSONObject() }
+
+    private fun phrases(values: JSONArray): List<String> = (0 until values.length()).mapNotNull { values.opt(it) as? String }
+
+    fun aliases(): JSONArray {
+        val stored = storedAliases()
+        return JSONArray(stored.keys().asSequence().filter(Agent::isKnown).mapNotNull { agent ->
+            stored.optJSONArray(agent)?.let { JSONObject().put("agent", agent).put("phrases", it) }
+        }.toList())
+    }
+
+    @Synchronized
+    fun setAliases(agent: String, values: JSONArray): JSONArray {
+        require(Agent.isKnown(agent)) { "Агент недоступен" }
+        val incoming = phrases(values).map { it.trim() }.filter(String::isNotEmpty)
+        require(incoming.all { phraseKey(it).isNotEmpty() }) { "Фраза вызова должна содержать хотя бы одно слово" }
+        val unique = incoming.distinctBy(::phraseKey)
+        val reserved = targets().filter { it.agent != agent }.mapTo(HashSet()) { phraseKey(it.phrase) }
+        require(unique.none { phraseKey(it) in reserved }) { "Эта фраза вызова уже используется" }
+        val stored = storedAliases()
+        if (unique.isEmpty()) stored.remove(agent) else stored.put(agent, JSONArray(unique))
+        App.prefs.edit().putString(ALIASES, stored.toString()).apply()
+        restart()
+        return aliases()
+    }
+
+    private fun targets(): List<Target> = buildList {
+        add(Target(name, null))
+        val stored = storedAliases()
+        for (agent in stored.keys()) {
+            if (!Agent.isKnown(agent)) continue
+            val values = stored.optJSONArray(agent) ?: continue
+            for (phrase in phrases(values)) if (phraseKey(phrase).isNotEmpty()) add(Target(phrase, agent))
+        }
     }
 
     /** Settings changed: the listening starts over with them. */
@@ -147,6 +192,8 @@ object Wake {
         return lower.filterIndexed { index, char -> index == 0 || char != lower[index - 1] }
     }
 
+    private fun phraseKey(text: String): String = words(text).joinToString(" ") { plain(it.value) }
+
     private fun distance(a: String, b: String): Int {
         var row = IntArray(b.length + 1) { it }
         for (i in 1..a.length) {
@@ -170,20 +217,36 @@ object Wake {
         return sameStart && distance(a, b) <= if (b.length >= 6) 2 else 1
     }
 
-    /**
-     * Where the request begins when the phrase starts with the name ("Axiko, …", "Эй, Axiko, …"),
-     * or null when it was not addressed to the assistant.
-     */
-    fun nameEnd(heard: String, wanted: String = name): Int? {
-        val said = words(heard)
+    internal data class Target(val phrase: String, val agent: String?)
+    internal data class Address(val end: Int, val agent: String?)
+    private data class Prefix(val end: Int, val exact: Boolean, val length: Int)
+
+    private fun prefix(said: List<MatchResult>, wanted: String): Prefix? {
         val target = words(wanted).map { it.value }
         if (target.isEmpty()) return null
+        var fuzzy: Prefix? = null
         for (start in 0..1) {
-            if (start == 1 && (said.isEmpty() || plain(said[0].value) !in LEADS)) break
+            if (start == 1 && (said.isEmpty() || said[0].value.lowercase() !in LEADS && plain(said[0].value) !in LEADS)) break
             if (said.size < start + target.size) continue
-            if (target.indices.all { alike(said[start + it].value, target[it]) }) return said[start + target.size - 1].range.last + 1
+            val end = said[start + target.size - 1].range.last + 1
+            if (target.indices.all { plain(said[start + it].value) == plain(target[it]) }) return Prefix(end, true, target.size)
+            if (fuzzy == null && target.indices.all { alike(said[start + it].value, target[it]) }) fuzzy = Prefix(end, false, target.size)
         }
-        return null
+        return fuzzy
+    }
+
+    /** Where the request begins after the chosen name, including any optional greeting. */
+    fun nameEnd(heard: String, wanted: String = name): Int? = prefix(words(heard), wanted)?.end
+
+    /** An exact spoken alias wins over a fuzzy one. A fuzzy tie between agents stays ambiguous. */
+    internal fun addressedTo(heard: String, targets: List<Target>): Address? {
+        val said = words(heard)
+        val order = compareByDescending<Prefix> { it.exact }.thenByDescending { it.length }.thenByDescending { it.end }
+        val found = targets.mapNotNull { target -> prefix(said, target.phrase)?.let { target to it } }
+            .sortedWith { a, b -> order.compare(a.second, b.second) }
+        val (target, match) = found.firstOrNull() ?: return null
+        if (found.drop(1).any { (other, tied) -> tied == match && other.agent != target.agent }) return null
+        return Address(match.end, target.agent)
     }
 
     // ---- the name for the small model -------------------------------------------------------------
@@ -237,9 +300,19 @@ object Wake {
         return lines.map { it.joinToString(" ") + " @name" }.distinct()
     }
 
+    /** Use the shared gate only when it can cover every configured phrase. */
+    private fun keywordLines(targets: List<Target>): List<String> {
+        val result = LinkedHashSet<String>()
+        for (target in targets) {
+            val lines = keywords(target.phrase)
+            if (lines.isEmpty()) return emptyList()
+            result.addAll(lines)
+        }
+        return result.toList()
+    }
+
     /** The caller owns this model until all of its streams are released. */
-    private fun makeSpotter(wanted: String): KeywordSpotter? {
-        val lines = keywords(wanted)
+    private fun makeSpotter(lines: List<String>): KeywordSpotter? {
         if (lines.isEmpty()) return null
         val list = File.createTempFile("wake-keywords-", ".txt", App.instance.cacheDir)
         try {
@@ -271,7 +344,7 @@ object Wake {
 
     /** Whether the small model catches the name in these samples (16 kHz): for checks. */
     fun spot(samples: FloatArray, wanted: String = name): Boolean {
-        val engine = makeSpotter(wanted) ?: error("Лёгкая модель не может записать имя «$wanted» своими буквами")
+        val engine = makeSpotter(keywords(wanted)) ?: error("Лёгкая модель не может записать имя «$wanted» своими буквами")
         try {
           val stream = engine.createStream()
           try {
@@ -319,6 +392,16 @@ object Wake {
     private val captureLock = Any()
     private data class Capture(val ticket: Int, val record: AudioRecord)
     private var activeCapture: Capture? = null // guarded by captureLock
+    private var panelRequestedAt: Long? = null // wake worker only
+
+    private fun micBusy(): Boolean =
+        Stt.listening || Tts.speaking || Live.holdsMicrophone || Stream.active
+
+    /** Called by the live worker after it has reserved the microphone for its session. */
+    internal fun yieldMicrophone() = synchronized(captureLock) {
+        activeCapture?.let { runCatching { it.record.stop() } }
+        Unit
+    }
 
     @Synchronized
     fun start() {
@@ -334,10 +417,13 @@ object Wake {
                   if (ticket != generation || !wanted) return@execute
                   worker = Thread.currentThread()
               }
-              gate = if (!thorough && lightReady) runCatching { makeSpotter(name) }.getOrNull() else null
+              val targets = targets()
+              gate = if (!thorough && lightReady) runCatching { makeSpotter(keywordLines(targets)) }.getOrNull() else null
               while (ticket == generation && wanted) {
                 // The microphone is someone else's for now; the watch resumes when it is free.
-                if (Stt.listening || Tts.speaking || Live.active || Stream.active) {
+                // Give Android time to show a requested panel after the wake recorder released the mic.
+                val handoff = panelRequestedAt?.let { SystemClock.elapsedRealtime() - it < 2_000 } == true
+                if (micBusy() || handoff) {
                     Thread.sleep(300)
                     continue
                 }
@@ -356,17 +442,26 @@ object Wake {
                 }
                 if (ticket != generation || !wanted) break
                 if (heard.isNullOrBlank()) continue
-                val end = nameEnd(heard) ?: continue
-                var command = heard.substring(end).trim(' ', ',', '.', '!', '?', '-', '—')
+                val address = addressedTo(heard, targets) ?: continue
+                val agent = address.agent
+                if (agent != null && !Agent.isKnown(agent)) continue
+                if (micBusy()) continue
+                var command = heard.substring(address.end).trim(' ', ',', '.', '!', '?', ':', '-', '—')
+                val opener = command.takeIf { it.length >= 3 }
+                if (OnScreenAssistant.wakePanel() && AssistService.request(opener, if (opener == null) true else null, agent)) {
+                    panelRequestedAt = SystemClock.elapsedRealtime()
+                    continue
+                }
                 if (command.length < 3) {
                     // Only the name was said: a short tone, then the request itself.
                     runCatching { ToneGenerator(AudioManager.STREAM_MUSIC, 60).startTone(ToneGenerator.TONE_PROP_BEEP, 120) }
                     command = runCatching { Stt.listen(20) }.getOrDefault("")
                 }
                 if (ticket != generation || !wanted) break
-                if (command.isBlank()) continue
+                if (command.isBlank() || Live.holdsMicrophone) continue
+                if (agent != null && !Agent.isKnown(agent)) continue
                 Tts.voiceTurn = true
-                Agent.chat(Agent.MAIN).send(command)
+                Agent.chat(agent ?: Agent.MAIN).send(command)
               }
             } catch (stopped: InterruptedException) {
                 // stop() wakes the busy-microphone wait and failure backoff immediately.
@@ -416,7 +511,7 @@ object Wake {
             ).also { recordToRelease = it }
             check(record.state == AudioRecord.STATE_INITIALIZED) { "Не удалось открыть микрофон." }
             synchronized(captureLock) {
-                if (ticket != generation || !wanted) return null
+                if (ticket != generation || !wanted || micBusy()) return null
                 activeCapture = Capture(ticket, record)
                 record.startRecording()
             }
@@ -427,9 +522,9 @@ object Wake {
             var emptyReads = 0
             // Without the small model every phrase counts as possibly addressed to the assistant.
             var named = gate == null
-            while (ticket == generation && wanted && !Stt.listening && !Tts.speaking && !Live.active && !Stream.active && segment == null) {
+            while (ticket == generation && wanted && !micBusy() && segment == null) {
                 val count = record.read(buffer, filled, WINDOW - filled)
-                if (ticket != generation || !wanted) break
+                if (ticket != generation || !wanted || micBusy()) break
                 check(count >= 0) { "Ошибка чтения микрофона: $count" }
                 if (count == 0) {
                     check(++emptyReads < 10) { "Микрофон не отдаёт звук." }
@@ -468,6 +563,6 @@ object Wake {
                 try { detectorToRelease?.release() } finally { stream?.release() }
             }
         }
-        return if (ticket == generation && wanted) segment?.let { Stt.decode(it) } else null
+        return if (ticket == generation && wanted && !micBusy()) segment?.let { Stt.decode(it) } else null
     }
 }

@@ -1,4 +1,4 @@
-// «Пассажир» (docs/games/passenger.md): Axiko notices that the owner rides without network, and
+// «Пассажир» (docs/game-development.md): Axiko notices that the owner rides without network, and
 // while the trip lasts the income of the games is multiplied; a long trip brings a chest.
 //
 // The automaton none → maybe → trip → none runs on signs: no network, the shaking of a carriage

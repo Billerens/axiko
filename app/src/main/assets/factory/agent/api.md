@@ -182,14 +182,62 @@ s.get([1, 2, 3]); s.draw([4, 5]); s.ahead(рекорд, { ahead: 6 }); s.status(
 | `launcher.icon`, `launcher.icon.set(name)`, `launcher.icons` | Значок приложения на рабочем столе телефона: `'mascot'` (на фиолетовом), `'night'`, `'light'`, `'pink'`, `'plain'` (искра), `'plain-night'`. `launcher.icons` → `[{id, on, image}]` с картинкой каждого значка (data-URL) — для экрана выбора. Выбор — в «Настройки → Вид» |
 | `ui.scale`, `ui.scale.set(percent)` | Масштаб всего интерфейса в процентах (80–130, шаг 5): `{value, min, max, step, wide}`. Хранится отдельно для узкого и широкого экрана; после смены оболочка заново загружает экраны. Владелец меняет его в «Настройки → Вид» |
 | `speech.say(text, 'local')` | Сказать голосом, который живёт на телефоне |
+| `speech.say(text, '', id)` | Сказать и следить: событие `tts` приходит как `{say: id, state: 'start'}`, когда зазвучало, и `{say: id, state: 'end'}`, когда сказано; `speech.stop` присылает `{state: 'stopped', ids}` — что уже не прозвучит |
 | `tts.local.status` | Голос на телефоне: `{ready, voice, voices, speed}` |
 | `wake.status`, `wake.name(name)`, `wake.set(on)` | Имя, на которое ассистент откликается голосом |
+| `wake.aliases.get`, `wake.aliases.set(agentId, phrases)` | Фразы вызова отдельных агентов. Чтение возвращает `[{agent, phrases}]`, запись принимает массив строк для указанного агента. Пустой массив удаляет его дополнительные фразы |
+
+### Наэкранный ассистент Android
+
+Поддержку обозначает `assistant.panel` в `shell.features`. Пользователь и агент могут править
+`ui/assistant/index.html`, `assistant.css` и `assistant.js` в рабочей папке. После правок
+переоткройте панель. В безопасном режиме загружается заводская версия. Если рабочая страница
+не ответит на `assistant.ready`, оболочка также попробует заводскую копию.
+
+Настройки читаются через `assistant.pref.get` и сохраняются частичным объектом в
+`assistant.pref.set`. `assistant.settings` открывает системный выбор ассистента, а
+`assistant.preview` показывает панель, когда Axiko выбран системным ассистентом.
+`conversationIdleSeconds` задаёт таймаут непрерывного разговора от 0 до 3600 секунд.
+По умолчанию 180, отсчёт ждёт завершения работы агента. При значении 0 слушание продолжается
+до выключения микрофона или закрытия панели.
+
+Из страницы панели вызывайте `axiko.native('assistant.ready')` после инициализации. Ответ
+совпадает с `assistant.status` и содержит `profile`, `messages`, `question`, `busy`, `audio`,
+`context`, `thread`, `mode`, `draft`, `draftRevision`, `draftAudioRevision`, `saved`,
+`conversation`, `participants`, `retry` и доступность действий `canResume` и `canOpenChat`.
+`conversation` показывает, включён ли непрерывный разговор. Перечитывайте состояние по событию
+`assistant` и обновляйте индикатор микрофона по `assistant.audio`.
+
+К префиксу `assistant.` добавляются операции `send(text, thread?)`, `startVoice`,
+`startConversation`, `stopVoice`, `stopSpeaking`, `retry`, `cancel`, `attachScreen(on)`,
+`resume`, `answer(id, answers)`, `planAction(id, action, text?)`, `openChat`, `openApp`, `close`.
+Заводская панель вызывает `startConversation` по долгому нажатию на микрофон в голосовом
+режиме. `stopVoice` выключает микрофон, а `stopSpeaking` прерывает текущую озвучку.
+Показывайте `retry`, когда `status.retry.available` истинно. `openApp` открывает основное
+приложение из любой сессии. `sessions(query?)` возвращает недавние сессии выбранного агента
+или совпадения по запросу среди сохранённых чатов. `selectSession(id, agentId?)` и `newSession`
+меняют разговор в панели. `participant(agentId, joined)` добавляет или удаляет участника
+текущего чата.
+`setMode('text'|'voice')` переключает режим. В текстовом режиме распознанная речь дополняет
+черновик. `setDraft(text, thread, draftAudioRevision?)` сохраняет правку в памяти. Передавайте
+последнюю полученную ревизию диктовки, чтобы правка не затёрла новую распознанную фразу.
+
+`assistant.hitAreas({width, height, rects})` передаёт видимые области управления в CSS-пикселях
+вьюпорта. У каждого прямоугольника есть `left`, `top`, `right`, `bottom` и необязательный `radius`.
+Обновляйте области после изменения раскладки. Это позволяет приложению под ассистентом
+получать касания в прозрачных зонах.
+
+Снимок экрана присоединяйте по явному действию пользователя через `assistant.attachScreen(true)`.
+Панель получает только состояние текущей сессии. Общие операции движка доступны из рабочего
+пространства через обычные инструменты агента.
 
 Вкладки на экране: `<nav class="tabs" id="tabs"></nav>`, блоки `<div class="tab" data-tab="id">`, затем
 `ui.tabs(document.getElementById('tabs'), [['id', 'Название'], …])`.
 
 - Агенты: `agent.list`; `agent.run(id, task)` — разовая задача с чистого листа, ждёт ответа.
 - Чаты агента с владельцем: `agent.send(id, text, thread?)`, `agent.stop(id, thread?)`, `agent.history(id, thread?)`, `agent.busy(id, thread?)` — без `thread` это открытый сейчас чат; `agent.threads(id)`, `agent.thread(id)`, `agent.newThread(id)`, `agent.openThread(id, thread)`, `agent.deleteThread(id, thread)`.
+- Повтор сбойного шага модели через `agent.retry(id, thread?)`. `agent.retryStatus(id, thread?)` возвращает `{phase, attempt, limit, partial, message, delayMs, available}`. Обновления приходят событием `agent` с `type: 'retry'` и полем `retry`. Настройка `chat.retryLimit` принимает от 0 до 10 автоматических повторов, по умолчанию 2. Повтор использует результаты уже выполненных инструментов.
+- Участники текущего чата доступны через `agent.participants(id, thread?)` → `[{id, title}]` и изменяются через `agent.participant(id, thread, agentId, joined)`.
 - Сообщение, отправленное, пока агент работает, ждёт в очереди: `agent.send(id, text, thread, false, 'steer'|'after')` — попасть в идущую работу между её шагами или дождаться ответа (без пятого аргумента решает настройка `chat.busy`); `agent.queue(id, thread?)` → `[{id, text, steer}]`, `agent.unqueue(id, thread, item)`, `agent.requeue(id, thread, item, 'steer'|'after')`.
 - Модель одного чата: `agent.model(id, thread?)` → `{own, provider, model, effort, vision, window}`; `agent.setModel(id, thread, {provider, model, vision?, effort?})` — другая модель только для этого чата, `{effort}` — та же модель с другим усилием, `null` — как в настройках. Идущая работа переходит на новую модель со следующего шага.
 - Модели: `models.providers`, `models.roles` (`{роль: {provider, model, vision, effort}}`), `models.resolve(role)`, `models.complete(role, body)`, `models.list(providerId)`. Ключи провайдеров хранит оболочка: `models.providers` и `models.resolve` отдают только `hasKey` (в списке провайдеров на месте ключа стоит маска `••••••••`; `models.setProviders` принимает новый ключ в поле `key`, а маску и пустое значение оставляет без изменений), запросы к модели идут через `models.complete`.
@@ -210,7 +258,19 @@ s.get([1, 2, 3]); s.draw([4, 5]); s.ahead(рекорд, { ahead: 6 }); s.status(
 - Резервная копия: всё личное (рабочая папка, данные модулей, чаты, настройки, секреты) одним зашифрованным файлом `.axb` — «Настройки → Система → Резервная копия» (`ui/settings/index.html?tab=system`). Сохранить копию, восстановить из неё и включить автокопию может только владелец на этом экране: пароль спрашивает системный диалог оболочки, через чат и страницы он не проходит, поэтому инструмента агента нет — подскажите, куда нажать. Операции `backup.*` служат экрану настроек; из них читайте только `backup.status` → `{last?: {at, name, bytes, auto, files}, auto: {mode, keep, time, folder, folderOk, password, next}, history, busy?, error?}`. Модели, Linux-окружение и входы на сайтах в копию не входят.
 - Прочее: `snap.list`, `snap.restore(id)`, `snap.storage` (объём истории и общих объектов), `snap.migrate` (проверить и продолжить перенос старой истории), `pref.get(key)`, `pref.set(key, value)`, `webcache.info`, `webcache.clear`, `sys.info`, `log.engine(n)`.
 
-События на экранах: `speech` — `{ state: 'listening'|'speech'|'processing'|'idle', level }`; `speech.phrase`, `speech.stream` (`{ active }`); `app.visible` — `{ on }`: приложение свернули, погас экран или его открыли снова (экраны при этом на паузе, `visibilitychange` приходит); `agent` — `{ agent, thread, type: 'user'|'delta'|'message'|'tool'|'done'|'error'|'idle'|'reset', … }`; `chat.visible`; ваши собственные через `emit`.
+События на экранах: `speech` — `{ state: 'listening'|'speech'|'processing'|'idle', level }`; `speech.phrase`, `speech.stream` (`{ active }`); `app.visible` — `{ on }`: приложение свернули, погас экран или его открыли снова (экраны при этом на паузе, `visibilitychange` приходит); `agent` — `{ agent, thread, type: 'user'|'delta'|'message'|'tool'|'done'|'error'|'idle'|'reset'|'retry', … }`; `chat.visible`; ваши собственные через `emit`.
+
+### Инструменты агента для чатов
+
+| Инструмент | Аргументы и действие |
+|---|---|
+| `chat_find` | `{query: string}`. Ищет по заголовкам и недавним репликам сохранённых чатов. Возвращает массив совпадений с `handle`, `title`, `agentTitle` и `snippet`. |
+| `chat_open` | `{handle: string}`. Открывает совпадение из последнего `chat_find` в той же панели ассистента или в обычном чате. Исходный разговор должен оставаться открытым. При нескольких подходящих совпадениях сначала уточните выбор у владельца. |
+| `chat_invite` | `{agent: string}`. Добавляет в текущий разговор участника по имени или идентификатору, чтобы владелец мог обратиться к нему в следующих репликах. |
+
+Эти инструменты вызываются из разговора с владельцем. Приглашение «Позови Нору» и обращение
+`@Нора проверь это` также распознаёт оболочка. Участника можно позвать и затем обратиться к
+нему голосом по имени, например «Нора, проверь это».
 
 ### Магазин модулей и игр
 

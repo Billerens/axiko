@@ -32,8 +32,8 @@ object UiScale {
         JSONObject().put("value", percent(wide)).put("min", MIN).put("max", MAX).put("step", STEP).put("wide", wide)
 
     /**
-     * What a page runs before anything else when the scale is not 100: every viewport tag the
-     * page brings is rewritten to a width in numbers (a page's own tag would otherwise win), and
+     * What a page runs before anything else, at 100 too: every viewport tag the page brings is
+     * rewritten to a width in numbers (a page's own tag would otherwise win), and
      * a page without one gets it. `outerWidth` is the view's width whatever the viewport says;
      * the tag follows it when the view changes (folding, the chat panel beside the screen).
      *
@@ -41,9 +41,15 @@ object UiScale {
      * WebView sometimes keeps the scale it took from the page's own tag (1) — the page is then
      * laid out wider than the view and scrolls sideways. With both, the layout is the width asked
      * for whichever way the scale goes. Without a width the layout falls back to 980 px.
+     *
+     * The scale is pinned as well (`minimum-scale` = `maximum-scale`): a changed `initial-scale`
+     * alone is not taken by a page already shown, and on a turn of the phone the WebView picks a
+     * scale of its own to keep the same content in sight — turned back, the page stayed at that
+     * scale, larger or smaller than the view and shifted sideways. The view's width can come late
+     * after a turn, so the tag is checked again once the turn has settled. A reload keeps the
+     * scale the page had, so a page at 100 is pinned too, or it would stay at the scale of before.
      */
-    fun script(percent: Int): String? {
-        if (percent == 100) return null
+    fun script(percent: Int): String {
         val scale = (percent / 100.0).toString()
         return """
             (function () {
@@ -51,13 +57,22 @@ object UiScale {
               function want() {
                 var view = window.outerWidth || screen.width;
                 var width = Math.max(40, Math.round(view / $scale));
-                return 'width=' + width + ', initial-scale=' + (view / width).toFixed(4) + ', viewport-fit=cover';
+                var zoom = (view / width).toFixed(4);
+                return 'width=' + width + ', initial-scale=' + zoom + ', minimum-scale=' + zoom + ', maximum-scale=' + zoom +
+                  ', viewport-fit=cover';
               }
               function fix() {
                 var content = want();
                 var list = document.querySelectorAll('meta[name="viewport"]');
                 for (var i = 0; i < list.length; i++) if (list[i].getAttribute('content') !== content) list[i].setAttribute('content', content);
+                // The page is as wide as the view: nothing is left to the side.
+                if (window.scrollX) window.scrollTo(0, window.scrollY);
                 return list.length;
+              }
+              function settle() {
+                fix();
+                requestAnimationFrame(fix);
+                setTimeout(fix, 300);
               }
               var watch = new MutationObserver(fix);
               watch.observe(document, { childList: true, subtree: true });
@@ -70,7 +85,9 @@ object UiScale {
                   document.head.appendChild(meta);
                 }
               });
-              window.addEventListener('resize', fix);
+              window.addEventListener('resize', settle);
+              if (window.visualViewport) window.visualViewport.addEventListener('resize', fix);
+              if (screen.orientation) screen.orientation.addEventListener('change', settle);
             })();
         """.trimIndent()
     }

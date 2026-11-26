@@ -22,8 +22,8 @@ android {
         // only for apps targeting it (typed foreground services, read-only dynamic code,
         // tighter background launches) stay off for a personal, sideloaded app.
         targetSdk = 33
-        versionCode = 3
-        versionName = "0.2.0"
+        versionCode = 4
+        versionName = "0.3.0"
         // The phone needs arm64 only; x86_64 is for the emulator. `-Pphone` leaves it out (about 70 MB less).
         ndk { abiFilters += if (project.hasProperty("phone")) listOf("arm64-v8a") else listOf("arm64-v8a", "x86_64") }
     }

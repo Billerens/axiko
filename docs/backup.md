@@ -1,176 +1,173 @@
-# Резервная копия
+# Encrypted backup contract
 
-Копия — один зашифрованный файл `.axb` со всем личным: рабочая папка, данные модулей, чаты и задачи, настройки, секреты. Она нужна, чтобы пережить потерю телефона, сброс, переезд на другой телефон и переход между сборками `app.axiko` и `app.axiko`. Файл сохраняется и выбирается через системное окно Android (память телефона, Google Диск, любое облако с приложением на телефоне); приложению для этого не нужны разрешения на файлы.
+English · [Русский](backup.ru.md)
 
-Экран: «Настройки → Система → Резервная копия». Код: `app/src/main/java/app/axiko/backup/` (`BackupFormat.kt` — шифрование, `BackupArchive.kt` — состав и проверка, `BackupSwap.kt` — замена папок при запуске, `Backup.kt` — всё, что связано с Android).
+A backup is one encrypted `.axb` file containing personal workspace state. Use Settings →
+System → Backup to save or restore it through Android's system document picker. It is a
+portable backup, unlike the [code-only snapshot history](snapshot-storage.md).
 
-## Что внутри
+Implementation: [`app/axiko/backup/`](../app/src/main/java/app/axiko/backup/): `BackupFormat`
+(encryption), `BackupArchive` (inventory and validation), `BackupSwap` (recoverable directory
+replacement), and `Backup` (Android integration).
 
-| Часть | Откуда | Где в архиве |
-|---|---|---|
-| Рабочая папка (экраны, модули, инструкции агентов) | `files/axiko` | `files/axiko/…` |
-| Данные модулей и игр, сохранения, базы | `files/data` | `files/data/…` |
-| Чаты, задачи, расписания, состояние магазина | `files/state` | `files/state/…` |
-| Черновики | `files/drafts` | `files/drafts/…` |
-| История изменений — только если включён переключатель | `files/history` | `files/history/…` |
-| Настройки (SharedPreferences `axiko`, с типами) | — | `prefs/axiko.json` |
-| Секреты хранилища, расшифрованные ключом этого телефона | — | `secrets.json` |
+## Scope
 
-Не входят и после восстановления скачиваются или настраиваются заново:
+| Part | Archive location |
+|---|---|
+| Editable workspace | `files/axiko/` |
+| Module/game data and databases | `files/data/` |
+| Conversations, tasks and store state | `files/state/` |
+| Drafts | `files/drafts/` |
+| Snapshot history, only when requested | `files/history/` |
+| Typed settings from SharedPreferences `axiko` | `prefs/axiko.json` |
+| Vault values, inside backup encryption | `secrets.json` |
 
-- модели (`files/models`) и Linux-окружение — большие и скачиваемые;
-- кэши, в том числе `files/data/.webcache`;
-- хранилища WebView (cookies, localStorage, IndexedDB): входы на сайтах внутри экранов придётся повторить. Игры держат в localStorage только запасную копию сохранения; основное лежит в `files/data` и в копию входит;
-- журналы незавершённых операций и временные файлы: `state/restore-transaction.json`, `state/store/install-transaction.json`, `state/store/downloads`, `*.tmp`;
-- настройки, описывающие сам телефон: `boot_failures`, `widget.*`, `backup.*` (папка, расписание и пароль автокопии). При восстановлении они остаются такими, какие есть на телефоне;
-- системные разрешения, привязка виджетов, ключ AndroidKeyStore. Сам ключ не переносится никогда, поэтому секреты едут в копии открытым текстом внутри её собственного шифрования и на новом телефоне шифруются заново его ключом.
+Excluded: downloaded models, Linux, app cache directories (`cache/`, `code_cache/`) and
+`data/.webcache`, WebView cookies / localStorage / IndexedDB, transient restore/install
+journals, store downloads and temporary state files. Symlinks and special files are omitted and listed in the manifest's `skipped` field.
 
-Символьные ссылки и специальные файлы в копию не попадают; их пути перечислены в `skipped` манифеста.
+Device-local settings (`boot_failures`, `widget.*`, `backup.*`), Android permissions and
+widget bindings do not travel. The destination keeps its own local backup configuration.
+AndroidKeyStore keys never leave their installation: the backup decrypts vault values inside
+the shell, encrypts them under its own password, then seals them again with the destination's
+key during restore. The automatic-backup password is excluded from the backup itself.
 
-## Формат файла, версия 1
+Game saves in `files/data` are included; WebView localStorage holds only their spare copy.
+Website sign-ins and other WebView-only state are not portable through this format.
 
-Числа — big-endian. Файл — заголовок в 80 байт и следом кадры до конца файла.
+## Outer format v1
 
-### Заголовок
+Integers are big-endian. The file is an 80-byte header followed by authenticated frames.
 
-| Смещение | Размер | Содержимое |
-|---|---|---|
-| 0 | 8 | `AXIKOBAK` (ASCII) |
-| 8 | 2 | версия формата, сейчас `1` |
-| 10 | 1 | способ получения ключа: `1` = PBKDF2-HMAC-SHA256 |
-| 11 | 1 | шифр: `1` = кадры AES-256-GCM |
-| 12 | 4 | число итераций PBKDF2 |
-| 16 | 4 | размер кадра открытого текста в байтах (приложение пишет 1 048 576) |
-| 20 | 16 | соль |
-| 36 | 7 | случайный префикс nonce |
-| 43 | 1 | запас, `0` |
-| 44 | 32 | проверка пароля |
-| 76 | 4 | CRC-32 байтов 0–75 |
+| Offset | Bytes | Field |
+|---|---:|---|
+| 0 | 8 | ASCII `AXIKOBAK` |
+| 8 | 2 | Format version: `1` |
+| 10 | 1 | KDF: `1` = PBKDF2-HMAC-SHA256 |
+| 11 | 1 | Cipher: `1` = framed AES-256-GCM |
+| 12 | 4 | PBKDF2 iteration count |
+| 16 | 4 | Plaintext frame size; writer defaults to 1,048,576 |
+| 20 | 16 | Salt |
+| 36 | 7 | Random nonce prefix |
+| 43 | 1 | Reserved: `0` |
+| 44 | 32 | Password verifier |
+| 76 | 4 | CRC-32 of header bytes 0–75 |
 
-Читатель отказывает, если первые 8 байт другие («не копия Axiko»), если версия больше известной («копия сделана более новой версией» — проверяется раньше всего остального, потому что новый формат может разложить заголовок иначе), если не сходится CRC или значения вне границ (итерации 1…50 000 000, кадр 16…16 777 216).
-
-### Ключи
-
-```text
-пароль    = UTF-8( NFC( введённые знаки ) )
-master    = PBKDF2-HMAC-SHA256(пароль, соль, итерации, 32 байта)
-ключ      = HMAC-SHA256(master, "axiko-backup/v1/encrypt")
-проверка  = HMAC-SHA256(master, "axiko-backup/v1/check")
-```
-
-`проверка` лежит в заголовке. Если она не совпала — пароль неверный; если совпала, а кадр не расшифровался — файл повреждён. Так эти два случая различаются, и неверный пароль виден сразу, без чтения файла.
-
-Число итераций подбирается на телефоне под примерно одну секунду, но не ниже 600 000 и не выше 4 000 000; оно записано в заголовке, поэтому читателю подбирать нечего. Сколько вышло и сколько заняло, приложение запоминает в настройке `backup.last` (`iterations`, `keyMs`).
-
-### Кадры
-
-Открытый текст режется на куски по размеру кадра; каждый шифруется AES-256-GCM с меткой 16 байт:
+The reader checks magic/version before interpreting a newer layout, validates CRC and
+accepts iteration counts 1…50,000,000 and frame sizes 16…16,777,216. Unknown formats or values
+outside the supported bounds are rejected.
 
 ```text
-nonce (12) = префикс (7) ‖ номер кадра с нуля (4) ‖ 1 для последнего кадра, 0 для остальных
-AAD        = все 80 байт заголовка
-кадр       = шифртекст ‖ метка (16)
+password = UTF-8(NFC(input characters))
+master   = PBKDF2-HMAC-SHA256(password, salt, iterations, 32 bytes)
+key      = HMAC-SHA256(master, "axiko-backup/v1/encrypt")
+verifier = HMAC-SHA256(master, "axiko-backup/v1/check")
 ```
 
-Длины кадров не записываются: каждый кадр, кроме последнего, занимает ровно «размер кадра + 16» байт; последний — от 16 байт (пустой) до того же размера. Кадр последний тогда и только тогда, когда за ним конец файла. Последний кадр есть всегда, даже при пустом содержимом.
+The writer calibrates approximately one second of derivation on the device, bounded to
+600,000…4,000,000 iterations, and records the result. A verifier mismatch reports an incorrect
+password; a matching verifier followed by failed frame authentication reports damaged data.
 
-Что это даёт: изменённый байт (в том числе в заголовке) ломает метку; переставленные, пропущенные и повторённые кадры расшифровываются не с тем номером; обрезанный файл кончается кадром без признака «последний»; дописанный хвост делает последний кадр не последним. Недописанный файл (ошибка, отмена) не содержит последнего кадра и не открывается ничем.
-
-### Содержимое
-
-После расшифровки получается обычный ZIP (deflate). Порядок записей:
-
-1. `manifest.json` — всегда первый;
-2. каталоги (`путь/`), включая пустые;
-3. файлы в порядке манифеста.
-
-Допустимые пути: `prefs/axiko.json`, `secrets.json` и всё под `files/axiko/`, `files/data/`, `files/state/`, `files/drafts/`, `files/history/`. Путь с `..`, `.`, пустой частью, обратной косой чертой, управляющим знаком или абсолютный, а также запись вне этих корней — отказ от всей копии. При распаковке каждый файл сверяется с манифестом по размеру и SHA-256; лишний, недостающий или стоящий не на своём месте файл — тоже отказ.
-
-`manifest.json`:
-
-```json
-{
-  "format": 1,
-  "kind": "axiko-backup",
-  "created": 1794855000000,
-  "createdText": "2026-11-16T10:30:00+03:00",
-  "app": { "id": "app.axiko", "version": "0.1", "versionCode": 1 },
-  "device": "samsung SM-F966B",
-  "android": "16",
-  "history": false,
-  "secrets": 5,
-  "parts": [
-    { "id": "workspace", "root": "files/axiko", "files": 900, "bytes": 5300000, "sha256": "…" }
-  ],
-  "dirs": ["files/axiko", "files/axiko/ui"],
-  "files": [
-    { "path": "files/axiko/ui/home/index.html", "size": 1234, "sha256": "…", "mtime": 1794000000000, "x": true }
-  ],
-  "skipped": ["files/data/some-link"]
-}
+```text
+nonce (12 bytes) = prefix (7) || zero-based frame index (4) || final flag (1)
+AAD              = all 80 header bytes
+frame            = ciphertext || GCM tag (16 bytes)
 ```
 
-- `format` — версия содержимого; копию с большей версией приложение не восстанавливает и говорит обновиться.
-- `parts[].id` — `workspace`, `data`, `state`, `drafts`, `history`, `settings`, `secrets`. `sha256` части — SHA-256 от строк `путь\nразмер\nsha256\n` её файлов в порядке манифеста.
-- `files[].x` — файл исполняемый; `mtime` — время изменения в миллисекундах.
-- `app.id` только сообщается владельцу: копия из `app.axiko` восстанавливается в `app.axiko` и обратно.
+The final flag is 1 only for the last frame. No frame lengths are stored: all non-final
+frames have `frame size + 16` bytes; the final one has 16 through that size. A final frame
+always exists, even for empty plaintext. Index and final-flag authentication detect reordered,
+missing/repeated frames, truncation and appended bytes. An unfinished write lacks an
+authenticated final frame and is not accepted as a complete backup.
 
-`prefs/axiko.json` — `{ "ключ": { "t": "string|bool|int|long|float|set", "v": значение } }`. `secrets.json` — `{ "vault": { "имя": "значение" } }`.
+## Inner archive and inventory
 
-## Расшифровать без приложения
+Decryption yields a ZIP. Its first entry is `manifest.json`, followed by directories
+(including empty ones) and files in manifest order. Only `prefs/axiko.json`, `secrets.json`
+and descendants of the five `files/` roots above are allowed. Absolute paths, backslashes,
+control characters, empty segments, `.` and `..` are rejected.
+
+The manifest contains `format: 1`, `kind: "axiko-backup"`, creation time, app/device metadata,
+a history flag, secret count, `parts`, `dirs`, `files` and `skipped`. App ID is informational;
+format and permitted archive paths determine compatibility, not a promise to accept arbitrary
+legacy storage layouts.
+
+- Each file has `path`, `size`, `sha256`, `mtime` (milliseconds) and `x` (executable flag).
+- Part IDs are `workspace`, `data`, `state`, `drafts`, `history`, `settings`, `secrets`.
+  Each part hash covers `path\nsize\nsha256\n` for its files in manifest order.
+- Every extracted file must match size and SHA-256. Extra, missing or out-of-order entries
+  reject the archive.
+- Settings use `{ "key": { "t": "string|bool|int|long|float|set", "v": value } }`.
+- Secrets use `{ "vault": { "name": "value" } }` inside the encrypted backup.
+
+## Creating a backup
+
+The shell asks for a password twice through a native dialog (minimum eight characters);
+it is not passed through pages, the JavaScript engine or the model. Work runs off the UI
+thread and reports `backup` events with stage and byte counters.
+
+Files up to 8 MiB are staged and hashed once; larger files are hashed and read again during
+writing. Workspace and history collection uses the workspace lock. An active store install
+is rejected. If a large file changes, creation retries up to three times, then fails.
+
+The copy is written under `files/backup/work-<token>/copy.axb` and fully read back using the
+restore validator before publication to the selected document. An interrupted output is
+removed where the document provider supports removal; otherwise it remains an invalid partial copy.
+
+SQLite databases are copied as files while modules can still run. File integrity validation
+is not a transaction-consistent snapshot across a live database and its journal. Prefer a
+quiet period and test restore behavior for modules that maintain databases.
+
+## Restoring and undo
+
+1. Read the header and ask for the password in a native dialog.
+2. Decrypt and validate the complete archive into `files/backup/restore-<token>/`; live state
+   is unchanged so far.
+3. Show the owner the source, date, size, contents and replacement scope. History is replaced
+   only when included in the archive.
+4. After confirmation, preserve recoverable current state, write `files/backup/restore.json`
+   and restart the application.
+5. Before normal startup, `BackupSwap` renames staged directories into place and retains the
+   old state under `files/backup/before-<token>/`. Settings are loaded with their types;
+   secrets are encrypted with the destination key. Previous WebView localStorage is retained
+   with old state so a newer spare game save cannot override the restored save.
+6. A successful page startup outside safe mode completes cleanup of old state.
+
+The journal has `version`, `token`, `action` (`restore`/`undo`), `phase`
+(`dirs`/`settings`/`check`/`cleanup`), `replace` and `at`. Steps are repeatable across process
+interruption. Before successful cleanup, safe mode exposes Undo restore in Settings and the
+native recovery menu; it swaps the previous directories, settings and secrets back.
+
+## Scheduled backups
+
+Modes are off, daily or weekly. Default time is 03:30; default retention is three copies.
+The owner chooses a document-tree folder and a password through system UI. The password
+stays in the device vault as `backup.password`. Automatic writes require a provider that
+supports persistent directory access; otherwise use a manual document export.
+
+Job `backup.auto` checks daily; weekly mode skips intermediate days. Automatic filenames
+follow `axiko-backup-YYYY-MM-DD-auto.axb`. Retention deletes only recognized automatic files,
+not manual exports. Failures notify the owner; latest success and error are visible in Settings.
+
+## Standalone recovery and checks
 
 ```powershell
-pip install cryptography
-python scripts\backup\decrypt.py axiko-backup-2026-11-16.axb                 # спросит пароль, положит рядом .zip
-python scripts\backup\decrypt.py copy.axb --out folder                       # ещё и распакует со сверкой по манифесту
-python scripts\backup\decrypt.py copy.axb --zip out.zip --password-file p.txt
+python -m pip install cryptography
+python scripts/backup/decrypt.py copy.axb
+python scripts/backup/decrypt.py copy.axb --out recovered
+python scripts/backup/decrypt.py copy.axb --zip recovered.zip --password-file password.txt
 ```
 
-На выходе — личные данные открытым текстом, включая `secrets.json`: храните соответственно. Неверный пароль и повреждённый файл скрипт различает так же, как приложение.
+The resulting ZIP/tree contains personal data in plaintext, including vault values. Keep
+outputs and password files private and outside version control. The script validates the
+same encryption and inventory format as the app.
 
-Образец для проверки скрипта пишет тест `BackupFormatTest` («a sample for the standalone decryptor»): `app/build/backup-sample/sample.axb`, пароль в `password.txt`, ожидаемое дерево в `expected/`.
+`BackupFormatTest` checks round trips, normalization, wrong passwords, corrupted/reordered
+frames, truncation, future versions, path validation and large files. `BackupSwapTest` checks
+restore/undo interrupted at each rename and cleanup. A test sample is written under
+`app/build/backup-sample/` for standalone-decryptor verification.
 
 ```powershell
 .\gradlew.bat testDebugUnitTest
-python scripts\backup\decrypt.py app\build\backup-sample\sample.axb --zip $env:TEMP\sample.zip --out $env:TEMP\sample --password-file app\build\backup-sample\password.txt
+python scripts/backup/decrypt.py app/build/backup-sample/sample.axb --zip build/backup-check.zip --out build/backup-check --password-file app/build/backup-sample/password.txt
 ```
-
-## Как делается копия
-
-Работа идёт в отдельном потоке; экран настроек получает событие `backup` с этапом и счётчиком байт.
-
-1. Пароль спрашивает системный диалог оболочки, дважды, не короче 8 знаков. Через страницы, движок и модель он не проходит.
-2. Сбор. Файлы до 8 МиБ копируются в один временный файл и по дороге хешируются; большие хешируются на месте и читаются второй раз при записи. Рабочая папка и история читаются под тем же замком, что снимки и откат (`Workspace`). Если идёт установка из магазина — отказ с просьбой повторить.
-3. Запись в `files/backup/work-<случайное>/copy.axb`. Если большой файл успел измениться между хешем и записью, попытка начинается заново, до трёх раз; дальше — ошибка «файл всё время меняется».
-4. Проверка: готовый файл читается целиком тем же кодом, что при восстановлении.
-5. Только после этого файл переносится в выбранное место. При ошибке или отмене на этом шаге созданный документ удаляется; если поставщик удаление не поддержал, оставшийся обрывок всё равно не открывается как копия.
-
-Базы SQLite модулей копируются как файлы, без остановки модулей: если копия пришлась на середину записи в базу, эта база в копии может оказаться в промежуточном состоянии. Автокопия для того и идёт ночью.
-
-## Как идёт восстановление
-
-1. Владелец выбирает файл; читается заголовок (не копия / слишком новая — сразу).
-2. Пароль — в системном диалоге; неверный просят ввести снова.
-3. Копия целиком расшифровывается и распаковывается в `files/backup/restore-<токен>/` со сверкой каждого файла. До этого места в приложении ничего не изменилось.
-4. Экран показывает, когда и где копия сделана, размер, состав и что будет заменено. История заменяется, только если она есть в копии.
-5. После подтверждения: делается снимок рабочей папки, пишется журнал `files/backup/restore.json`, приложение перезапускается.
-6. В самом начале `App.onCreate`, до рабочей папки, движка, страниц и служб, `BackupSwap` переименованиями ставит папки копии на место, а прежние убирает в `files/backup/before-<токен>/`. Затем заменяются настройки, секреты шифруются заново ключом этого телефона (`Vault.set`), localStorage WebView убирается туда же, к прежнему состоянию.
-7. Первый удачный запуск (страница ответила, режим не безопасный) удаляет прежнее состояние.
-
-Журнал: `{version: 1, token, action: "restore"|"undo", phase: "dirs"|"settings"|"check"|"cleanup", replace: [...], at}`. Каждый шаг — переименование, которое можно повторить; обрыв питания на любом шаге заканчивается при следующем запуске тем же журналом. Это проверяет `BackupSwapTest` (обрыв после каждого переименования).
-
-«Вернуть как было»: пока прежнее состояние не удалено, а приложение в безопасном режиме (экран после восстановления не открылся, или режим включён вручную), в настройках и в меню долгого нажатия на круглую кнопку есть «Вернуть как было до восстановления из копии». Оно меняет папки, настройки и секреты обратно тем же журналом.
-
-## Автокопия
-
-Выключена, каждый день или каждую неделю; время (по умолчанию 03:30) и число хранимых копий (по умолчанию 3) задаются в настройках. Папка выбирается один раз системным окном, доступ к ней сохраняется. Пароль автокопии вводится в системном диалоге и хранится в защищённом хранилище телефона под именем `backup.password`; в копию он не входит.
-
-Google Диск не даёт приложениям выбрать в нём папку для автоматической записи, поэтому автокопия пишет в папку телефона (её может синхронизировать приложение любого облака). Прямо в Диск копия сохраняется вручную кнопкой «Сохранить копию…».
-
-Будильник — задача `backup.auto` общего планировщика (`core/Jobs.kt`); он звонит раз в сутки, недельная копия пропускает шесть звонков. Файлы называются `axiko-backup-ГГГГ-ММ-ДД-auto.axb`; лишние удаляются только среди файлов с таким именем, сохранённые вручную не трогаются. Уведомление приходит только при неудаче; последняя копия и последняя ошибка видны в настройках.
-
-## Проверки
-
-`BackupFormatTest`: побайтовое совпадение после копии и восстановления (времена, исполняемые файлы, пустые каталоги), пустое приложение, неверный пароль и разные записи одного пароля (NFC), изменённый байт в любом месте, обрезанный и дописанный файл, переставленные, пропущенные и повторённые кадры, файл без последнего кадра, содержимое любой длины вокруг границы кадра, чужой файл и будущие версии формата, выход за пределы каталога, архив, не совпадающий с манифестом, файл, изменившийся во время копирования, файл в 48 МБ без роста памяти, PBKDF2 против реализации JDK и опубликованного вектора.
-
-`BackupSwapTest`: замена папок, обрыв после каждого шага, возврат прежнего состояния и обрыв во время него, отказы на некорректный журнал, уборка остатков.

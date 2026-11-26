@@ -267,6 +267,12 @@ object Tools {
             Param("agent", "string", "Идентификатор агента"),
             Param("task", "string", "Задача целиком"),
         ),
+        tool("chat_find", "По просьбе владельца найти существующий чат по теме или заголовку. Возвращает совпадения и handle для chat_open.",
+            Param("query", "string", "Тема чата короткими словами")),
+        tool("chat_open", "Переключить текущий интерфейс на существующий чат из chat_find. Если совпадение неоднозначно, уточните выбор.",
+            Param("handle", "string", "Значение handle из результата chat_find")),
+        tool("chat_invite", "По просьбе владельца добавить другого агента в текущий чат как участника для следующих реплик.",
+            Param("agent", "string", "Имя или идентификатор агента")),
     )
 
     private const val DELEGATE = "agent_run"
@@ -277,7 +283,7 @@ object Tools {
     private val builtinNames = builtin.map { it.getJSONObject("function").getString("name") }.toSet()
 
     /** Tools that need the owner at the chat, or hand work on: not for a caller from outside. */
-    private val INSIDE = setOf(ASK, PLAN, STEP, PARTS, DELEGATE, DRAFT)
+    private val INSIDE = setOf(ASK, PLAN, STEP, PARTS, DELEGATE, DRAFT, "chat_find", "chat_open", "chat_invite")
 
     /**
      * What the phone offers to agents elsewhere (see Lan: the phone as an MCP server): its own
@@ -363,6 +369,18 @@ object Tools {
         else if (name == STEP) conversation.planStep(args)
         else if (name == PARTS) conversation.parts(args)
         else if (name == DRAFT) conversation.draftBegin(args)
+        else if (name == "chat_find") ChatNavigation.find(conversation, args.getString("query")).toString()
+        else if (name == "chat_open") {
+            check(ChatNavigation.open(conversation, args.getString("handle"))) { "Исходный чат больше не открыт или совпадение устарело" }
+            "Чат открыт в текущем интерфейсе"
+        }
+        else if (name == "chat_invite") {
+            val candidates = ChatParticipants.resolve(conversation, args.getString("agent"))
+            require(candidates.size == 1) { if (candidates.isEmpty()) "Агент не найден" else "Нужно уточнить, кого позвать" }
+            val agent = candidates.single()
+            check(ChatParticipants.set(conversation, agent, joined = true)) { "Участника нельзя добавить в этот разговор" }
+            "${ChatParticipants.title(agent)} участвует в разговоре. К нему можно обратиться по имени или через @$agent."
+        }
         else if (name in builtinNames) builtin(name, args, images, runCatching { conversation.target().vision }.getOrDefault(true))
         else if (name.startsWith("mcp_")) Mcp.run(name, args)
         else Engine.call("__toolRun", name, args.toString(), timeoutMs = 300_000) as String? ?: "готово"

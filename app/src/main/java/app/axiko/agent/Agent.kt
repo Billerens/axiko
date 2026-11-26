@@ -33,6 +33,12 @@ object Agent {
 
     fun exists(id: String): Boolean = id == MAIN || File(Workspace.root, "agents/$id").isDirectory
 
+    fun isKnown(id: String): Boolean = id.isNotBlank() && id.length <= 160 && '/' !in id && '\\' !in id &&
+        id != "." && id != ".." && exists(id)
+
+    fun ids(): List<String> = listOf(MAIN) + File(Workspace.root, "agents").listFiles().orEmpty()
+        .filter { it.isDirectory }.map { it.name }.sorted()
+
     /** What the owner calls the assistant: in the chat, in its prompt, and aloud as the wake word. */
     val name: String get() = App.prefs.getString("assistant.name", null)?.trim().orEmpty().ifEmpty { "Axiko" }
 
@@ -55,11 +61,9 @@ object Agent {
 
     /** Every agent with the model it runs on. */
     fun list(): JSONArray {
-        val ids = listOf(MAIN) + File(Workspace.root, "agents").listFiles().orEmpty()
-            .filter { it.isDirectory }.map { it.name }.sorted()
         val roles = Models.roles()
         val out = JSONArray()
-        for (id in ids) {
+        for (id in ids()) {
             val spec = spec(id)
             val role = Models.roleOf(id)
             val entry = JSONObject().put("id", id).put("title", spec.title).put("description", spec.description)
@@ -82,18 +86,27 @@ object Agent {
         }
     }
 
+    /** A dismissed assistant session may have reserved a thread without sending anything. */
+    fun releaseEmpty(chat: Conversation) {
+        val key = "${chat.id}/${chat.thread}"
+        synchronized(chats) {
+            if (chats[key] === chat && !chat.busy && chat.size() == 0) chats.remove(key)
+        }
+    }
+
     /** Forgets a chat; returns the id of the chat that is open afterwards. */
     fun forget(id: String, thread: String): String {
         synchronized(chats) { chats.remove("$id/$thread") }?.stop()
+        ChatParticipants.forget(id, thread)
         return Threads.delete(id, thread)
     }
 
     /** Gives the agent one task in a fresh conversation and waits for its final answer. */
-    fun run(id: String, task: String, parent: Conversation? = null): String {
+    fun run(id: String, task: String, parent: Conversation? = null, attached: List<Attach> = emptyList()): String {
         require(exists(id)) { "Нет агента $id" }
         val depth = (parent?.depth ?: 0) + 1
         require(depth <= MAX_DEPTH) { "Слишком глубокая цепочка агентов" }
-        return Conversation(id, lasting = false, parent = parent, label = parent?.let { spec(id).title }).once(task)
+        return Conversation(id, lasting = false, parent = parent, label = parent?.let { spec(id).title }).once(task, attached)
     }
 
     fun mayDelegate(conversation: Conversation): Boolean = conversation.depth < MAX_DEPTH

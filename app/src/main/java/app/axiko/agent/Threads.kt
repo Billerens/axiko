@@ -11,6 +11,8 @@ import java.io.File
  * titles and times so that listing them does not read every conversation.
  */
 object Threads {
+    private val assistantId = Regex("[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}")
+    private val threadId = Regex("[a-zA-Z0-9-]{1,80}")
     private fun dir(agent: String): File = File(Workspace.state, "chats/$agent").apply { mkdirs() }
 
     private fun indexFile(agent: String): File = File(dir(agent), "index.json")
@@ -24,12 +26,17 @@ object Threads {
     fun current(agent: String): String =
         App.prefs.getString("chat.current.$agent", null)?.takeIf { it.isNotBlank() } ?: create(agent)
 
-    /** Starts a new, empty chat and makes it the open one. */
-    fun create(agent: String): String {
-        val id = System.currentTimeMillis().toString(36)
-        select(agent, id)
+    /** The system panel can start a fresh chat without changing the chat selected in the app. */
+    fun create(agent: String, select: Boolean = true): String {
+        val id = if (select) System.currentTimeMillis().toString(36) else java.util.UUID.randomUUID().toString()
+        if (select) select(agent, id)
         return id
     }
+
+    /** The system panel reserves UUIDs. Chats created by the main app use timestamp IDs. */
+    fun isAssistant(thread: String): Boolean = assistantId.matches(thread)
+
+    fun validId(thread: String): Boolean = threadId.matches(thread)
 
     fun select(agent: String, thread: String) {
         App.prefs.edit().putString("chat.current.$agent", thread).apply()

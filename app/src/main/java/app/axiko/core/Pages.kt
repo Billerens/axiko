@@ -21,6 +21,7 @@ import androidx.webkit.WebMessageCompat
 import androidx.webkit.WebViewCompat
 import app.axiko.App
 import app.axiko.MainActivity
+import app.axiko.sense.OnScreenAssistant
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
@@ -66,6 +67,12 @@ object Pages {
         bridges.remove(bridge)
     }
 
+    /** Session events stay in their own panel, including when the main activity is absent. */
+    fun assistantEvent(session: String, event: String, data: JSONObject = JSONObject()) {
+        val message = JSONObject().put("event", event).put("data", data).toString()
+        main.post { bridges.filter { it.name == "assistant" && it.assistantScope() == session }.forEach { it.push(message) } }
+    }
+
     /** Browsers on the local network get the same events (see Lan). */
     @Volatile
     var onBroadcast: ((String) -> Unit)? = null
@@ -79,15 +86,16 @@ object Pages {
         // work. Screens nobody sees would only queue them up and choke on them when seen again,
         // so out of sight these are not sent: a chat reads the conversation anew when it is shown.
         if (event == "agent" && !MainActivity.shown && STREAMED.any { json.startsWith(it) }) return
-        main.post { bridges.forEach { it.push(message) } }
+        val appearance = event == "theme" || event == "mascot"
+        main.post { bridges.filter { it.name != "assistant" || appearance }.forEach { it.push(message) } }
     }
 
     /** The file behind a local URL: the workspace, module data, or the factory copy in safe mode. */
-    fun serve(rawPath: String): WebResourceResponse {
+    fun serve(rawPath: String, factoryUi: Boolean = false): WebResourceResponse {
         // A screen of a draft: `/~<id>/…` is the same path seen through the draft's layer.
         // The WebView asks for it already "within" the draft, so the prefix goes either way.
         Drafts.of(rawPath)?.let { draft ->
-            return Drafts.within(draft) { serve(Uri.decode(rawPath).trimStart('/').substringAfter('/', "")) }
+            return Drafts.within(draft) { serve(Uri.decode(rawPath).trimStart('/').substringAfter('/', ""), factoryUi) }
         }
         var path = Uri.decode(rawPath).trimStart('/')
         if (path.isEmpty() || path.endsWith("/")) path += "index.html"
@@ -95,7 +103,7 @@ object Pages {
             when {
                 path.startsWith("data/") ->
                     File(Workspace.data, path.removePrefix("data/")).takeIf { it.isFile }?.inputStream()
-                Workspace.safeMode && path.startsWith("ui/") ->
+                (factoryUi || Workspace.safeMode) && path.startsWith("ui/") ->
                     App.instance.assets.open("factory/$path")
                 else -> Workspace.resolve(path).takeIf { it.isFile }?.inputStream()
             }
@@ -129,8 +137,16 @@ class Bridge(val web: WebView, val name: String) : WebViewCompat.WebMessageListe
     /** Called when the page reports itself alive. */
     var onHello: (() -> Unit)? = null
 
+    /** Called when the main document and its scripts have loaded. */
+    var onLoaded: (() -> Unit)? = null
+
     /** Called when the page's process is gone, in place of building the app's screens anew. */
     var onGone: (() -> Unit)? = null
+
+    /** The native assistant window binds every request to the session it is showing. */
+    var assistantScope: () -> String? = { null }
+    var assistantHitAreas: ((JSONObject) -> Boolean)? = null
+    var assistantFactory = false
 
     /** The address of the page it shows now. */
     @Volatile
@@ -157,11 +173,12 @@ class Bridge(val web: WebView, val name: String) : WebViewCompat.WebMessageListe
      * it at their next load. True when it differs from the one before. Main thread only.
      */
     fun scale(percent: Int): Boolean {
-        if (percent == scalePercent) return false
+        if (percent == scalePercent && scaleScript != null) return false
+        val changed = percent != scalePercent
         scalePercent = percent
         scaleScript?.remove()
-        scaleScript = UiScale.script(percent)?.let { WebViewCompat.addDocumentStartJavaScript(web, it, setOf(Pages.ORIGIN)) }
-        return true
+        scaleScript = WebViewCompat.addDocumentStartJavaScript(web, UiScale.script(percent), setOf(Pages.ORIGIN))
+        return changed
     }
 
     init {
@@ -169,15 +186,15 @@ class Bridge(val web: WebView, val name: String) : WebViewCompat.WebMessageListe
             javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = true
-            allowFileAccess = true
-            allowContentAccess = true
+            allowFileAccess = name != "assistant"
+            allowContentAccess = name != "assistant"
             mediaPlaybackRequiresUserGesture = false
-            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            mixedContentMode = if (name == "assistant") WebSettings.MIXED_CONTENT_NEVER_ALLOW else WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
             cacheMode = WebSettings.LOAD_NO_CACHE
             useWideViewPort = true
             loadWithOverviewMode = true
             setSupportZoom(false)
-            setGeolocationEnabled(true)
+            setGeolocationEnabled(name != "assistant")
         }
         web.setBackgroundColor(0)
         web.overScrollMode = WebView.OVER_SCROLL_NEVER
@@ -190,6 +207,9 @@ class Bridge(val web: WebView, val name: String) : WebViewCompat.WebMessageListe
 
         web.webViewClient = object : WebViewClient() {
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? = when {
+                name == "assistant" -> if (assistantResource(request.url, request.isForMainFrame)) {
+                    Pages.serve(request.url.path.orEmpty(), assistantFactory)
+                } else WebResourceResponse("text/plain", "UTF-8", 403, "Forbidden", emptyMap(), ByteArrayInputStream(byteArrayOf()))
                 request.url.host == Pages.HOST -> {
                     // What a draft's screen asks for by an absolute address (/ui/kit/…, /modules/…) is the draft's too.
                     val path = request.url.path.orEmpty()
@@ -201,6 +221,7 @@ class Bridge(val web: WebView, val name: String) : WebViewCompat.WebMessageListe
             }
 
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                if (name == "assistant") return !assistantResource(request.url, request.isForMainFrame)
                 if (request.url.host == Pages.HOST || !request.isForMainFrame) return false
                 // Another site: the system browser shows it, the bridge stays with local pages.
                 runCatching {
@@ -220,6 +241,7 @@ class Bridge(val web: WebView, val name: String) : WebViewCompat.WebMessageListe
 
             override fun onPageFinished(view: WebView, url: String) {
                 loading?.countDown()
+                onLoaded?.invoke()
             }
 
             override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
@@ -242,7 +264,9 @@ class Bridge(val web: WebView, val name: String) : WebViewCompat.WebMessageListe
                 return true
             }
 
-            override fun onPermissionRequest(request: PermissionRequest) = request.grant(request.resources)
+            override fun onPermissionRequest(request: PermissionRequest) {
+                if (name == "assistant") request.deny() else request.grant(request.resources)
+            }
 
             override fun onShowFileChooser(
                 view: WebView,
@@ -321,6 +345,41 @@ class Bridge(val web: WebView, val name: String) : WebViewCompat.WebMessageListe
     ) {
         val request = runCatching { JSONObject(message.data ?: return) }.getOrNull() ?: return
         val id = request.optLong("id")
+        if (name == "assistant") {
+            val scope = assistantScope()
+            if (scope == null || !isMainFrame || sourceOrigin.toString().trimEnd('/') != Pages.ORIGIN ||
+                !assistantResource(Uri.parse(view.url ?: ""), true)) {
+                reply(replyProxy, id, null, "Панель ассистента закрыта")
+                return
+            }
+            when (request.optString("op")) {
+                "hello" -> {
+                    proxies.clear()
+                    proxies.add(replyProxy)
+                    reply(replyProxy, id, null, null)
+                }
+                "native" -> {
+                    val method = request.optString("method")
+                    if (method == "assistant.hitAreas") {
+                        // WebMessageListener runs on the UI thread, where the window geometry lives.
+                        answer(replyProxy, id) {
+                            val layout = JSONArray(request.optString("args", "[]")).getJSONObject(0)
+                            Native.encode(assistantHitAreas?.invoke(layout) == true)
+                        }
+                        return
+                    }
+                    Engine.pool.execute {
+                        answer(replyProxy, id) {
+                            val result = OnScreenAssistant.call(method, JSONArray(request.optString("args", "[]")), scope)
+                            if (method == "assistant.ready") main.post { if (assistantScope() == scope) onHello?.invoke() }
+                            Native.encode(result)
+                        }
+                    }
+                }
+                else -> reply(replyProxy, id, null, "Эта панель использует API assistant.*")
+            }
+            return
+        }
         // A draft's screen calls the draft's code.
         val draft = Drafts.of(runCatching { Uri.parse(view.url).path }.getOrNull())
         when (request.optString("op")) {
@@ -359,6 +418,14 @@ class Bridge(val web: WebView, val name: String) : WebViewCompat.WebMessageListe
                 answer(replyProxy, id) { Drafts.within(draft) { Engine.call("__evalJson", request.getString("code")) as String? } }
             }
         }
+    }
+
+    private fun assistantResource(uri: Uri, mainFrame: Boolean): Boolean {
+        if (uri.scheme != "https" || uri.encodedAuthority != Pages.HOST) return false
+        val path = uri.path.orEmpty()
+        if ('%' in path || '\\' in path || path.split('/').any { it == "." || it == ".." }) return false
+        if (path.startsWith("/ui/assistant/")) return true
+        return !mainFrame && listOf("/ui/kit/", "/ui/mascot/", "/ui/vendor/").any(path::startsWith)
     }
 
     private inline fun answer(proxy: JavaScriptReplyProxy, id: Long, block: () -> String?) {

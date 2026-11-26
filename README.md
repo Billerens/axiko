@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="docs/promo/axiko-promo.mp4"><img src="docs/promo/axiko-promo.webp" width="820" alt="Axiko in 40 seconds: a plain home screen, a request in the chat, a new screen, and five owners whose apps look nothing alike"></a>
+  <a href="assets/promo/axiko-promo.mp4"><img src="assets/promo/axiko-promo.webp" width="820" alt="Axiko in 40 seconds: a plain home screen, a request in the chat, a new screen, and five owners whose apps look nothing alike"></a>
 </p>
 
 <p align="center">English · <a href="README.ru.md">Русский</a></p>
@@ -36,8 +36,8 @@ stay alike for long.
   shows what changed, file by file, and rolls it back. Safe mode starts the factory interface if
   the edited one breaks. An encrypted backup holds everything personal in one file.
 - **Your model, your data.** Any OpenAI-compatible provider works, and so do models that run on the
-  phone. Provider keys and stored secrets stay with the shell: scripts and the model never see
-  their values. What the agent reads goes to the model you chose, so pick an on-device model for
+  phone. Provider keys and shell-owned secrets are managed by the shell instead of being returned
+  through the normal script/model APIs. What the agent reads goes to the model you chose, so pick an on-device model for
   what must not leave the phone.
 
 ## How it works
@@ -63,7 +63,7 @@ Logic runs in Rhino, a JavaScript engine that can call Android classes directly,
 reach anything the phone offers. The agent loop and the safety net (snapshots, safe mode, secrets)
 live in the shell, where the agent cannot edit them.
 
-More detail: [docs/architecture.md](docs/architecture.md) (in Russian).
+More detail: [Architecture](docs/architecture.md) ([Русский](docs/architecture.ru.md)).
 
 ## What it can do today
 
@@ -74,6 +74,8 @@ More detail: [docs/architecture.md](docs/architecture.md) (in Russian).
   yourself in system settings.
 - **Listen and speak.** Speech recognition on the device (GigaAM v3, a Russian-language model),
   speech through a provider or a voice on the phone, and a name you can call it by.
+- **Assist on screen.** Open an editable voice and text panel above the current app, work with
+  a separate conversation and keep the agent's task going when the panel closes. [Setup](docs/assistant.md)
 - **Work like a colleague.** It asks clarifying questions as a form, proposes a plan and marks its
   steps, runs parts of a job in parallel, and keeps changes as a draft until you decide.
 - **Reach outside.** Web search and page reading, MCP servers, sign-in to services over OAuth,
@@ -90,7 +92,7 @@ More detail: [docs/architecture.md](docs/architecture.md) (in Russian).
 ## Make it yours
 
 <p align="center">
-  <img src="docs/promo/owners.png" width="820" alt="Five phones with the same build of Axiko: a cream serif reading app, a black and lime running app, a green terminal, a pink app for a kid and a bare white one with large numbers">
+  <img src="assets/promo/owners.png" width="820" alt="Five phones with the same build of Axiko: a cream serif reading app, a black and lime running app, a green terminal, a pink app for a kid and a bare white one with large numbers">
 </p>
 
 These five phones run the same build. The difference is a theme file, a menu file, a mascot file
@@ -119,9 +121,11 @@ Two rules keep modules usable by other people:
 - A module works fully in English. Other languages, Russian included, are welcome and optional.
 - A module colors itself with the kit's variables, so every theme suits it.
 
-The agent's own reference is the best guide to what a module can do:
+Start with the [module conventions](docs/modules.md), [native contracts](docs/native-contracts.md)
+and [game development guide](docs/game-development.md). Each has a supplementary Russian version.
+The app also ships detailed Russian references for its own agent:
 [handbook.md](app/src/main/assets/factory/agent/handbook.md) and
-[api.md](app/src/main/assets/factory/agent/api.md) (in Russian).
+[api.md](app/src/main/assets/factory/agent/api.md).
 
 When a module is useful to you, it is probably useful to someone else. Share it:
 
@@ -166,7 +170,8 @@ Tell people about Axiko, show what yours has turned into, and publish what you b
 >   without an obvious reason;
 > - keep a backup, and roll back or remove a module that behaves oddly.
 >
-> The details are in [implementation.md](docs/marketplace/implementation.md) (in Russian).
+> The details are in [implementation.md](docs/marketplace/implementation.md)
+> ([Русский](docs/marketplace/implementation.ru.md)).
 
 ## Get started
 
@@ -186,22 +191,25 @@ Then open Settings in the app and follow the setup steps: add a model provider (
 OpenAI-compatible address and its key) or download a model to the phone.
 
 Building, updating an older install, tests and scripts are covered in
-[docs/development.md](docs/development.md) (in Russian).
+[docs/development.md](docs/development.md) ([Русский](docs/development.ru.md)).
 
 ## Docs
 
-Most documents are in Russian for now.
+English is the primary documentation language; Russian translations are supplementary.
+The [documentation index](docs/README.md) ([Русский](docs/README.ru.md)) lists all current contracts.
 
-| Topic | Document |
-|---|---|
-| Layers, agents, voice, senses, chat | [docs/architecture.md](docs/architecture.md) |
-| Build, install, tests, scripts | [docs/development.md](docs/development.md) |
-| Modules and games, with a page for each | [docs/modules.md](docs/modules.md) |
-| Store: format, review rules, trust boundaries | [docs/marketplace](docs/marketplace) |
-| Backup and moving to another phone | [docs/backup.md](docs/backup.md) |
-| Web hub | [docs/web-hub.md](docs/web-hub.md) |
-| Mascot, colors, wording | [docs/brand.md](docs/brand.md) |
-| How this video was made | [docs/promo](docs/promo) |
+| Topic | English | Russian |
+|---|---|---|
+| Runtime and application layers | [Architecture](docs/architecture.md) | [Русский](docs/architecture.ru.md) |
+| Build, checks and contribution conventions | [Development](docs/development.md) | [Русский](docs/development.ru.md) |
+| Module and game conventions | [Modules](docs/modules.md), [games](docs/game-development.md) | [Модули](docs/modules.ru.md), [игры](docs/game-development.ru.md) |
+| Shell capabilities | [Native contracts](docs/native-contracts.md) | [Русский](docs/native-contracts.ru.md) |
+| Package format and review policy | [Store documentation](docs/marketplace/README.md) | [Русский](docs/marketplace/README.ru.md) |
+| Backup and restore | [Backup](docs/backup.md) | [Русский](docs/backup.ru.md) |
+| Editable desktop interface | [Web hub](docs/web-hub.md) | [Русский](docs/web-hub.ru.md) |
+| System assistant panel | [On-screen assistant](docs/assistant.md) | [Русский](docs/assistant.ru.md) |
+| Mascot and themes | [Brand contracts](docs/brand.md) | [Русский](docs/brand.ru.md) |
+| README video sources and renderer | [Promo assets](assets/promo/README.md) | [Русский](assets/promo/README.ru.md) |
 
 ## License
 

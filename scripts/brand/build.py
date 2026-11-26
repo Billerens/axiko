@@ -3,8 +3,8 @@
 
     python scripts/brand/build.py [pose …]
 
-For every docs/brand/mascot/sticker/poses/<pose>.webp (lossless; with its optional <pose>.json spec) writes
-app/src/main/assets/factory/ui/mascot/<pose>.svg, then draws docs/brand/mascot/sticker/poses-sheet.png:
+For every assets/brand/mascot/poses/<pose>.webp (lossless; with its optional <pose>.json spec) writes
+app/src/main/assets/factory/ui/mascot/<pose>.svg, then draws build/artifacts/brand/poses-sheet.png:
 each pose as traced, on the dark and on a light background, with how far it is from its picture.
 Needs: pillow, numpy, potracer, playwright (with Chrome or Edge).
 """
@@ -22,14 +22,15 @@ sys.path.insert(0, str(Path(__file__).parent))
 import vectorize  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
-POSES = ROOT / 'docs/brand/mascot/sticker/poses'
+POSES = ROOT / 'assets/brand/mascot/poses'
 OUT = ROOT / 'app/src/main/assets/factory/ui/mascot'
-SHEET = ROOT / 'docs/brand/mascot/sticker/poses-sheet.png'
+SHEET = ROOT / 'build/artifacts/brand/poses-sheet.png'
 
 
 def main():
     wanted = sys.argv[1:]
     OUT.mkdir(parents=True, exist_ok=True)
+    SHEET.parent.mkdir(parents=True, exist_ok=True)
     # A pose is a picture, or a spec that names another picture as its source (and a part of it
     # to take: "crop" in fractions). A spec with "skip" keeps a picture that is only such a source.
     stems = sorted({path.stem for path in POSES.glob('*.webp')} | {path.stem for path in POSES.glob('*.json')})

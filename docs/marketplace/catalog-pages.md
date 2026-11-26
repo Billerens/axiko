@@ -1,157 +1,195 @@
-# Каталог по частям: карточки, подробности, картинки
+English · [Русский](catalog-pages.ru.md)
 
-Часть формата v1 (17 ноября 2026). Заменяет единый `index.json` со списком всех пакетов: до первого публичного показа формат меняется на месте, прежний вид индекса клиент не читает.
+# Paged catalogs: cards, details and media
 
-Зачем: витрине нужны иконки, описания, теги, снимки экрана и список изменений, а каталог не должен загружаться и рисоваться целиком, когда пакетов станут тысячи.
+The current v1 catalog uses an `index.json` header referencing pages of package cards. The legacy single file containing every package is not accepted by the client. Paging keeps refreshes and rendering bounded as the catalog grows, while details and media load when needed.
 
-## Что публикует источник
+## Published layout
 
-Все пути относительны папки, где лежит `index.json`; выйти из неё путём нельзя.
+All referenced catalog/media paths are relative to the directory containing `index.json`. Paths may not escape it.
 
+```text
+index.json                       Repository header and page references
+catalog/p-<hex>.json              Pages of package cards
+catalog/details/<id>.json         Details for one package
+<package folder>/store/…         Listing images and text, excluded from the package ZIP
 ```
-index.json                       заголовок: репозиторий и список страниц
-catalog/p-<hex>.json             страницы с карточками пакетов
-catalog/details/<id>.json        подробности одного пакета
-<папка пакета>/store/…           картинки и тексты витрины (в архив пакета не входят)
-```
 
-### Заголовок `index.json`
+### Index header
+
+The structure below abbreviates hashes and URLs for readability; [examples/index.json](examples/index.json) is the metadata fixture.
 
 ```json
 {
   "schemaVersion": 1,
-  "repository": { "id": "billerens.axiko-store", "title": "Axiko Store", "homepage": "https://…", "description": "необязательно, до 600 знаков" },
+  "repository": {
+    "id": "billerens.axiko-store",
+    "title": "Axiko Store",
+    "homepage": "https://…",
+    "description": "Optional text, up to 600 characters"
+  },
   "packageCount": 40,
-  "pages": [ { "path": "catalog/p-0.json", "sha256": "…", "size": 51234, "count": 40 } ]
+  "pages": [
+    {"path": "catalog/p-0.json", "sha256": "…", "size": 51234, "count": 40}
+  ]
 }
 ```
 
-До 256 страниц, каждая до 1 МиБ; всего до 20 000 пакетов. Пакет попадает на страницу по первым знакам SHA-256 своего ID (1, 16 или 256 страниц — по числу пакетов), поэтому выпуск одного пакета меняет одну страницу. Клиент схему раскладки не знает и не проверяет: он читает список страниц.
+There may be at most 256 pages, 1 MiB per page, 2,000 cards per page and 20,000 packages total. The builder assigns packages using leading hexadecimal characters of SHA-256 of the package ID, choosing 1, 16 or 256 pages according to package count. Updating one package therefore normally changes one page. The client follows the published page list; it does not require this particular sharding algorithm.
 
-### Страница
+### Page and card
 
-`{ "schemaVersion": 1, "packages": [ карточка, … ] }`
+A page is `{ "schemaVersion": 1, "packages": [ ... ] }`.
 
-### Карточка
+Required card fields are `id`, `kind`, `title`, `summary`, `version`, `publisher`, `license`, `manifestUrl`, `archive` and `compatibility`. A mod additionally requires `extends`. Optional listing fields are:
 
-Обязательные поля прежние: `id`, `kind`, `title`, `summary`, `version`, `publisher`, `license`, `manifestUrl`, `archive`, `compatibility`. Необязательные:
-
-| Поле | Содержимое |
+| Field | Content |
 |---|---|
-| `tags` | до 12 строк по 32 знака, строчные |
-| `locales` | `{ "<код языка>": { "title"?, "summary"?, "tags"? } }` — те же тексты карточки на других языках; до 16 языков |
-| `icon` | картинка `{path, sha256, size, type}`; до 128 КиБ; `image/svg+xml`, `image/png`, `image/webp`, `image/jpeg` |
-| `updated` | дата выпуска `ГГГГ-ММ-ДД` |
-| `details` | `{path, sha256, size}` — файл подробностей, до 256 КиБ |
+| `tags` | At most 12 lowercase strings, 32 characters each. |
+| `locales` | Up to 16 additional languages: `{ "<language>": { "title"?, "summary"?, "tags"? } }`. |
+| `icon` | `{path, sha256, size, type}`; up to 128 KiB; SVG, PNG, WebP or JPEG. |
+| `updated` | Release date, `YYYY-MM-DD`. |
+| `details` | `{path, sha256, size}` referencing a details file of at most 256 KiB. |
 
-### Подробности `catalog/details/<id>.json`
+### Package details
 
 ```json
 {
-  "schemaVersion": 1, "id": "merge-forge", "version": "0.1.1",
-  "description": "Текст в Markdown, до 20 000 знаков",
-  "screenshots": [ { "path": "merge-forge/store/shots/1.webp", "sha256": "…", "size": 81234, "type": "image/webp", "width": 1080, "height": 2340, "caption": "необязательно" } ],
-  "changes": [ { "version": "0.1.1", "date": "2026-11-17", "notes": "Markdown, до 4000 знаков" } ],
-  "links": { "homepage": "https://…", "source": "https://…", "support": "https://…" }
+  "schemaVersion": 1,
+  "id": "merge-forge",
+  "version": "0.1.1",
+  "description": "Markdown, up to 20,000 characters",
+  "screenshots": [
+    {
+      "path": "merge-forge/store/shots/1.webp",
+      "sha256": "…",
+      "size": 81234,
+      "type": "image/webp",
+      "width": 1080,
+      "height": 2340,
+      "caption": "Optional caption"
+    }
+  ],
+  "changes": [
+    {"version": "0.1.1", "date": "2026-11-17", "notes": "Markdown, up to 4,000 characters"}
+  ],
+  "links": {"homepage": "https://…", "source": "https://…", "support": "https://…"}
 }
 ```
 
-Все поля, кроме `schemaVersion`, `id` и `version`, необязательны. До 8 снимков по 1 МиБ (png, webp, jpeg), до 20 записей изменений.
+Only `schemaVersion`, `id` and `version` are mandatory. There may be at most 8 screenshots, 1 MiB each, in PNG/WebP/JPEG, and 20 changelog entries.
 
-Тексты на других языках лежат рядом, в `locales` (до 16 языков):
+Additional languages live in `locales`, also with at most 16 languages:
 
 ```json
 "locales": {
   "ru": {
-    "description": "Текст в Markdown, до 20 000 знаков",
-    "changes": { "0.1.1": "Заметки этой версии, до 4000 знаков" },
-    "captions": [ "Подпись первого снимка", null ]
+    "description": "Описание в Markdown",
+    "changes": {"0.1.1": "Заметки этой версии"},
+    "captions": ["Подпись первого снимка", null]
   }
 }
 ```
 
-`changes` — заметки по версиям из `changes` (версии, которых там нет, не бывает), `captions` — подписи снимков по порядку; `null` оставляет подпись английской. Перевод описания возможен только при английском описании, подписи — только у снимка с английской подписью. Лимит на весь файл прежний, 256 КиБ.
+`changes` maps versions already present in the base `changes` array to translated notes. `captions` follows screenshot order; `null` keeps the English caption. A translated description requires an English description, and a translated caption requires an English caption on that screenshot. The 256 KiB limit applies to the entire details file, including translations.
 
-## Как это пишет автор
+## Authoring a listing
 
-В `store.json` пакета, рядом с `id`, `kind`, `version`:
+Place listing fields next to the package's `id`, `kind` and `version` in `store.json`:
 
-| Поле | Содержимое |
+| Field | Builder behavior |
 |---|---|
-| `summary` | короткое описание для карточки; без него берётся `description` из `module.json`/`game.json` |
-| `tags` | теги |
-| `icon` | путь к иконке в папке пакета; без него берётся `store/icon.*`, затем `icon.svg` игры |
-| `screenshots` | список путей или `{file, caption}`; без него берутся `store/shots/*` по имени |
-| `links` | `homepage`, `source`, `support` |
-| `locales` | тексты витрины на других языках, см. «Язык витрины» |
+| `summary` | Short card description; otherwise use `description` from the runtime descriptor. |
+| `tags` | Card tags. |
+| `icon` | Package-relative icon path; otherwise try `store/icon.*`, then the game's `icon.svg`. |
+| `screenshots` | Paths or `{file, caption}` objects; otherwise use `store/shots/*` in filename order. |
+| `links` | `homepage`, `source`, `support`. |
+| `locales` | Additional-language listing text as described below. |
 
-Тексты: `store/description.md` — полное описание, `store/changelog.md` — изменения, разделы `## 0.1.1 — 2026-11-17`. Папка `store/` в архив пакета не входит, поэтому правка витрины не требует новой версии пакета.
+Use `store/description.md` for the full description and `store/changelog.md` for entries headed `## <version> — <YYYY-MM-DD>`. `store/` is excluded from the package ZIP, so changing only listing material does not require a package version increase.
 
-### Язык витрины
+The builder inspects image content, byte size and pixel dimensions, emits hashed media references and produces `index.json`, `catalog/` and a report. Publish the validated index and catalog directory at the source root.
 
-Английский — обязательный язык витрины. Поля `title`, `summary`, `tags`, подписи снимков, `store/description.md` и `store/changelog.md` содержат английский текст. Другие языки, русский в том числе, необязательны, добавляются рядом и ничего в основных полях не заменяют:
+## Listing language
+
+English is required. Primary `title`, `summary`, `tags`, captions, `store/description.md` and `store/changelog.md` contain English text. Russian and every other language are supplementary and optional; they never replace the primary fields.
 
 ```json
 {
-  "id": "clock", "kind": "module", "version": "1.0.0",
+  "id": "clock",
+  "kind": "module",
+  "version": "1.0.0",
   "title": "Clock",
   "summary": "A clock for the home screen.",
   "tags": ["time", "widget"],
-  "screenshots": [ { "file": "store/shots/1.webp", "caption": "Night", "locales": { "ru": { "caption": "Ночь" } } } ],
+  "screenshots": [
+    {"file": "store/shots/1.webp", "caption": "Night", "locales": {"ru": {"caption": "Ночь"}}}
+  ],
   "locales": {
-    "ru": { "title": "Часы", "summary": "Часы для главного экрана.", "tags": ["время", "виджет"] }
+    "ru": {"title": "Часы", "summary": "Часы для главного экрана.", "tags": ["время", "виджет"]}
   }
 }
 ```
 
-| Что | Английский | Другой язык `<код>` |
+| Text | English source | Additional language `<language>` |
 |---|---|---|
-| название, описание для карточки, теги | `title`, `summary`, `tags` | `locales.<код>.title`, `.summary`, `.tags` |
-| полное описание | `store/description.md` | `store/description.<код>.md` |
-| изменения | `store/changelog.md` | `store/changelog.<код>.md` (разделы только тех версий, что есть в английском) |
-| подпись снимка | `caption` | `locales.<код>.caption` у снимка |
+| Title, short description, tags | `title`, `summary`, `tags` | `locales.<language>.title`, `.summary`, `.tags` |
+| Full description | `store/description.md` | `store/description.<language>.md` |
+| Changelog | `store/changelog.md` | `store/changelog.<language>.md`, only versions present in English |
+| Screenshot caption | `caption` | Screenshot's `locales.<language>.caption` |
 
-- Код языка — `[a-z]{2,3}` и, если нужно, регион: `ru`, `de`, `pt-BR`; те же коды, что у языков интерфейса. Английский языком (`en`) не называют: это основной текст.
-- Язык может дать не всё. Чего нет, показывается по-английски. Перевод без английского оригинала (описание без `store/description.md`, подпись без английской подписи, теги без `tags`) не принимается.
-- **Тег — это его английский текст.** По нему тег считается и отбирается: число пакетов с тегом и фильтр в магазине не зависят от языка интерфейса. `locales.<код>.tags` — слова, которые показать вместо английских: список той же длины, в том же порядке (`tags[i]` показывается как `locales.<код>.tags[i]`). В переводе тег — обычный текст: можно с заглавной, нельзя с пробелами по краям, повторы не нужны.
-- Пределы те же, что у основных полей: `title` до 120 знаков, `summary` до 600, тег до 32 и не больше 12, описание до 20 000, заметки версии до 4000, подпись до 200; всего не больше 16 языков у карточки и у подробностей. Размер страницы (1 МиБ) и подробностей (256 КиБ) прежний, на весь файл.
-- Сборщик кладёт тексты карточки в `locales` карточки (название, описание, теги), остальные — в `locales` подробностей (описание, заметки версий, подписи).
+- Language codes use two or three lowercase letters and an optional uppercase region, such as `ru`, `de` or `pt-BR`. Do not use `en` in `locales`: English is the primary text.
+- A translation may be partial; missing text falls back to English. A translation without its English source is rejected, including a description without `store/description.md`, a caption without the base caption or translated tags without base tags.
+- **A tag's identity is its English text.** Counts and filters use that identity, independent of UI language. `locales.<language>.tags` is a parallel array of the same length and order: `tags[i]` displays as the corresponding translated string. Localized labels may use capitals, but no surrounding spaces or duplicates.
+- Limits apply to translations too: title 120 characters, summary 600, tag 32 with at most 12 tags, description 20,000, version notes 4,000, caption 200. Card and details allow at most 16 additional languages each. Page/details byte limits cover all locales together.
+- The builder places translated title/summary/tags in card `locales`, and description/version notes/captions in details `locales`.
 
-Сборщик проверяет тип картинки по содержимому, размер и размеры в пикселях, пишет `index.json`, `catalog/` и отчёт; автор копирует `index.json` и `catalog/` в корень репозитория.
+## Package kinds
 
-## Виды пакетов
-
-Оболочка сама знает один вид — `module`: папка в `modules/` с `module.json`. Любой другой вид объявляет модуль, который принимает такие пакеты у себя, в `hosts` своего `module.json`:
+The shell owns `module` (a directory under `modules/` with `module.json`) and `mod` (a customization of another package; see [mods](mods.md)). Other kinds are declared by the installed module that hosts them, using `hosts` in its `module.json`:
 
 ```json
 "hosts": [{
-  "kind": "game", "title": "Игры", "item": "Игра",
-  "descriptor": "game.json", "engine": "gamesEngine", "version": 1,
-  "screen": true, "reserved": ["archive", "daily", "engine", "links", "template", "ui"]
+  "kind": "game",
+  "title": "Games",
+  "item": "Game",
+  "descriptor": "game.json",
+  "engine": "gamesEngine",
+  "version": 1,
+  "screen": true,
+  "reserved": ["archive", "daily", "engine", "links", "template", "ui"]
 }]
 ```
 
-| Поле | Смысл |
+| Field | Meaning |
 |---|---|
-| `kind` | имя вида: строчные латинские буквы, цифры и дефис; `module` занять нельзя |
-| `title`, `item` | как хозяин называет вид во множественном и единственном числе; так он и показан в магазине |
-| `descriptor` | файл в пакете, которым пакет описывает себя хозяину |
-| `engine`, `version` | под каким именем пакет называет версию правил хозяина и какая версия установлена; без них у вида нет версий |
-| `screen` | пакет обязан назвать в описателе свой HTML-экран |
-| `reserved` | имена, которые пакет взять не может: собственные папки хозяина |
+| `kind` | Lowercase Latin letters, digits and hyphens. A host cannot claim `module` or `mod`. |
+| `title`, `item` | Host-provided plural and singular labels displayed in the store. |
+| `descriptor` | File through which the hosted package describes itself. |
+| `engine`, `version` | Name and installed version of the host's rules; absent for an unversioned kind. |
+| `screen` | Require an HTML entry in the hosted package descriptor. |
+| `reserved` | IDs belonging to the host itself that packages may not take. |
 
-Пакет такого вида ставится в папку хозяина, `modules/<хозяин>/<id>`, и никуда больше: объявление не может назвать другое место. Вид достаётся первому по ID модулю, который его объявил. Если хозяина нет в рабочей папке, пакеты его вида в каталоге помечены несовместимыми с понятной причиной. Модуль, который кого-то принимает, пакетом из каталога заменить нельзя, как и сам магазин.
+Hosted packages install only into `modules/<host>/<id>`. A declaration cannot choose another destination. If several modules declare the same kind, the first host by ID wins. Without an installed host, the catalog marks its packages incompatible with a reason. A catalog package cannot replace a module hosting other packages or the store itself.
 
-В карточке и манифесте пакет называет не больше одной версии сверх API приложения — правила своего хозяина под именем, которое дал хозяин: `"compatibility": {"minAxikoApi": 1, "gamesEngine": 1}`. Формат и схемы списка видов не содержат; какой вид что требует, говорит объявление установленного хозяина. Игры объявляет «Игротека» (`modules/games/module.json`); объявления модулей заводской поставки действуют и тогда, когда `module.json` хозяина отредактирован и объявление из него пропало.
+A card/manifest declares at most one version beyond the app API, using its host's engine name: for example `"compatibility": {"minAxikoApi": 1, "gamesEngine": 1}`. Format schemas do not hardcode every hosted kind; the installed host supplies the requirements. Games are hosted by `modules/games/module.json`. Factory host declarations remain effective when an edited installed descriptor has lost its `hosts` field; an absent host does not host packages.
 
-Автор каталога повторяет объявления хозяев для сборщика в `kinds.json` в корне магазина: `{"game": {"host": "games", "descriptor": "game.json", "engine": "gamesEngine", "version": 1}}`. Клиент этот файл не читает.
+For building, authors repeat host declarations in the source root's `kinds.json`, for example:
 
-## Как это читает клиент
+```json
+{"game": {"host": "games", "descriptor": "game.json", "engine": "gamesEngine", "version": 1}}
+```
 
-- **Обновление источника.** Загружается заголовок, затем только те страницы, чьих SHA-256 ещё нет в кэше. Каждая страница сверяется по размеру и хешу и проверяется как метаданные. Новый каталог принимается целиком или не принимается вовсе; правила непрерывности (издатель, архив той же версии) прежние.
-- **Список.** Каталог лежит на диске целиком, поэтому поиск и фильтры работают без сети. Витрина получает его порциями: `store.catalog({query, kind, sourceId, tag, only, sort, offset, limit})` → `{items, total, offset, limit, counts, tags, kinds}`. Экран дорисовывает следующую порцию, когда список подходит к концу; уже нарисованное не перерисовывается.
-- **Разделы и теги — из данных.** `kinds` и `tags` в ответе посчитаны по самому каталогу; у вида есть `title` и `item` — слова его хозяина, `host` и признак `hosted` (есть ли на устройстве хозяин). Витрина не держит списка разделов: она показывает те виды пакетов и те теги, которые есть у пакетов подключённых источников, с их числом. Три вида списка (сетка, список, компактный) и порядок (по названию, сначала новые) — выбор владельца, он запоминается.
-- **Подробности и картинки** загружаются по требованию: `store.details(sourceId, packageId)` и `store.media(sourceId, packageId, 'icon' | 'screenshot', номер)`. Оболочка сама берёт путь из проверенной карточки, качает не больше заявленного размера, сверяет SHA-256 и тип по содержимому, хранит по хешу и отдаёт странице как `data:`-адрес. Страница не обращается к хосту источника напрямую. SVG со скриптами и обработчиками событий не принимается и показывается только как картинка.
-- **Язык витрины.** Клиент показывает название, описание, теги, описание пакета, заметки версий и подписи снимков на языке интерфейса (`I18n.language`), если у пакета есть такой язык в `locales`: сначала точный код (`pt-BR`), затем язык без региона (`pt`), затем любой вариант этого языка (`pt-PT`). Иначе, и для английского, берётся основной английский текст; чего язык не дал, показывается по-английски. Страницы получают уже выбранные тексты: `locales` в ответах `store.catalog`, `store.details` и `store.installed` нет. Поиск идёт и по английскому, и по показанному тексту; порядок — по показанному названию. Теги считаются и отбираются по английскому тексту (`tag` в `store.catalog`; допустимо и показанное слово), а строка `tags` ответа — `{tag, label, count}`, где `label` — слово для показа. Названия видов (`kinds`) в каталог не входят: их даёт хозяин вида, а перевод — словарь интерфейса.
-- **Незнакомые поля.** В заголовке, странице, карточке, описании и записи о картинке клиент проверяет поля, которые читает, а незнакомое поле пропускает. Каталог, в котором появилось новое необязательное поле, открывается и в более старом приложении: оно просто не показывает то, чего не знает. Обязательные поля, `schemaVersion` и требования совместимости (`compatibility`) по-прежнему строги. Манифест пакета (`package.json`) незнакомых полей не допускает: он перечисляет всё, из чего состоит пакет. Сборщик и проверка метаданных на стороне автора тоже строги — терпим только читатель.
-- **Текст из репозитория** — недоверенный: описание и изменения проходят через общий безопасный разбор Markdown, HTML из них не исполняется.
+The client does not read this author-side file.
+
+## Client behavior
+
+- **Refresh:** load the header and only pages whose hashes are absent from cache. Verify each page's size, SHA-256 and metadata. Accept a complete new catalog or retain the old one. Publisher continuity and immutable-release checks still apply.
+- **Browsing:** keep the catalog locally for offline search/filtering. `store.catalog({query, kind, sourceId, tag, only, sort, offset, limit})` returns `{items, total, offset, limit, counts, tags, kinds}`. Append the next slice near the list end instead of rebuilding all visible cards.
+- **Filters:** derive kinds and tags, with their counts, from the catalog. Kind entries contain host labels `title`/`item`, `host` and `hosted`. Grid/list/compact presentation and ordering are owner choices and persist.
+- **Details/media:** load on demand through `store.details(sourceId, packageId)` and `store.media(sourceId, packageId, 'icon' | 'screenshot', index)`. The shell resolves the verified reference, bounds the download, checks hash and content type, caches by hash and returns a `data:` URL. The page never fetches directly from the repository. Reject SVG scripts and event handlers; display SVG only as an image.
+- **Language:** choose the UI's `I18n.language`, first exact locale, then language without region, then another variant of that language. Otherwise use the English base, also for missing translated fields. `store.catalog`, `store.details` and `store.installed` return selected display text without `locales`. Search matches both English and displayed text; sort uses the displayed title. Tag filters/counts use the English identity, while response tags are `{tag, label, count}`. Kind labels come from their host and are translated by UI dictionaries, not catalog locales.
+- **Unknown fields:** the client validates fields it consumes in catalog headers, pages, cards, details and media, while ignoring unfamiliar optional fields. Required fields, `schemaVersion` and compatibility remain strict. Package manifests reject unknown fields. Author-side schemas and metadata tools are also strict; only the listing reader is forward-tolerant.
+- **Untrusted text:** descriptions and changes use the shared safe Markdown renderer. Repository HTML is not executed.
+
+Formal definitions: [index schema](index.schema.json), [page schema](page.schema.json) and [details schema](details.schema.json).

@@ -5,7 +5,7 @@
 //   var checks = kit.standard(__dirname, { play: function (state, ctx, sim, tapsPerSec) { … } });
 //   for (var name in checks) exports[name] = checks[name];
 //
-// What they check (docs/modules/games.md, «Как агент делает новую игру»): a new game and a save
+// What they check (docs/game-development.md): a new game and a save
 // round trip pass validate; old saves of fixtures/ read; 12 hours of offline by the formula and
 // by steps agree within 1 %; a bot plays three days of two 25-minute trips and the pace fits
 // (the first purchase within 10 s, the first prestige within trips 3–6); no network addresses;

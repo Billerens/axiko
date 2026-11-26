@@ -73,7 +73,9 @@ class MainActivity : Activity() {
     private lateinit var panel: FrameLayout
     private lateinit var fab: ImageView
     private val handler = Handler(Looper.getMainLooper())
-    private var chatOpen = false
+    @Volatile private var chatOpen = false
+    private var chatLoaded = false
+    private var pendingChatAgent: String? = null
     private var alive = false
     private var typing = false
 
@@ -120,9 +122,7 @@ class MainActivity : Activity() {
         intent?.getStringExtra("open")?.let { open(it) }
         // From an answer's notification: straight to that chat.
         intent?.getStringExtra("chat")?.let { agent ->
-            intent.getStringExtra("thread")?.takeIf { it.isNotBlank() }?.let { Threads.select(agent, it) }
-            showChat(true)
-            Pages.broadcast("chat.agent", org.json.JSONObject.quote(agent))
+            navigateChat(agent, intent.getStringExtra("thread")?.takeIf { it.isNotBlank() })
             intent.removeExtra("chat")
         }
         if (intent?.getBooleanExtra("assist", false) == true || intent?.action == Intent.ACTION_ASSIST) {
@@ -141,6 +141,27 @@ class MainActivity : Activity() {
                 Log.i("AxikoEval", "<<end>>")
             }
         }
+    }
+
+    fun displaysChat(agent: String, thread: String): Boolean {
+        if (!visible || !chatOpen || !::chat.isInitialized || Threads.current(agent) != thread) return false
+        val selected = runCatching {
+            org.json.JSONTokener(chat.eval("localStorage.getItem('chat.agent') || 'axiko'").orEmpty()).nextValue()
+        }.getOrNull()
+        return visible && chatOpen && selected == agent && Threads.current(agent) == thread
+    }
+
+    fun navigateChat(agent: String, thread: String?) = runOnUiThread {
+        thread?.let { Threads.select(agent, it) }
+        showChat(true)
+        pendingChatAgent = agent
+        pushChatAgent()
+    }
+
+    private fun pushChatAgent() {
+        val agent = pendingChatAgent?.takeIf { chatLoaded } ?: return
+        pendingChatAgent = null
+        chat.push(org.json.JSONObject().put("event", "chat.agent").put("data", agent).toString())
     }
 
     override fun onResume() {
@@ -182,7 +203,7 @@ class MainActivity : Activity() {
         // Timer suspension is process-wide; keep them running while another Activity is visible.
         // Background agents/jobs run in Rhino and are unaffected.
         // The agent's own screen (Probe) lives in the same process: while it is at work the timers stay.
-        if (startedActivities.isEmpty() && !app.axiko.core.Probe.active) page.web.pauseTimers()
+        if (startedActivities.isEmpty() && !app.axiko.core.Probe.active && !app.axiko.sense.OnScreenAssistant.hasVisiblePanel()) page.web.pauseTimers()
     }
 
     override fun onDestroy() {
@@ -317,6 +338,11 @@ class MainActivity : Activity() {
             visibility = View.GONE
         }
         chat = Bridge(WebView(this), "chat")
+        chatLoaded = false
+        chat.onLoaded = {
+            chatLoaded = true
+            pushChatAgent()
+        }
         panel.addView(chat.web, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         root.addView(panel, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
 

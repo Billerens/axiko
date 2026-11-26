@@ -1,7 +1,7 @@
 // The engine side of the hub «Игротека»: saves in SQLite, the catalog, settings, the inbox and
 // the content stock of each game, the life links (links/*.js), achievements to «Ачивки за
 // жизнь», notifications. Screens call it: axiko.call('modules/games/main.js', 'save', id, seq, json).
-// The rules are in docs/modules/games.md; how a game is made is in AGENT.md next to this file.
+// The project rules are in docs/game-development.md; the runtime reference is AGENT.md next to this file.
 var axiko = require('lib/axiko');
 var Big = require('./engine/big.js');
 var Fmt = require('./engine/fmt.js');
@@ -79,7 +79,7 @@ function now() { return Date.now(); }
 
 var FEATURES = null;
 
-/** The shell's extra operations (docs/shell-changes.md); [] when it has none of them. */
+/** The shell's extra operations (docs/native-contracts.md); [] when it has none of them. */
 function features() {
   if (FEATURES) return FEATURES;
   try {

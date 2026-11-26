@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Наэкранный ассистент</title>
+<link rel="stylesheet" href="/ui/kit/kit.css">
+<link rel="stylesheet" href="/ui/assistant/assistant.css">
+<body>
+<main class="assistant-panel" id="assistant-panel" data-motion="true" data-mode="voice" data-phase="idle" aria-label="Наэкранный ассистент">
+  <div class="assistant-bubbles" id="assistant-bubbles" aria-hidden="true">
+    <div class="assistant-message user" id="assistant-user-bubble" hidden>
+      <span class="assistant-author">Вы</span><p id="assistant-utterance" data-raw></p>
+    </div>
+    <div class="assistant-message reply" id="assistant-reply-bubble" hidden>
+      <span class="assistant-author" id="assistant-name" data-raw>Axiko</span><p id="assistant-reply" data-raw></p>
+    </div>
+  </div>
+
+  <section class="assistant-drawer" id="assistant-drawer" aria-labelledby="assistant-drawer-title" data-assistant-touch hidden>
+    <header class="assistant-drawer-head">
+      <h3 id="assistant-drawer-title">Переписка</h3>
+      <button class="assistant-icon" type="button" id="assistant-drawer-close" data-icon="close" aria-label="Закрыть"></button>
+    </header>
+    <input class="input assistant-session-search" type="search" id="assistant-session-search" placeholder="Поиск по чатам"
+      aria-label="Поиск по чатам" maxlength="160" hidden>
+    <div class="assistant-content" id="assistant-content">
+      <div class="assistant-log" id="assistant-log" role="log" aria-label="Переписка" tabindex="0" hidden></div>
+      <div class="assistant-sessions-list" id="assistant-sessions-list" hidden></div>
+      <div class="assistant-sessions-list" id="assistant-participant-list" hidden></div>
+      <div class="assistant-question" id="assistant-question" hidden></div>
+    </div>
+    <button class="btn small assistant-new" type="button" id="assistant-new" hidden><span data-icon="plus"></span>Новый разговор</button>
+    <button class="btn small" type="button" id="assistant-resume" hidden>Продолжить прошлый разговор</button>
+    <button class="btn small" type="button" id="assistant-participants" hidden>Участники чата</button>
+    <form class="assistant-composer" id="assistant-composer" hidden>
+      <textarea class="input" id="assistant-input" rows="1" enterkeyhint="send" maxlength="12000"
+        placeholder="Написать или сказать…" aria-label="Сообщение ассистенту" disabled></textarea>
+      <button class="btn primary assistant-icon send" type="submit" id="assistant-send" data-icon="send" aria-label="Отправить" disabled></button>
+    </form>
+  </section>
+
+  <div class="assistant-activity" id="assistant-activity">
+    <div class="assistant-identity" id="assistant-mascot" aria-hidden="true" hidden></div>
+    <span class="assistant-wave-field" id="assistant-wave-field" aria-hidden="true"></span>
+    <span id="assistant-status" role="status">Открываю разговор…</span>
+    <span id="assistant-work" class="assistant-work" hidden data-raw></span>
+  </div>
+  <p id="assistant-error" class="assistant-error" role="alert" data-assistant-touch hidden data-raw></p>
+  <div class="assistant-actions" id="assistant-actions" aria-label="Разговор">
+    <button class="assistant-action" type="button" id="assistant-screen" hidden aria-pressed="false" data-assistant-touch>
+      <span data-icon="image"></span><span id="assistant-screen-label">Добавить экран</span>
+    </button>
+    <button class="assistant-action" type="button" id="assistant-silence" hidden data-assistant-touch>Остановить озвучку</button>
+    <button class="assistant-action" type="button" id="assistant-retry" hidden data-assistant-touch>Повторить запрос</button>
+    <button class="assistant-action danger" type="button" id="assistant-cancel" hidden data-assistant-touch>Отменить работу</button>
+    <button class="assistant-action" type="button" id="assistant-expand" aria-label="Показать переписку" title="Показать переписку"
+      aria-controls="assistant-drawer" aria-expanded="false" hidden disabled data-assistant-touch>
+      <span data-icon="list"></span><span>Переписка</span>
+    </button>
+    <button class="assistant-action" type="button" id="assistant-open" hidden data-assistant-touch>Открыть чат</button>
+  </div>
+  <nav class="assistant-dock" data-assistant-touch aria-label="Управление ассистентом">
+    <button class="assistant-icon" type="button" id="assistant-sessions" data-icon="message" aria-label="Сессии" title="Сессии"
+      aria-controls="assistant-drawer" aria-expanded="false" disabled></button>
+    <button class="assistant-icon" type="button" id="assistant-chat" data-icon="edit" aria-label="Текстовый чат" title="Текстовый чат"
+      aria-controls="assistant-drawer" aria-pressed="false" disabled></button>
+    <button class="assistant-icon mic" type="button" id="assistant-mic" data-icon="mic" aria-label="Включить микрофон" title="Включить микрофон"
+      aria-pressed="false" disabled></button>
+    <button class="assistant-icon" type="button" id="assistant-app" data-icon="home" aria-label="Открыть Axiko" title="Открыть Axiko" disabled></button>
+    <button class="assistant-icon" type="button" id="assistant-close" data-icon="close" aria-label="Закрыть" title="Закрыть"></button>
+  </nav>
+</main>
+<script src="/ui/kit/kit.js"></script>
+<script src="/ui/assistant/assistant.js"></script>
+</body>
+</html>

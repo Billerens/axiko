@@ -1,197 +1,105 @@
-# Axiko: имя, маскот, словарь
+# Brand, mascot and interface wording
 
-Приложение называется **Axiko** — латиницей, во всех языках интерфейса. Это тело и дом; агента внутри
-владелец называет сам. По умолчанию агента тоже зовут Axiko, пока владелец не даст другое имя; голосом имя произносится «аксико», и распознавание
-само сопоставляет латинское написание с услышанным по-русски.
+English · [Русский](brand.ru.md)
 
-## Маскот
+The product is **Axiko**, spelled in Latin letters in every interface language. The owner
+names the agent independently; its default name is also Axiko. Product naming must not
+replace an owner's chosen agent name.
 
-Маленький пухлый аксолотль, который живёт в телефоне и обустраивает его под хозяина. Услужливый
-оптимист: не умничает и не пугает, слегка удивлён и рад, когда его о чём-то просят. Говорит коротко
-и тепло. Оригинальный персонаж — без сходства с чужими маскотами.
+## Character and editable assets
 
-- **Стиль — «стикер»** (выбран 16.11.2026 из восьми вариантов, [лист](brand/mascot/variants/contact-sheet.webp)):
-  толстый мягкий контур, плоские заливки без теней и белая обводка-подложка вокруг силуэта. Читается
-  и на `#101010`, и на белом.
-- **Цвета самой картинки:** тело `#C9B6FD`, жабры, кайма хвоста и язык `#F98FAC`, контур и глаза
-  `#44308A`, обводка `#FFFFFF`. Рот остаётся розовым в любой теме.
-- **Жабры** — по три веточки с каждой стороны. Самая выразительная часть: каждая — отдельный
-  элемент и может загореться.
+The factory mascot is an original, small axolotl: helpful, mildly curious and warm. Its
+sticker style uses a thick rounded outline, flat fills and a white border readable on both
+dark and light backgrounds. Default colors are body `#C9B6FD`, gills and mouth `#F98FAC`,
+outline `#44308A`, sticker edge `#FFFFFF`. Each of its six gill branches can indicate activity.
 
-### Маскот принадлежит владельцу
+The mascot belongs to the workspace, not to a fixed UI requirement:
 
-Главное свойство Axiko — всё можно переделать под себя, и маскот не исключение. Он живёт в рабочей
-папке, а не в оболочке:
-
-```
-ui/mascot/mascot.json    имя, enabled, alive, button, позы, свои цвета, реплики
-ui/mascot/<поза>.svg     20 файлов: 18 поз и два слоя для кнопки чата (peek-body, peek-paw)
-ui/mascot/index.html     экран «Маскот» (Настройки → Вид → Маскот)
-ui/button/index.html     вид кнопки чата: маскот выбирается из-за края
-```
-
-| Что хочет владелец | Как это делается |
+| File | Contract |
 |---|---|
-| Окрас под тему | Ничего: тема красит маскота сама (см. ниже) |
-| Свой окрас при любой теме | `colors` в `mascot.json` — на экране «Маскот» или через агента |
-| Спокойнее: без движения | `"alive": false` — неподвижная картинка, не моргает и не прыгает |
-| Другая кнопка чата | «Настройки → Вид → Кнопка чата»: `"button": "peek"` — маскот у края, `"badge"` — его голова в кружке, `"round"` — круглая кнопка оболочки (прежние `true` и `false` читаются как `"peek"` и `"round"`) |
-| Другой значок приложения | «Настройки → Вид → Значок приложения»: маскот на фиолетовом, тёмном или светлом, розовый маскот, искра на фиолетовом или тёмном. Значки вшиты в оболочку (`core/Launcher.kt`, точки входа в манифесте, слои — `scripts/brand/icon.py`) |
-| Другой персонаж | Свои SVG или картинка в `ui/mascot/`, названные в `poses`; хватит одной позы `idle` |
-| Убрать совсем | `"enabled": false` — файлы не удалять: заводские вернутся при обновлении |
-| Вернуть как было | «Вернуть заводского» на экране «Маскот»; откат — в «Истории изменений» |
+| `ui/mascot/mascot.json` | Name, `enabled`, `alive`, `button`, pose mapping, colors and phrases |
+| `ui/mascot/*.svg` or replacement images | Editable pose artwork |
+| `ui/mascot/index.html` | The owner's mascot settings |
+| `ui/button/index.html` | The drawn face of the native chat control |
 
-Отсюда правила для экранов:
+- `enabled: false` disables the mascot; screens still work. Do not delete factory files as
+  a way of disabling it, because a future factory install can restore missing files.
+- `alive: false` makes it still. Also respect the system's reduced-motion preference.
+- `poses` maps semantic names such as `idle`, `thinking`, `asking` and `oops` to artwork.
+  A replacement character may provide only `idle`; missing poses must fall back gracefully.
+- `colors` overrides the character's theme colors. `phrases` contains its optional copy;
+  `ui.mascot.say(key, fallback)` must still return useful text without a character.
+- `button` chooses `peek`, `badge` or `round`. Legacy `true`/`false` mean `peek`/`round`.
+  Missing artwork must fall back without removing the chat entry point.
 
-- **Ни один экран не зависит от маскота.** `ui.mascot()` без маскота — скрытый пустой элемент,
-  `ui.mascot.say(ключ, текст)` — обычный текст экрана. С маскотом теплее, без него всё так же работает.
-- **Реплики — часть персонажа** (`phrases` в `mascot.json`). «Отращу экран» говорит аксолотль; у
-  другого персонажа свои слова, без персонажа — нейтральные. Тексты обучения нейтральные всегда.
-- **Чужой персонаж не обязан уметь всё.** Нет позы — показывается `idle`. Нет жабр
-  (`data-gill`) — число работающих агентов показывается точками под ним. Нет слоёв `peek-body` и
-  `peek-paw` — кнопка чата остаётся обычной.
-- **Вход в чат нельзя сломать.** Страница `ui/button/` только рисует: нажатие и долгое нажатие
-  (меню восстановления) принадлежат кнопке оболочки, которая лежит поверх. В безопасном режиме и
-  пока страница не сообщила, что ей есть что показать, видна обычная круглая кнопка.
+`ui.mascot()` returns an empty hidden element when disabled. No screen may depend on it.
+Characters without marked gills can use activity dots instead. Keep user replacement images,
+colors and phrases editable; do not duplicate a second hard-coded mascot in a screen.
 
-### Кнопка чата: он выбирается из-за края
+## Chat control and launcher
 
-Вместо круглой кнопки — маскот у нижнего правого края экрана. Это два отдельных стикера: тело
-(`peek-body`) поднимается из-за края, лапки (`peek-paw`, одна картинка дважды) лежат на самом
-краю — на полосе меню, а без неё на маленькой полочке.
+In `peek` mode, `peek-body` rises behind an edge and two copies of `peek-paw` rest over it.
+At rest it peeks; during a conversation or agent work it climbs up. A badge shows the head
+in a round control, while `round` uses the shell's plain control.
 
-| Когда | Что он делает |
-|---|---|
-| Приложение открылось | Лапки хватаются за край, он подтягивается, осматривается и опускается: над краем остаются одни глаза |
-| Ничего не происходит | Чуть выглядывает — видны только глаза, покачивается; раз в ~40 секунд подтягивается осмотреться |
-| Его позвали (чат открывается) | Подтягивается по плечи — лапки у него короткие, выше не выбраться |
-| Агент работает | Подтянулся по плечи, горят жабры: по одной за чат в работе и за каждую идущую подзадачу |
+The button page only draws. Tap and long press belong to the shell's native view above it;
+long press opens recovery. Safe mode or missing artwork must leave a native way into chat.
+A WebView z-index cannot cover that native hit area. Position guide/dialog controls outside
+it, including on short screens and with large text.
 
-### В хабе на компьютере
+Launcher icons are APK resources, not workspace artwork. `core/Launcher.kt` selects one
+activity alias and disables the others. Current choices are `mascot`, `night`, `light`,
+`pink`, `plain` and `plain-night`. New launcher art requires rebuilding the APK; it does
+not automatically follow the workspace theme.
 
-Веб-хаб (`ui/desk/`) — то же приложение в браузере, и маскот там тот же, из той же папки:
+## Theme contract
 
-- в шапке слева — его голова вместо искры; в центре обзора, среди орбит, — он сам, и он показывает,
-  чем сейчас занят агент (думает, ищет, чинит, радуется готовому);
-- экраны приложения открываются в хабе как есть — со своим маскотом, окрасом темы и позами в чате;
-- кнопки чата «у края» в хабе нет: чат там — панель сбоку;
-- с выключенным маскотом в шапке и в центре остаётся искра.
+SVGs use `--mascot-body`, `--mascot-gills`, `--mascot-line`, `--mascot-mouth`,
+`--mascot-sticker` and `--mascot-light`. Color precedence is:
 
-### Тело как интерфейс
+1. Owner overrides in `mascot.json`.
+2. Explicit mascot tokens in the selected theme.
+3. Colors derived by `Themes.render` from the theme accent: accent-colored gills, a light
+   body and dark outline, where CSS color mixing is supported.
+4. The artwork's intrinsic defaults.
 
-| Состояние приложения | Поза | Где |
-|---|---|---|
-| Первая встреча, модель не подключена | `hello` + реплики `hello`, `model` | главный экран |
-| Обычный день | `idle`; ночью (0–5 ч) — `sleeping` | главный экран, пустой чат |
-| Запрос отправлен, модель размышляет | `thinking` | чат (строка состояния), главный экран |
-| Ищет в сети, читает файлы | `searching` | чат, главный экран |
-| Пишет и правит файлы, выполняет код | `working` | чат, главный экран |
-| Раздаёт работу, открывает черновик | `building` | чат, карточка черновика, «Настройка по шагам» |
-| Предлагает план | `plan` | чат, карточка плана |
-| Ждёт ответа владельца | `asking` | чат, карточка вопросов; последний шаг обучения — про чат |
-| Пишет ответ | `point` | чат |
-| Что-то изменил | `celebrating` | у списка изменённых файлов; на главном экране после работы |
-| Ошибка | `oops` | чат, главный экран |
-| Слушает голос | `listening` | пустой чат |
-| Просит имя | `name` | настройки, окно «Имя ассистента» |
-| Безопасный режим | `safe` + реплика `safe` | главный экран |
-| На него нажали | `love`, `celebrating` или `hello` на пару секунд | главный экран, пустой чат, экран «Маскот» |
-| Сколько агентов в работе | горят жабры, до шести | чат, кнопка чата |
+Use the same character and token contract in the browser hub. The hub has its own side chat,
+not the phone's floating chat control. With the character disabled, its regular controls and
+layout remain usable.
 
-Живой маскот моргает, дышит, подпрыгивает при смене позы и качается, если на него нажать; горящие
-жабры мерцают. `"alive": false` и системная настройка «меньше движения» это отключают.
+## State and wording
 
-**Иконка на рабочем столе** — голова маскота на `#5B4BDB` или прежняя простая искра; выбирается на
-экране «Маскот». Она зашита в APK и за темой не следует; у обеих есть одноцветный слой для
-тематических иконок Android 13+.
-### Окрасы — это темы
+Use poses to reinforce actual state, not invent progress: `thinking` for model work,
+`searching` for reading/search, `working` for edits/tools, `building` for delegated work or
+drafts, `plan` for plans, `asking` for owner input, `listening` for voice, `oops` for an error,
+`safe` for recovery, and `celebrating` after a completed change. Idle/night and brief reactions
+can add life without blocking interaction. Activity lights represent active conversations
+and delegated work, not arbitrary animation counts.
 
-Маскот нарисован переменными `--mascot-body`, `--mascot-gills`, `--mascot-line` (ещё есть
-`--mascot-mouth`, `--mascot-sticker`, `--mascot-light`). Откуда берётся окрас, по старшинству:
+Write character phrases briefly, warmly and honestly. Body metaphors belong only in optional
+character copy. Controls keep direct labels such as Restore, History and Settings. Do not
+promise an unverified result. In Russian, address the owner politely as «вы» and refer to
+the mascot as «он». Interface guidance stays neutral and understandable without a mascot.
 
-1. `colors` в `mascot.json` — свой окрас владельца;
-2. токены темы `mascot-body`, `mascot-gills`, `mascot-line`;
-3. если тема их не задаёт, но задаёт `accent`, оболочка выводит окрас сама (`Themes.render`):
-   жабры — акцент, тело — его светлый оттенок (38% в белом), контур — тёмный (45% в чёрном);
-4. без темы — цвета самой картинки.
+## Guided tours
 
-Заводские темы задают окрас явно:
+Use `ui.tour.offer` for a screen that benefits from an introduction. The final step points to
+chat for further questions. Skipping marks tours as skipped; the owner can reset them in
+Settings. Hub frames wait for the hub's own tour, and phone-only steps use `phone: true` so
+they do not appear on desktop. Long explanations must scroll without hiding navigation.
 
-| Тема | Тело | Жабры и кайма хвоста | Контур |
-|---|---|---|---|
-| без темы, `midnight` | `#C9B6FD` лавандовый | `#F98FAC` | `#44308A` |
-| `rose` | `#FFC2D1` розовый | `#FF6F91` | `#7A1F3D` |
-| `amber` | `#FFD98A` золотой | `#F5A33B` | `#6B4210` |
-| `emerald` | `#A8F0CF` мятный | `#2FC486` | `#0E4D36` |
-| `ocean` | `#BFDFFF` голубой | `#4DA3FF` | `#123A66` |
-| `graphite` | `#3A3A3F` чёрный (меланистик) | `#E6E6E6` серебристые | `#141416` |
+## Artwork maintenance
 
-Вывод из акцента работает там, где WebView умеет `color-mix()` (Chromium 111+); на старом маскот
-остаётся в своих цветах.
+Canonical source poses and tracing specifications are in
+[`assets/brand/mascot/poses/`](../assets/brand/mascot/poses/). Runtime SVGs remain in the factory
+workspace. Generation references, rejected variants and dated review sheets are not project rules.
 
-### Откуда берутся картинки
+- [`scripts/brand/build.py`](../scripts/brand/build.py) rebuilds poses from canonical sources.
+- [`vectorize.py`](../scripts/brand/vectorize.py) traces artwork using its layer specification.
+- [`icon.py`](../scripts/brand/icon.py) builds launcher layers from the factory `head.svg`.
+- [`compare.py`](../scripts/brand/compare.py) and [`preview.py`](../scripts/brand/preview.py)
+  render comparisons and UI previews. Keep generated review output under `build/artifacts/`.
 
-Позы нарисованы Codex CLI по утверждённому образцу и переведены в SVG скриптами:
-
-| Что | Где |
-|---|---|
-| Исходные картинки поз и их описания для трассировки | `docs/brand/mascot/sticker/poses/` |
-| Задания для генерации | `docs/brand/mascot/sticker/BRIEF-*.md` |
-| Картинка → SVG по слоям (potrace) | `scripts/brand/vectorize.py` |
-| Пересобрать все позы и лист проверки | `python scripts/brand/build.py` → `poses-sheet.png` |
-| Слои иконки из головы | `python scripts/brand/icon.py` |
-| Экраны с маскотом в браузере, без телефона | `python scripts/brand/preview.py ПАПКА` |
-
-## Как говорит Axiko
-
-- От первого лица, коротко, тепло, без канцелярита и без сюсюканья. К владельцу — на «вы», как и
-  всё приложение.
-- Метафоры тела — только в его репликах. **Кнопки и пункты меню остаются прямыми**: «Откатить»,
-  «История изменений». Рядом с ними Axiko может сказать: «Сброшу шкурку — станет как было».
-- Не обещает того, что не проверено; если не вышло — так и говорит.
-- В тексте он «он»: «Axiko готов», «Axiko выдал себе разрешения».
-
-## Словарь
-
-Слова из правой колонки — для реплик маскота, не для кнопок. В экраны пока встроена только часть
-(«отращу экран»); остальное — запас на будущее.
-
-| Понятие в коде | Ярлык в интерфейсе (как есть) | Как это называет Axiko |
-|---|---|---|
-| Рабочая папка (`files/axiko`) | Рабочая папка | «мой домик», «я сам» |
-| Модуль | Модуль, экран | «отращу экран», «новая лапка» |
-| Агент (`agents/<id>`) | Агент | в работе — огонёк на жабре |
-| Снимок перед ходом агента | История изменений | «шкурка»: «я сохраняю шкурку перед каждой переделкой» |
-| Откат | Откатить | «сбросить шкурку», «влезть в старую шкурку» |
-| Черновик (`draft_begin`) | Черновик | «примерка»: «примерьте, понравится — оставлю» |
-| Заводская копия | Заводской вариант | «икринка»: «из неё я могу вырасти заново» |
-| Безопасный режим | Безопасный режим | «уплыл на дно, переждать» |
-| Магазин / каталог | Каталог | «пруд»: «в пруду новые модули» |
-| Чувства телефона | Чувства телефона | «глазки» (экран), «ушки» (уведомления), «голос» |
-| Рутина | Рутины | «привычка»: «запомню привычку» |
-| Провайдер модели и ключ | Провайдеры моделей | «мозги» |
-| Тема | Тема | «окрас» |
-
-## Обучение
-
-Первый раз каждый экран показывает себя сам: всё затемняется, кроме того, о чём идёт речь, рядом —
-подсказка, из-за края которой выглядывает маскот (`ui.tour` в `kit.js`).
-
-| Экран | О чём шаги |
-|---|---|
-| Главный (первый запуск) | Что это за приложение · главный экран · модули · магазин · идеи для начала · кнопка чата · меню экранов · история изменений · подключение модели |
-| Чат | Поле просьбы · голос · вложения · модель чата · чаты · ответы вслух · отмена изменений и черновики |
-| Настройки | Настройка по шагам · что в каком разделе · любую настройку можно поменять просьбой |
-| История, Задачи, Рутины, Магазин, Маскот | По одному–четыре шага о главном на экране |
-| Хаб на компьютере | Что это · с чего начать · быстрый переход · разделы · модули · студия · чат сбоку · связь с телефоном |
-
-- Последний шаг любого тура — «Остались вопросы? Спросите в чате».
-- Кто пропустил тур, тому остальные не показываются; «Настройки → Система → Обучение» возвращает их.
-- В хабе экраны показывают свои туры после тура самого хаба, по одному; шаги про кнопку чата и
-  полосу меню телефона там пропускаются (`phone: true`).
-- Тексты нейтральные и работают без маскота; его реплики от первого лица остаются на карточках
-  главного экрана.
-- Модулю, в котором есть что объяснять, агент даёт такой же тур (`ui.tour.offer`).
-
-Чего ещё нет: шагов от лица маскота про имя, голос и «чувства телефона» — они описаны в настройках
-обычным списком.
+Check changed art on dark/light themes, at small sizes, with animation disabled and with
+replacement or disabled mascot configuration. Review generated SVG/resource changes before
+shipping them; a successful conversion alone is not a visual check.

@@ -7,6 +7,7 @@ import app.axiko.core.Notify
 import app.axiko.core.Engine
 import app.axiko.core.Pages
 import app.axiko.core.Workspace
+import app.axiko.sense.OnScreenAssistant
 import app.axiko.voice.Speaker
 import app.axiko.voice.Tts
 import app.axiko.store.StoreAgent
@@ -18,6 +19,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 
 /** One conversation of one agent with the model, and the loop that drives it. */
 class Conversation(
@@ -28,8 +32,11 @@ class Conversation(
     val thread: String = "",
     /** For a piece of work handed out by another conversation: what it is called there. */
     private val label: String? = null,
+    /** A temporary assistant dialog can use the full agent loop without saving the transcript. */
+    private val persist: Boolean = lasting,
 ) {
     val depth: Int = (parent?.depth ?: 0) + 1
+    internal val persists: Boolean get() = persist
 
     @Volatile
     var busy = false
@@ -108,14 +115,40 @@ class Conversation(
     /** The answer being written right now, not yet a message: a chat opened in the middle of it shows it too. */
     private val writing = StringBuffer()
 
+    /** A failed request can start from the existing transcript, at the same model step. */
+    private data class Replay(
+        val text: String, val step: Int, val finishing: Boolean = false, val guest: Conversation? = null,
+    )
+
+    private class GuestModelFailure(val guest: Conversation, val error: Throwable) : Exception(error.message, error)
+
+    private data class RetryState(
+        val phase: String = "idle",
+        val attempt: Int = 0,
+        val limit: Int = 0,
+        val partial: String = "",
+        val message: String = "",
+        val delayMs: Long = 0,
+        val replay: Replay? = null,
+        val speechQueued: Boolean = false,
+    )
+
+    @Volatile
+    private var retryState = RetryState()
+
+    private val narrationId = "chat-answer:${java.util.UUID.randomUUID()}"
+
+    @Volatile
+    var assistantVoice: (() -> Speaker?)? = null
+
     private val worker by lazy {
-        Executors.newSingleThreadExecutor { task ->
+        ThreadPoolExecutor(1, 1, 30, TimeUnit.SECONDS, LinkedBlockingQueue()) { task ->
             Thread(null, task, "axiko-agent-$id", 16L * 1024 * 1024).apply { isDaemon = true }
-        }
+        }.apply { allowCoreThreadTimeOut(true) }
     }
 
     init {
-        if (lasting) runCatching {
+        if (persist) runCatching {
             val saved = JSONObject(file.readText())
             val list = saved.getJSONArray("messages")
             for (i in 0 until list.length()) messages.add(list.getJSONObject(i))
@@ -124,6 +157,15 @@ class Conversation(
             plan = saved.optJSONObject("plan")
             own = saved.optJSONObject("model")
             draft = saved.optString("draft").takeIf { app.axiko.core.Drafts.exists(it) }
+            saved.optJSONObject("modelRetry")?.let { state ->
+                val text = state.optString("text")
+                val step = state.optInt("step")
+                if (text.isNotBlank() && step > 0) {
+                    retryState = RetryState("failed", state.optInt("attempt"), state.optInt("limit"),
+                        state.optString("partial").take(RETRY_PARTIAL_LIMIT), state.optString("message"),
+                        replay = Replay(text, step, state.optBoolean("finishing")), speechQueued = state.optBoolean("speechQueued"))
+                }
+            }
         }
     }
 
@@ -139,9 +181,11 @@ class Conversation(
             if (busy) {
                 // The agent is at work: the message goes into the work in hand between two of its
                 // steps, or waits for it to end — as the owner said, or else as the setting says.
-                queue.add(Waiting(java.lang.Long.toString(System.nanoTime(), 36), text.trim(), attached, where, steer ?: steersByDefault))
+                val redirect = (steer ?: steersByDefault) && !ChatParticipants.isAddressed(this, text)
+                queue.add(Waiting(java.lang.Long.toString(System.nanoTime(), 36), text.trim(), attached, where, redirect))
             } else {
                 busy = true
+                stopping = false
             }
             busy && queue.isNotEmpty()
         }
@@ -149,30 +193,83 @@ class Conversation(
             emitQueue()
             return true
         }
-        stopping = false
-        Tts.stop()
+        if (assistantVoice == null) Tts.stop()
         worker.execute { turn(text.trim(), attached, where) }
         return true
     }
 
-    fun once(task: String): String {
+    fun once(task: String, attached: List<Attach> = emptyList()): String = once(task, attached, null)
+
+    private fun once(task: String, attached: List<Attach>, previousFailure: RetryState?): String {
         busy = true
         parent?.children?.add(this)
         try {
-            return turn(task)
+            return turn(task, attached, previousFailure = previousFailure)
         } finally {
             parent?.children?.remove(this)
         }
     }
 
+    internal fun askParticipant(agent: String, task: String, attached: List<Attach>): String {
+        val guest = Conversation(agent, lasting = false, parent = this, label = Agent.spec(agent).title)
+        return guest.answerAsParticipant(task, attached)
+    }
+
+    private fun answerAsParticipant(text: String, attached: List<Attach>, previousFailure: RetryState? = null): String =
+        try {
+            once(text, attached, previousFailure)
+        } catch (error: Throwable) {
+            if (retryState.replay != null) throw GuestModelFailure(this, error)
+            throw error
+        }
+
     fun stop(): Boolean {
-        stopping = true
-        synchronized(queue) { queue.clear() }
+        synchronized(queue) {
+            stopping = true
+            queue.clear()
+        }
         emitQueue()
         call?.cancel()
         children.forEach { it.stop() }
-        if (lasting) Tts.stop()
+        if (lasting && assistantVoice == null) Tts.stop()
         return true
+    }
+
+    fun retry(): Boolean {
+        synchronized(queue) {
+            val state = retryState
+            val replay = state.replay ?: return false
+            if (busy || state.phase != "failed") return false
+            busy = true
+            stopping = false
+            worker.execute { turn(replay.text, previousFailure = state) }
+        }
+        return true
+    }
+
+    fun retryStatus(): JSONObject {
+        val state = retryState
+        return JSONObject().put("phase", state.phase).put("attempt", state.attempt).put("limit", state.limit)
+            .put("partial", state.partial).put("message", state.message).put("delayMs", state.delayMs)
+            .put("available", state.replay != null && state.phase == "failed" && !busy)
+    }
+
+    private fun updateRetry(next: RetryState) {
+        if (retryState == next) return
+        retryState = next
+        emit(JSONObject().put("type", "retry").put("retry", retryStatus()))
+    }
+
+    private fun retryLimit(): Int = App.prefs.getString("chat.retryLimit", "2")?.toIntOrNull()?.coerceIn(0, 10) ?: 2
+
+    private fun waitForRetry(delayMs: Long): Boolean {
+        val start = System.nanoTime()
+        while (!cancelled) {
+            val left = delayMs - TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start)
+            if (left <= 0) return true
+            Thread.sleep(left.coerceAtMost(150))
+        }
+        return false
     }
 
     // ---- what waits while the agent works ---------------------------------------------------------
@@ -214,7 +311,7 @@ class Conversation(
                     .put("content", item.text + STEER_NOTE + (item.where?.takeIf { it.isNotBlank() }?.let { "\n\n$WHERE_OPEN$it]" } ?: "")),
             )
             emit(JSONObject().put("type", "user").put("text", item.text).put("steer", true))
-            attach(item.attached, target)
+            attach(item.attached, target.vision)
         }
         emitQueue()
         save()
@@ -268,7 +365,9 @@ class Conversation(
         val pending = Asked("ask" + System.nanoTime(), JSONObject().put("title", form.optString("title")).put("questions", questions))
         asked = pending
         emit(JSONObject().put("type", "ask").put("id", pending.id).put("form", pending.form))
-        if (!MainActivity.visible) runCatching { Notify.answer(id, thread, Agent.spec(id).title, "Нужен ваш ответ, чтобы продолжить.") }
+        if (persist && !MainActivity.visible && !OnScreenAssistant.isShowing(this)) runCatching {
+            Notify.answer(id, thread, Agent.spec(id).title, "Нужен ваш ответ, чтобы продолжить.")
+        }
         while (!pending.done.await(400, java.util.concurrent.TimeUnit.MILLISECONDS)) if (cancelled) break
         asked = null
         emit(JSONObject().put("type", "asked").put("id", pending.id))
@@ -321,7 +420,9 @@ class Conversation(
         val pending = Asked("plan" + System.nanoTime(), drawn, "plan")
         asked = pending
         emit(JSONObject().put("type", "plan").put("id", pending.id).put("plan", drawn))
-        if (!MainActivity.visible) runCatching { Notify.answer(id, thread, Agent.spec(id).title, "План готов: посмотрите и дайте добро.") }
+        if (persist && !MainActivity.visible && !OnScreenAssistant.isShowing(this)) runCatching {
+            Notify.answer(id, thread, Agent.spec(id).title, "План готов: посмотрите и дайте добро.")
+        }
         while (!pending.done.await(400, java.util.concurrent.TimeUnit.MILLISECONDS)) if (cancelled) break
         asked = null
         val verdict = pending.answer
@@ -449,7 +550,7 @@ class Conversation(
                     "assistant" -> {
                         val text = if (message.isNull("content")) "" else message.optString("content")
                         message.optString(THOUGHT).takeIf { it.isNotBlank() }?.let { out.put(JSONObject().put("type", "thought").put("text", it)) }
-                        if (text.isNotBlank()) out.put(JSONObject().put("type", "assistant").put("text", text))
+                        if (text.isNotBlank()) out.put(withAuthor(JSONObject().put("type", "assistant").put("text", text), message))
                         val calls = message.optJSONArray("tool_calls")
                         if (calls != null) {
                             for (i in 0 until calls.length()) {
@@ -489,8 +590,122 @@ class Conversation(
 
     // ---- the loop -------------------------------------------------------------------------
 
+    /** Only the fields needed by a compact assistant panel. No captured images or tool arguments. */
+    fun assistantView(): JSONObject {
+        val transcript = synchronized(messages) {
+            messages.asReversed().asSequence().mapNotNull { message ->
+                val role = message.optString("role")
+                val text = message.opt("content") as? String ?: return@mapNotNull null
+                if (role !in listOf("user", "assistant") || text.isBlank() || text.startsWith(SUMMARY_NOTE)) return@mapNotNull null
+                withAuthor(JSONObject().put("role", role).put("text", (if (role == "user") spoken(text) else text).take(8_000)), message)
+            }.take(24).toList().asReversed()
+        }
+        val result = JSONObject().put("messages", JSONArray(transcript)).put("reply", writing.toString().takeLast(8_000))
+            .put("retry", retryStatus())
+        asked?.let { pending -> result.put("question", JSONObject().put("type", pending.kind).put("id", pending.id)
+            .put(if (pending.kind == "plan") "plan" else "form", pending.form)) }
+        return result
+    }
+
+    private fun withAuthor(out: JSONObject, message: JSONObject): JSONObject {
+        val author = message.optString("_axiko_participant")
+        return if (author.isBlank()) out else out.put("author", ChatParticipants.title(author))
+    }
+
+    internal fun participantContext(): String {
+        val transcript = assistantView().getJSONArray("messages")
+        return (maxOf(0, transcript.length() - 11) until maxOf(0, transcript.length() - 1)).joinToString("\n") { index ->
+            val entry = transcript.getJSONObject(index)
+            val who = if (entry.optString("role") == "user") "Владелец" else entry.optString("author").ifBlank { Agent.spec(id).title }
+            "$who: ${entry.optString("text").take(1_000)}"
+        }
+    }
+
+    private fun stepError(error: Throwable): String = app.axiko.core.Vault.scrub(
+        if (error is LlmError) error.message.orEmpty() else Engine.describe(error),
+    )
+
+    private fun speaker(): Speaker? {
+        val voice = assistantVoice
+        if (voice != null) return voice()
+        if (!lasting || !(Tts.enabled || Tts.voiceTurn)) return null
+        return Speaker { Tts.say(it, id = narrationId) }
+    }
+
+    private data class ModelStep(val reply: Llm.Reply, val thought: String)
+
+    /** Attempts share one prompt and one offered-tool list. Nothing is committed until parsing succeeds. */
+    private fun modelStep(
+        entry: Tasks.Entry, target: Models.Target, prompt: JSONArray, tools: JSONArray,
+        replay: Replay, previousFailure: RetryState?,
+    ): ModelStep {
+        val limit = retryLimit()
+        var partial = previousFailure?.partial.orEmpty()
+        var speechQueued = previousFailure?.speechQueued == true
+        var attempt = 0
+        val step = if (replay.finishing) (replay.step - 1).coerceAtLeast(1) else replay.step
+        while (!cancelled) {
+            val voice = if (!speechQueued && !replay.finishing) speaker() else null
+            val pondered = StringBuilder()
+            writing.setLength(0)
+            try {
+                Usage.guard()
+                emit(JSONObject().put("type", "status").put("stage", "request").put("step", step).put("local", target.onPhone))
+                Tasks.progress(entry, step, "")
+                val reply = entry.cost("model") {
+                    Llm.stream(target, prompt, tools, { cancelled }, { call = it }, { piece ->
+                        pondered.append(piece)
+                        emit(JSONObject().put("type", "thought").put("text", piece))
+                    }) { piece ->
+                        if (retryState.partial.isNotEmpty()) retryState = retryState.copy(partial = "")
+                        voice?.feed(piece)
+                        writing.append(piece)
+                        emit(JSONObject().put("type", "delta").put("text", piece))
+                    }
+                }
+                if (!cancelled) voice?.finish()
+                updateRetry(RetryState())
+                val complete = if (cancelled && reply.text.isEmpty()) Llm.Reply(partial, emptyList(), usage = reply.usage) else reply
+                return ModelStep(complete, pondered.toString())
+            } catch (error: Throwable) {
+                if (cancelled) {
+                    partial = writing.toString().ifBlank { partial }
+                    break
+                }
+                if (voice?.queuedSpeech == true) {
+                    speechQueued = true
+                    if (assistantVoice != null) OnScreenAssistant.retrySpeech(this) else Tts.stopFor(narrationId)
+                }
+                partial = writing.toString().take(RETRY_PARTIAL_LIMIT).ifBlank { partial }
+                writing.setLength(0)
+                val message = stepError(error)
+                val transient = error as? LlmError
+                // Very long provider delays stay available as a deliberate manual retry.
+                if (transient?.retryable != true || attempt >= limit || transient.retryAfterMs > RETRY_DELAY_LIMIT) {
+                    updateRetry(RetryState("failed", attempt, limit, partial, message, replay = replay, speechQueued = speechQueued))
+                    throw error
+                }
+                val delay = maxOf((1_000L shl attempt.coerceAtMost(5)), transient.retryAfterMs)
+                attempt++
+                updateRetry(RetryState("waiting", attempt, limit, partial, message, delay, speechQueued = speechQueued))
+                if (!waitForRetry(delay)) break
+                updateRetry(RetryState("retrying", attempt, limit, partial, speechQueued = speechQueued))
+            } finally {
+                writing.setLength(0)
+            }
+        }
+        updateRetry(RetryState())
+        return ModelStep(Llm.Reply(partial, emptyList()), "")
+    }
+
     /** One request of the owner (or one task of a parent agent); returns the final answer. */
-    private fun turn(text: String, attached: List<Attach> = emptyList(), where: String? = null): String {
+    private fun turn(
+        text: String, attached: List<Attach> = emptyList(), where: String? = null, previousFailure: RetryState? = null,
+    ): String {
+        val replay = previousFailure?.replay
+        updateRetry(if (previousFailure == null) RetryState() else previousFailure.copy(
+            phase = "retrying", attempt = 0, limit = retryLimit(), message = "", delayMs = 0,
+        ))
         val spec = Agent.spec(id)
         val snapshotWall = System.currentTimeMillis()
         val snapshotCpu = android.os.SystemClock.currentThreadTimeMillis()
@@ -499,65 +714,88 @@ class Conversation(
         var snapshot: String? = null
         var answer = ""
         var failure: String? = null
-        val entry = Tasks.begin(id, thread, label ?: text, parent?.task)
+        var pendingStep: Replay? = null
+        val entry = Tasks.begin(id, thread, label ?: if (lasting && !persist) "Разговор с ассистентом" else text, parent?.task)
         task = entry
-        // The screen note rides inside the message, so the prompt before it stays cacheable.
-        val said = text + (aside?.let { "\n\n[$it]" } ?: "")
-        aside = null
-        append(JSONObject().put("role", "user").put("content", if (where.isNullOrBlank()) said else "$said\n\n$WHERE_OPEN$where]"))
-        // The owner sees their message at once: nothing the shell does before asking the model holds it back.
-        emit(JSONObject().put("type", "user").put("text", text))
-        // On disk from the first moment and after every step: a task the app dies under can be
-        // taken up again only if what was asked and what was done by then is still there.
-        save()
+        if (replay == null) {
+            // The screen note rides inside the message, so the prompt before it stays cacheable.
+            val said = text + (aside?.let { "\n\n[$it]" } ?: "")
+            aside = null
+            append(JSONObject().put("role", "user").put("content", if (where.isNullOrBlank()) said else "$said\n\n$WHERE_OPEN$where]"))
+            emit(JSONObject().put("type", "user").put("text", text))
+            save()
+        }
         try {
             if (lasting) {
                 // A snapshot that cannot be taken is told to the owner like any other failure of the turn.
                 before = Workspace.signature()
-                snapshot = entry.cost("snapshot") { Workspace.snapshot("${spec.title}: $text") }
+                snapshot = entry.cost("snapshot") { Workspace.snapshot(if (persist) "${spec.title}: $text" else "Разговор с ассистентом") }
             }
-            var target = target()
-            attach(attached, target)
+            if (lasting) {
+                val guest = replay?.guest
+                val response = when {
+                    guest != null -> {
+                        val failed = guest.retryState
+                        val reply = guest.answerAsParticipant(failed.replay!!.text, emptyList(), failed)
+                        ChatParticipantReply(guest.id, reply.ifBlank { app.axiko.core.I18n.t("Агент завершил работу без текстового ответа") })
+                    }
+                    replay == null -> ChatParticipants.direct(this, text, attached)
+                    else -> null
+                }
+                response?.let { participant ->
+                    updateRetry(RetryState())
+                    answer = participant.text
+                    val reply = JSONObject().put("role", "assistant").put("content", answer)
+                    val guest = participant.agent
+                    if (guest != null) reply.put("_axiko_participant", guest)
+                    append(reply)
+                    if (guest == null) {
+                        emit(JSONObject().put("type", "delta").put("text", answer))
+                        emit(JSONObject().put("type", "message"))
+                    } else emit(JSONObject().put("type", "participant").put("participant", guest)
+                        .put("agentName", Agent.spec(guest).title).put("text", answer))
+                    if (!cancelled) speaker()?.let { it.feed(answer); it.finish() }
+                    emit(JSONObject().put("type", "done").put("stopped", cancelled))
+                    return answer
+                }
+            }
+            pendingStep = replay ?: Replay(text, 1)
+            var target = try {
+                target()
+            } catch (error: Throwable) {
+                // Keep explicit attachments in the transcript so changing model settings can retry them.
+                if (replay == null) attach(attached, vision = true)
+                throw error
+            }
+            if (replay == null) attach(attached, target.vision)
             var lean = lean(spec, target)
-            var steps = 0
+            var steps = (replay?.step ?: 1) - 1
             while (!cancelled) {
                 val limit = if (StoreAgent.restricted(this)) MAX_REVIEW_STEPS else stepLimit
-                if (++steps > limit) {
-                    answer = limitReached(spec, target, lean, limit).ifBlank { answer }
-                    break
+                steps++
+                val resumed = replay?.takeIf { it.step == steps }
+                val finishing = resumed?.finishing ?: (steps > limit)
+                val point = Replay(text, steps, finishing)
+                pendingStep = point
+                if (finishing && resumed == null) {
+                    append(JSONObject().put("role", "user").put("content", JSONArray().put(
+                        JSONObject().put("type", "text").put("text", "$LIMIT_OPEN$limit$LIMIT_REST"),
+                    )))
+                    save()
                 }
-                if (steps > 1) {
+                if (steps > 1 && resumed == null && !finishing) {
                     // While the last step ran the owner may have picked another model for the chat
                     // or said something: both are taken up here, between two steps.
                     target = target()
                     lean = lean(spec, target)
                     steered(target)
                 }
-                Usage.guard()
-                val tools = Tools.schemas(StoreAgent.tools(this, spec.tools ?: if (lean) LIGHT_TOOLS else null), Agent.mayDelegate(this) && !lean, target.vision, StoreAgent.restricted(this))
-                // With the voice on, the answer is spoken sentence by sentence as it is written.
-                val speaker = if (lasting && (Tts.enabled || Tts.voiceTurn)) Speaker() else null
-                // What the wait is for: the chat shows it with the step's number.
-                emit(JSONObject().put("type", "status").put("stage", "request").put("step", steps).put("local", target.onPhone))
-                Tasks.progress(entry, steps, "")
-                val pondered = StringBuilder()
-                val thought = { piece: String ->
-                    pondered.append(piece)
-                    emit(JSONObject().put("type", "thought").put("text", piece))
-                }
-                writing.setLength(0)
-                val reply = try {
-                    entry.cost("model") {
-                        Llm.stream(target, request(spec, target, lean), tools, { cancelled }, { call = it }, thought) { piece ->
-                            speaker?.feed(piece)
-                            writing.append(piece)
-                            emit(JSONObject().put("type", "delta").put("text", piece))
-                        }
-                    }
-                } finally {
-                    writing.setLength(0)
-                }
-                speaker?.finish()
+                val tools = if (finishing) JSONArray() else Tools.schemas(StoreAgent.tools(this, spec.tools ?: if (lean) LIGHT_TOOLS else null),
+                    Agent.mayDelegate(this) && !lean, target.vision, StoreAgent.restricted(this))
+                val (reply, pondered) = modelStep(entry, target, request(spec, target, lean), tools, point,
+                    previousFailure.takeIf { resumed != null })
+                pendingStep = null
+                if (resumed != null) save() // Invalidate the old retry before this answer can start any action.
                 Usage.record(id, target.model, reply.usage)
                 // What the provider counted for this request: the truest measure of how full the window is.
                 used = reply.usage?.let { it.optInt("prompt_tokens") + it.optInt("completion_tokens") } ?: 0
@@ -568,8 +806,8 @@ class Conversation(
                 val assistant = JSONObject().put("role", "assistant")
                     .put("content", if (reply.text.isEmpty()) JSONObject.NULL else reply.text)
                 // The thinking stays with the chat for the owner to read; it is not sent back to the model.
-                if (pondered.isNotBlank()) assistant.put(THOUGHT, pondered.toString().take(THOUGHT_LIMIT))
-                if (reply.calls.isNotEmpty()) {
+                if (pondered.isNotBlank()) assistant.put(THOUGHT, pondered.take(THOUGHT_LIMIT))
+                if (!finishing && reply.calls.isNotEmpty()) {
                     val calls = JSONArray()
                     for (call in reply.calls) {
                         calls.put(
@@ -581,12 +819,18 @@ class Conversation(
                     assistant.put("tool_calls", calls)
                 }
                 // Models that think expect their thinking back together with the tool results.
-                if (reply.reasoning != null && reply.calls.isNotEmpty() && target.openRouter) {
+                if (!finishing && reply.reasoning != null && reply.calls.isNotEmpty() && target.openRouter) {
                     assistant.put("reasoning_details", reply.reasoning)
                 }
-                if (reply.text.isNotEmpty() || reply.calls.isNotEmpty()) append(assistant)
+                if (reply.text.isNotEmpty() || !finishing && reply.calls.isNotEmpty()) append(assistant)
                 if (reply.text.isNotEmpty()) answer = reply.text
                 emit(JSONObject().put("type", "message"))
+                if (finishing) {
+                    val mark = JSONObject().put("type", "limit").put("steps", (steps - 1).coerceAtLeast(1))
+                    synchronized(messages) { marks.add(mark.put("at", messages.size)) }
+                    emit(JSONObject(mark.toString()))
+                    break
+                }
                 if (reply.calls.isEmpty()) {
                     // The answer is given — unless the owner said something meanwhile: then the work goes on with it.
                     if (synchronized(queue) { queue.none { it.steer } }) break
@@ -656,9 +900,21 @@ class Conversation(
             emit(JSONObject().put("type", "done").put("stopped", cancelled))
         } catch (error: Throwable) {
             // A provider may quote the key it refused in its answer.
-            val message = app.axiko.core.Vault.scrub(if (error is LlmError) error.message.orEmpty() else Engine.describe(error))
-            failure = message
-            emit(JSONObject().put("type", "error").put("message", message))
+            if (!cancelled) {
+                val message = stepError(if (error is GuestModelFailure) error.error else error)
+                failure = message
+                if (error is GuestModelFailure) {
+                    val guestFailure = error.guest.retryState
+                    updateRetry(guestFailure.copy(replay = Replay(text, guestFailure.replay!!.step, guest = error.guest)))
+                } else if (pendingStep != null && retryState.phase != "failed") {
+                    updateRetry(RetryState("failed", limit = retryLimit(), message = message, replay = pendingStep,
+                        partial = retryState.partial, speechQueued = retryState.speechQueued))
+                } else if (pendingStep == null) updateRetry(RetryState())
+                emit(JSONObject().put("type", "error").put("message", message))
+            } else {
+                updateRetry(RetryState())
+                emit(JSONObject().put("type", "done").put("stopped", true))
+            }
             if (!lasting) throw error
         } finally {
             val finishWall = System.currentTimeMillis()
@@ -680,11 +936,11 @@ class Conversation(
             draft?.takeIf { app.axiko.core.Drafts.exists(it) }?.let { made ->
                 home.emit(JSONObject().put("type", "draft").put("draft", JSONObject(app.axiko.core.Drafts.meta(made).toString()).put("id", made).put("files", app.axiko.core.Drafts.changes(made))))
             }
-            compact()
+            if (failure == null && !cancelled) compact()
             save()
-            Tts.voiceTurn = false
+            if (assistantVoice == null) Tts.voiceTurn = false
             // Finished while the owner was elsewhere: the answer goes to the notification shade.
-            if (lasting && !MainActivity.visible && answer.isNotBlank()) {
+            if (persist && !MainActivity.visible && !OnScreenAssistant.isShowing(this) && answer.isNotBlank()) {
                 runCatching { Notify.answer(id, thread, spec.title, Tts.speakable(answer).take(700)) }
             }
             running = null
@@ -692,59 +948,29 @@ class Conversation(
             entry.add("finish", System.currentTimeMillis() - finishWall, android.os.SystemClock.currentThreadTimeMillis() - finishCpu, android.os.Process.getElapsedCpuTime() - finishApp)
             // The whole turn: what it cost beyond the model and the tools is the agent's own housekeeping.
             entry.add("turn", System.currentTimeMillis() - snapshotWall, android.os.SystemClock.currentThreadTimeMillis() - snapshotCpu, android.os.Process.getElapsedCpuTime() - snapshotApp)
-            Tasks.end(entry, if (failure != null) Tasks.FAILED else if (cancelled) Tasks.STOPPED else Tasks.DONE, failure ?: answer)
+            val privateDialog = lasting && !persist
+            Tasks.end(entry, if (failure != null) Tasks.FAILED else if (cancelled) Tasks.STOPPED else Tasks.DONE,
+                if (privateDialog) "Временный разговор с ассистентом" else failure ?: answer)
             // A message the owner sent meanwhile is taken up now.
             val next = synchronized(queue) {
                 if (stopping || !lasting) queue.clear()
-                (if (queue.isEmpty()) null else queue.removeAt(0)).also { if (it == null) busy = false }
+                if (queue.isEmpty()) {
+                    busy = false
+                    null
+                } else queue.removeAt(0)
             }
             emitQueue()
             emit(JSONObject().put("type", "idle").put("more", next != null))
-            if (next != null) {
-                stopping = false
-                worker.execute { turn(next.text, next.attached, next.where) }
-            }
+            if (next != null) worker.execute { turn(next.text, next.attached, next.where) }
         }
         return answer
     }
 
-    /**
-     * The work has taken as many steps in a row as one request may: instead of breaking off in
-     * the middle, the model says in a few lines where the work stands (without tools, so this is
-     * the last step for certain), and the chat offers the owner to go on.
-     */
-    private fun limitReached(spec: Agent.Spec, target: Models.Target, lean: Boolean, limit: Int): String {
-        append(
-            JSONObject().put("role", "user").put(
-                "content",
-                JSONArray().put(JSONObject().put("type", "text").put("text", "$LIMIT_OPEN$limit$LIMIT_REST")),
-            ),
-        )
-        var said = ""
-        runCatching {
-            emit(JSONObject().put("type", "status").put("stage", "request").put("step", limit).put("local", target.onPhone))
-            writing.setLength(0)
-            val reply = Llm.stream(target, request(spec, target, lean), JSONArray(), { cancelled }, { call = it }) { piece ->
-                writing.append(piece)
-                emit(JSONObject().put("type", "delta").put("text", piece))
-            }
-            Usage.record(id, target.model, reply.usage)
-            said = reply.text
-        }
-        writing.setLength(0)
-        if (said.isNotBlank()) append(JSONObject().put("role", "assistant").put("content", said))
-        emit(JSONObject().put("type", "message"))
-        val mark = JSONObject().put("type", "limit").put("steps", limit)
-        synchronized(messages) { marks.add(mark.put("at", messages.size)) }
-        emit(JSONObject(mark.toString()))
-        return said
-    }
-
     /** What came along with the owner's message: each attachment follows it as a message of its own. */
-    private fun attach(attached: List<Attach>, target: Models.Target) {
+    private fun attach(attached: List<Attach>, vision: Boolean) {
         for (attach in attached) {
             val parts = JSONArray().put(JSONObject().put("type", "text").put("text", "$ATTACH_OPEN${attach.label}]\n${attach.note}"))
-            if (target.vision) {
+            if (vision) {
                 for (image in attach.images) {
                     parts.put(
                         JSONObject().put("type", "image_url")
@@ -803,15 +1029,25 @@ class Conversation(
 
     /** Only a lasting conversation is on screen; a delegated task reports through its tool card. */
     private fun emit(event: JSONObject) {
-        if (lasting) Pages.broadcast("agent", event.put("agent", id).put("thread", thread).toString())
+        if (lasting) {
+            OnScreenAssistant.observe(this, event)
+            if (persist) Pages.broadcast("agent", event.put("agent", id).put("thread", thread).toString())
+        }
         else if (label != null) parent?.part(label, event)
     }
 
     private fun save() {
-        if (!lasting) return
+        if (!persist) return
         val saved = synchronized(messages) {
+            val failure = retryState
+            val modelRetry = failure.replay?.takeIf { failure.phase == "failed" && it.guest == null }?.let {
+                JSONObject().put("text", it.text).put("step", it.step).put("finishing", it.finishing)
+                    .put("attempt", failure.attempt).put("limit", failure.limit).put("partial", failure.partial)
+                    .put("message", failure.message).put("speechQueued", failure.speechQueued)
+            }
             JSONObject().put("messages", JSONArray(messages)).put("outcomes", outcomes).put("marks", JSONArray(marks))
-                .put("plan", plan ?: JSONObject.NULL).put("draft", draft ?: JSONObject.NULL).put("model", own ?: JSONObject.NULL).toString()
+                .put("plan", plan ?: JSONObject.NULL).put("draft", draft ?: JSONObject.NULL).put("model", own ?: JSONObject.NULL)
+                .put("modelRetry", modelRetry ?: JSONObject.NULL).toString()
         }
         runCatching {
             file.parentFile?.mkdirs()
@@ -958,6 +1194,7 @@ class Conversation(
     }
 
     fun restore(history: JSONArray) = synchronized(messages) {
+        retryState = RetryState()
         messages.clear()
         for (i in 0 until history.length()) messages.add(history.getJSONObject(i))
     }
@@ -996,9 +1233,12 @@ class Conversation(
     private fun fit(message: JSONObject, target: Models.Target): JSONObject {
         val blind = !target.vision && message.opt("content") is JSONArray
         val foreign = !target.openRouter && message.has("reasoning_details")
-        if (!message.has(THOUGHT) && !blind && !foreign) return message
+        val author = message.optString("_axiko_participant")
+        if (!message.has(THOUGHT) && !blind && !foreign && author.isBlank()) return message
         val copy = JSONObject(message.toString())
         copy.remove(THOUGHT)
+        copy.remove("_axiko_participant")
+        if (author.isNotBlank()) copy.put("content", "${ChatParticipants.title(author)}: ${message.optString("content")}")
         if (foreign) copy.remove("reasoning_details")
         if (blind) {
             val parts = copy.getJSONArray("content")
@@ -1093,6 +1333,8 @@ class Conversation(
         private const val NO_ANSWER = "Владелец не ответил: работа остановлена."
         private const val THOUGHT = "_thought"
         private const val THOUGHT_LIMIT = 20_000
+        private const val RETRY_PARTIAL_LIMIT = 20_000
+        private const val RETRY_DELAY_LIMIT = 120_000L
         private const val DETAIL_LIMIT = 8_000
 
         /** Steps of a plan that are not finished yet. */
@@ -1105,7 +1347,8 @@ class Conversation(
         private const val KEEP_SHARE = 0.35
 
         /** What an agent on a phone-sized model works with when it names no tools of its own. */
-        private val LIGHT_TOOLS = listOf("ask_owner", "fs_list", "fs_read", "fs_write", "fs_edit", "js_eval", "web_search", "web_read", "memory_save", "memory_search")
+        private val LIGHT_TOOLS = listOf("ask_owner", "chat_find", "chat_open", "chat_invite", "fs_list", "fs_read", "fs_write",
+            "fs_edit", "js_eval", "web_search", "web_read", "memory_save", "memory_search")
         private const val KEEP_TURNS = 3
         private const val KEEP_IMAGES = 3
 

@@ -56,14 +56,39 @@ class StoreReviewRulesTest {
 
     /** The document's table is rendered from the code. `AXIKO_WRITE_STORE_RULES=1` rewrites it after a change of the rules. */
     @Test fun documentCarriesExactlyTheRulesOfTheCode() {
-        val file = File("../docs/marketplace/review-rules.md")
-        assertTrue("docs/marketplace/review-rules.md is missing", file.isFile)
+        val file = File("../docs/marketplace/review-rules.ru.md")
+        assertTrue("docs/marketplace/review-rules.ru.md is missing", file.isFile)
         val text = file.readText().replace("\r\n", "\n")
         val begin = "<!-- rules:begin -->\n"; val end = "<!-- rules:end -->"
         assertTrue(text.contains(begin) && text.contains(end))
         val rendered = text.substringBefore(begin) + begin + StoreRules.markdown() + end + text.substringAfter(end)
         if (System.getenv("AXIKO_WRITE_STORE_RULES") == "1" && rendered != text) file.writeText(rendered)
         else assertEquals("The rules table differs from StoreRules: run the test with AXIKO_WRITE_STORE_RULES=1", rendered, text)
+    }
+
+    /** Translations may change prose, never the rule IDs, levels, alternatives or validator flags. */
+    @Test fun englishRulesKeepTheCompiledPolicy() {
+        val file = File("../docs/marketplace/review-rules.md")
+        assertTrue("The primary English rules document is missing", file.isFile)
+        val text = file.readText().replace("\r\n", "\n")
+        val tables = text.substringAfter("<!-- rules:begin -->", "").substringBefore("<!-- rules:end -->")
+        assertTrue(tables.contains("Rules version: ${StoreRules.VERSION}."))
+        var level = ""
+        val found = mutableListOf<String>()
+        for (line in tables.lineSequence()) {
+            if (line.startsWith("### ") && line.contains("`${StoreRules.VIOLATION}`")) level = StoreRules.VIOLATION
+            if (line.startsWith("### ") && line.contains("`${StoreRules.SUSPICIOUS}`")) level = StoreRules.SUSPICIOUS
+            val match = Regex("^\\| `([a-z][a-z.-]+)` \\|").find(line) ?: continue
+            val rule = StoreRules.rule(match.groupValues[1])
+            found.add(rule.code)
+            assertEquals(rule.code, rule.level, level)
+            if (level == StoreRules.VIOLATION) {
+                val expected = "| `${rule.unclear}` | ${if (rule.validator) "yes" else "no"} |"
+                assertTrue("English metadata differs for ${rule.code}", line.endsWith(expected))
+            }
+        }
+        assertEquals(StoreRules.all.filter { it.level == StoreRules.VIOLATION }.map { it.code } +
+            StoreRules.all.filter { it.level == StoreRules.SUSPICIOUS }.map { it.code }, found)
     }
 
     // ---- the report: form and status ------------------------------------------------------------

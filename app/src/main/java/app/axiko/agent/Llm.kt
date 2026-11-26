@@ -7,10 +7,15 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import org.json.JSONTokener
 import java.io.IOException
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 import java.util.concurrent.TimeUnit
+import javax.net.ssl.SSLHandshakeException
+import javax.net.ssl.SSLPeerUnverifiedException
 
-class LlmError(message: String) : Exception(message)
+class LlmError(message: String, val retryable: Boolean = false, val retryAfterMs: Long = 0) : Exception(message)
 
 /** Chat completions over any OpenAI-compatible endpoint. */
 object Llm {
@@ -57,7 +62,9 @@ object Llm {
     ): Reply {
         if (target.baseUrl.startsWith(LocalLlm.BASE)) {
             // A model on the phone: no network, the same messages and tools.
-            return LocalLlm.generate(target.model, messages, tools, target.options.optInt("context", 0), cancelled, onText)
+            if (cancelled()) return Reply("", emptyList())
+            val reply = LocalLlm.generate(target.model, messages, tools, target.options.optInt("context", 0), cancelled, onText)
+            return if (cancelled()) Reply(reply.text, emptyList(), usage = reply.usage) else reply
         }
         val body = JSONObject().put("model", target.model).put("messages", messages)
         if (tools.length() > 0) body.put("tools", tools)
@@ -88,31 +95,50 @@ object Llm {
         val arguments = HashMap<Int, StringBuilder>()
         val reasoning = ArrayList<JSONObject>()
         var usage: JSONObject? = null
+        var finishReason = ""
+        var done = false
 
         val call = client.newCall(post(target, "/chat/completions", body))
         onCall(call)
         try {
+            if (cancelled()) {
+                call.cancel()
+                return Reply("", emptyList())
+            }
             call.execute().use { response ->
                 if (!response.isSuccessful) {
-                    throw LlmError("Модель ответила ошибкой ${response.code}: " + errorText(response.body?.string()))
+                    throw LlmError(
+                        "Модель ответила ошибкой ${response.code}: " + errorText(runCatching { response.body?.string() }.getOrNull()),
+                        transientStatus(response.code), retryAfter(response.header("Retry-After")),
+                    )
                 }
                 // A provider that does not stream answers with the whole message at once.
                 if (response.header("Content-Type").orEmpty().contains("application/json")) {
-                    return whole(response.body?.string())
+                    val reply = whole(response.body?.string())
+                    if (cancelled()) return Reply("", emptyList())
+                    if (reply.text.isNotEmpty()) onText(reply.text)
+                    return reply
                 }
-                val source = response.body?.source() ?: throw LlmError("Пустой ответ модели")
-                while (!source.exhausted()) {
+                val source = response.body?.source() ?: throw LlmError("Пустой ответ модели", retryable = true)
+                while (!cancelled() && !source.exhausted()) {
                     val line = source.readUtf8Line() ?: break
                     if (!line.startsWith("data:")) continue
                     val payload = line.substring(5).trim()
-                    if (payload == "[DONE]") break
-                    val chunk = runCatching { JSONObject(payload) }.getOrNull() ?: continue
+                    if (payload.isEmpty()) continue
+                    if (payload == "[DONE]") {
+                        done = true
+                        break
+                    }
+                    val chunk = runCatching { JSONObject(payload) }.getOrNull()
+                        ?: throw LlmError("Поток ответа модели повреждён", retryable = true)
                     chunk.optJSONObject("error")?.let {
-                        throw LlmError("Ошибка модели: " + it.optString("message", it.toString()))
+                        throw LlmError("Ошибка модели: " + it.optString("message", it.toString()), transientStatus(it.optInt("code")))
                     }
                     // The last chunk carries the usage and no choices.
                     chunk.optJSONObject("usage")?.let { usage = it }
-                    val delta = chunk.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("delta") ?: continue
+                    val choice = chunk.optJSONArray("choices")?.optJSONObject(0) ?: continue
+                    if (!choice.isNull("finish_reason")) finishReason = choice.optString("finish_reason")
+                    val delta = choice.optJSONObject("delta") ?: continue
                     if (!delta.isNull("content")) {
                         val piece = delta.optString("content")
                         if (piece.isNotEmpty()) {
@@ -132,7 +158,7 @@ object Llm {
                     }
                     val calls = delta.optJSONArray("tool_calls") ?: continue
                     for (i in 0 until calls.length()) {
-                        val part = calls.getJSONObject(i)
+                        val part = calls.optJSONObject(i) ?: throw incompleteToolCall()
                         val index = part.optInt("index", i)
                         if (!part.isNull("id") && part.optString("id").isNotEmpty()) ids[index] = part.getString("id")
                         val function = part.optJSONObject("function") ?: continue
@@ -146,39 +172,75 @@ object Llm {
                 }
             }
         } catch (error: IOException) {
-            if (!cancelled()) throw LlmError("Нет связи с моделью: ${error.message}")
-            return Reply(text.toString(), emptyList(), null, usage)
+            if (!cancelled() && !done && finishReason.isBlank()) throw LlmError(
+                "Нет связи с моделью: ${error.message}",
+                retryable = error !is SSLHandshakeException && error !is SSLPeerUnverifiedException,
+            )
         } finally {
             onCall(null)
         }
 
-        val calls = names.keys.sorted().map { index ->
-            ToolCall(
-                id = ids[index] ?: "call_${System.nanoTime()}_$index",
-                name = names.getValue(index).toString(),
-                arguments = arguments[index]?.toString().orEmpty().ifBlank { "{}" },
-            )
+        if (cancelled()) return Reply(text.toString(), emptyList(), null, usage)
+        if (!done && finishReason.isBlank()) throw LlmError("Ответ модели прервался", retryable = true)
+        val indexes = ids.keys + names.keys + arguments.keys
+        if (indexes.isEmpty() && finishReason == "tool_calls") throw incompleteToolCall()
+        if (indexes.isNotEmpty() && finishReason in setOf("length", "content_filter")) {
+            throw LlmError("Модель остановилась, не закончив вызов инструмента")
         }
-        return Reply(text.toString(), calls, if (reasoning.isEmpty()) null else JSONArray(reasoning), usage)
+        val calls = indexes.sorted().map { index ->
+            toolCall(index, ids[index].orEmpty(), names[index]?.toString().orEmpty(), arguments[index]?.toString().orEmpty())
+        }
+        return Reply(text.toString(), uniqueCalls(calls), if (reasoning.isEmpty()) null else JSONArray(reasoning), usage)
     }
 
     /** A plain (not streamed) response read into a [Reply]. */
     private fun whole(body: String?): Reply {
-        val parsed = runCatching { JSONObject(body.orEmpty()) }.getOrNull() ?: throw LlmError("Непонятный ответ модели")
-        parsed.optJSONObject("error")?.let { throw LlmError("Ошибка модели: " + it.optString("message", it.toString())) }
-        val message = parsed.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("message") ?: JSONObject()
+        val parsed = runCatching { JSONObject(body.orEmpty()) }.getOrNull() ?: throw LlmError("Непонятный ответ модели", retryable = true)
+        parsed.optJSONObject("error")?.let {
+            throw LlmError("Ошибка модели: " + it.optString("message", it.toString()), transientStatus(it.optInt("code")))
+        }
+        val choice = parsed.optJSONArray("choices")?.optJSONObject(0) ?: throw LlmError("Пустой ответ модели", retryable = true)
+        val message = choice.optJSONObject("message") ?: throw LlmError("Непонятный ответ модели")
         val listed = message.optJSONArray("tool_calls") ?: JSONArray()
-        val calls = (0 until listed.length()).mapNotNull { i ->
-            val part = listed.optJSONObject(i) ?: return@mapNotNull null
-            val function = part.optJSONObject("function") ?: return@mapNotNull null
-            ToolCall(
-                id = part.optString("id").ifEmpty { "call_${System.nanoTime()}_$i" },
-                name = function.optString("name"),
-                arguments = function.optString("arguments").ifBlank { "{}" },
-            )
+        if (listed.length() == 0 && choice.optString("finish_reason") == "tool_calls") throw incompleteToolCall()
+        if (listed.length() > 0 && choice.optString("finish_reason") in setOf("length", "content_filter")) {
+            throw LlmError("Модель остановилась, не закончив вызов инструмента")
+        }
+        val calls = (0 until listed.length()).map { i ->
+            val part = listed.optJSONObject(i) ?: throw incompleteToolCall()
+            val function = part.optJSONObject("function") ?: throw incompleteToolCall()
+            toolCall(i, part.optString("id"), function.optString("name"), function.optString("arguments"))
         }
         val text = if (message.isNull("content")) "" else message.optString("content")
-        return Reply(text, calls, message.optJSONArray("reasoning_details"), parsed.optJSONObject("usage"))
+        return Reply(text, uniqueCalls(calls), message.optJSONArray("reasoning_details"), parsed.optJSONObject("usage"))
+    }
+
+    private fun incompleteToolCall() = LlmError("Ответ модели содержит незавершённый вызов инструмента", retryable = true)
+
+    private fun uniqueCalls(calls: List<ToolCall>): List<ToolCall> {
+        if (calls.distinctBy { it.id }.size != calls.size) throw incompleteToolCall()
+        return calls
+    }
+
+    private fun toolCall(index: Int, id: String, name: String, arguments: String): ToolCall {
+        val complete = runCatching {
+            val json = JSONTokener(arguments)
+            json.nextValue() is JSONObject && json.nextClean() == '\u0000'
+        }.getOrDefault(false)
+        if (name.isBlank() || !complete) throw incompleteToolCall()
+        return ToolCall(id.ifBlank { "call_${System.nanoTime()}_$index" }, name, arguments)
+    }
+
+    private fun transientStatus(code: Int): Boolean =
+        code == 408 || code == 429 || code == 500 || code in 502..504 || code in 520..524 || code == 529
+
+    private fun retryAfter(header: String?): Long {
+        val value = header?.trim().orEmpty()
+        if (value.isEmpty()) return 0
+        value.toLongOrNull()?.let { return TimeUnit.SECONDS.toMillis(it.coerceAtLeast(0)) }
+        return runCatching {
+            (ZonedDateTime.parse(value, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli() - System.currentTimeMillis()).coerceAtLeast(0)
+        }.getOrDefault(0)
     }
 
     /** Asks for the thinking effort of the role, in the dialect of the provider. */

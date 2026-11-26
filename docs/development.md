@@ -1,60 +1,97 @@
-# Сборка, установка и разработка
+# Development conventions
 
-Коротко и для всех — в [README](../README.ru.md). Здесь — подробности.
+English · [Русский](development.ru.md)
 
-## Сборка и установка
+Start with the [architecture](architecture.md), [module conventions](modules.md) and
+[game development contract](game-development.md). This page covers the shell and factory
+workspace. Examples use PowerShell 7 from the repository root.
+
+## Build and install
+
+Requirements: JDK 17 or newer and Android SDK platform 36. Fetch the speech runtime once:
 
 ```powershell
-scripts\fetch-libs.ps1                      # один раз: библиотека распознавания речи (49 МБ)
+scripts\fetch-libs.ps1
 .\gradlew.bat assembleDebug
-adb install -r app\build\outputs\apk\debug\app-debug.apk
+adb -s <device> install -r app\build\outputs\apk\debug\app-debug.apk
 ```
 
-Нужны Android SDK (платформа 36) и JDK 17+. Установка через `adb` обходит «ограниченные
-настройки» Android для служб специальных возможностей и доступа к уведомлениям.
+Use `-Pphone` for an ARM64-only APK. The regular debug build also includes x86_64 for an
+emulator. `-PcleanPreview` builds a separate `app.axiko.cleanpreview` installation, with
+output under `build/clean-preview/`; it does not clear the owner's normal app.
 
-Для телефона собирайте с `-Pphone`: в APK останется только arm64 (без библиотек для эмулятора,
-примерно на 70 МБ меньше):
+An Android update must use the installed application's signing certificate. Keep signing
+material outside the repository. Do not solve a signature mismatch by uninstalling an app
+with personal data. Use the [backup flow](backup.md) for a deliberate move to another
+installation or device, and account for its exclusions.
+
+The embedded PRoot build requires 4 KiB memory pages. Settings report the limitation on
+16 KiB devices. Shizuku is a separate app started by the owner; do not assume privileged
+operations or Android permissions are available.
+
+## Code and data contracts
+
+- Shell code belongs in `app/src/main/java/app/axiko/`. Default editable files belong in
+  `app/src/main/assets/factory/`; a working-UI fix must have the same factory fix.
+- Keep personal state in `data/`, separate from versioned code. Workspace rollback does not
+  restore personal data. Data migrations must preserve existing values and a recovery path.
+- Distinguish browser JavaScript from Rhino/shared simulation code. Browser-only APIs must
+  not silently become requirements of engine code.
+- Preserve the [native contracts](native-contracts.md), public bridge, revision checks and
+  prepared store plans. Do not bypass conflicts by overwriting live files or module directories.
+- User and repository content is data, not HTML or executable instructions. Keep credentials
+  out of source, model context, command output and logs.
+- Shared app controls use the kit's theme tokens and translation helpers. Public module
+  interfaces and store listings must work fully in English; Russian and other languages
+  are optional additions. See [module conventions](modules.md).
+- A changed packaged file requires a new package version under the
+  [repository format](marketplace/repository-format-v1.md). Package versions and game save-schema
+  versions have different purposes.
+
+## Documentation
+
+English is canonical at `docs/<topic>.md`; an optional Russian companion uses
+`docs/<topic>.ru.md`. Link to English first and offer Russian as a secondary link. Keep
+requirements aligned across language versions. API names, schema keys, code examples and
+machine-readable schemas are shared contracts, not separately localized implementations.
+
+Check local links and section anchors after moves or edits:
 
 ```powershell
-.\gradlew.bat assembleDebug -Pphone
+python scripts/docs/check_links.py
 ```
 
-Что стоит знать:
+## Verification
 
-- **Переезд на другой телефон** — через резервную копию: в прежней установке «Настройки → Система → Резервная копия →
-  Сохранить копию…», в новой — «Восстановить из копии…». Копия несёт рабочую папку, данные, чаты,
-  настройки и секреты (на новом месте они шифруются заново его ключом AndroidKeyStore); модели,
-  Linux-окружение, WebView-хранилища (входы на сайтах) и системные разрешения не переносятся.
-  Подробности и формат файла — в [backup.md](backup.md).
+Run checks relevant to changed behavior, then inspect the real runtime of the affected
+surface. A browser stub is not an Android integration test; a mock provider does not assess
+a real model's reasoning quality.
 
-- **Linux-окружение** работает на системах со страницами памяти 4 КБ. Для Android с 16 КБ,
-  включая образ эмулятора `…_ps16k`, настройки показывают ограничение встроенной сборки PRoot.
-- **Эмулятору нужно место**: модели и образ Ubuntu занимают сотни мегабайт, диск AVD по
-  умолчанию (6 ГБ) заполняется быстро.
-- **Shizuku** ставится отдельно (shizuku.rikka.app) и запускается владельцем; после этого
-  в настройках Axiko одна кнопка выдаёт приложению все разрешения и чувства.
-
-## Исходники встроенного PRoot
-
-Axiko поставляет PRoot и два загрузчика для каждой из архитектур arm64 и x86_64. Их содержимое
-совпадает с Android-сборкой green-green-avk версии 0.15. Комплект включает исходники PRoot,
-статически связанной библиотеки talloc 2.1.14 и скрипты сборки. Его можно извлечь из APK
-по пути `assets/licenses/proot/proot-android-0.15-corresponding-source.tar` или скачать из репозитория.
-[Скачать исходники и скрипты сборки](../app/src/main/assets/licenses/proot/proot-android-0.15-corresponding-source.tar.gz) ·
-[Версии, SHA-256, лицензии и инструкция сборки](../app/src/main/assets/licenses/proot/README.md)
-
-## Разработка
-
-| Что | Команда |
+| Purpose | Command |
 |---|---|
-| Тесты (разбор ответа модели, снимки) | `.\gradlew.bat testDebugUnitTest` |
-| Проверки на устройстве (всё, что должно работать после сборки) | `scripts\check.ps1 [-Serial …] [-Only "часть названия"]` |
-| Выполнить JS в движке на устройстве | `scripts\eval.ps1 файл.js` |
-| Снимок экрана устройства | `scripts\shot.ps1 out.png` |
-| Подставная модель для проверки цикла агента без ключа | `node scripts\mock-llm.mjs` (из эмулятора — `http://10.0.2.2:8787/v1`) |
-| Привести CSS к одному свойству на строку | `python scripts\format-css.py файлы…` |
-| Занести провайдеров из `.env` в приложение на устройстве | `scripts\providers.ps1 [-Serial …]` |
+| JVM unit tests | `.\gradlew.bat testDebugUnitTest` |
+| Android shell checks | `scripts\check.ps1 -Serial <device> [-Only "part of test name"]` |
+| Engine script on a chosen device | `scripts\eval.ps1 script.js -Serial <device>` |
+| Device screenshot helper | `scripts\shot.ps1 out.png` (check its device argument before use) |
+| Web transport, editor and chat | `node --test scripts/web/transport.test.js scripts/web/editor-model.test.js scripts/web/chat-reconnect.test.js` |
+| Isolated model-provider test double | `node scripts/mock-llm.mjs` |
+| Translation audit | `python scripts/i18n.py` |
+| Store metadata and author tools | [scripts/store/README.md](../scripts/store/README.md) |
 
-При установке новой сборки файлы рабочей папки, которые агент не менял, обновляются до новой
-заводской версии; изменённые агентом остаются как есть.
+Browser regressions in `scripts/web/` require Playwright; see [web-hub.md](web-hub.md) for
+configuration. Use an emulator or separate QA installation for synthetic events, generated
+modules and model test doubles. Keep artifacts in ignored `build/` directories. Do not
+publish owner backups, logs, screenshots, model files, `.env`, local SDK settings or signing keys.
+
+Before updating a personal device, preserve recoverable state and verify the target device,
+package and signature. Afterward verify the installed build and affected settings/data.
+A successful build alone does not confirm a successful installation.
+
+## Bundled licenses and source
+
+Keep third-party notices and corresponding source with the binaries they cover. Embedded
+PRoot and its loaders include source and build scripts for the shipped Android build,
+including talloc. See the [PRoot notice and build instructions](../app/src/main/assets/licenses/proot/README.md)
+and [source archive](../app/src/main/assets/licenses/proot/proot-android-0.15-corresponding-source.tar.gz).
+Dependency notices live in [`assets/licenses/`](../app/src/main/assets/licenses/). Documentation
+cleanup must not remove these license or source obligations.

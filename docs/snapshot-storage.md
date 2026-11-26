@@ -1,61 +1,69 @@
-# История файлов с дедупликацией
+# Snapshot storage and rollback
 
-С 15 ноября 2026 года новые снимки Axiko используют общее хранилище содержимого. Идентичные байты хранятся один раз независимо от имени файла и числа снимков. Рабочая папка остаётся обычным независимым деревом файлов: её редактирование не меняет историю.
+English · [Русский](snapshot-storage.ru.md)
 
-## Формат
+Workspace history stores identical file bytes once, regardless of filename or number of
+snapshots. The live workspace remains an independent file tree: editing it must never alter
+history. This is code history, not a substitute for a [personal-data backup](backup.md).
+
+## Format and invariants
 
 ```text
 files/history/
-  .objects/<первые 2 символа SHA-256>/<остальные 62 символа>
-  <id>/
+  .objects/<first 2 SHA-256 characters>/<remaining 62 characters>
+  <snapshot-id>/
     meta.json
     manifest.json
 ```
 
-`meta.json` сохраняет прежние ID, время и название. Манифест формата 2 содержит пути, SHA-256, размер, признак исполняемого файла и список каталогов. Новые снимки включают все обычные файлы и пустые каталоги; прежний предел в 5 МиБ снят. Символьные ссылки и специальные файлы отклоняются, чтобы снимок не захватил данные за пределами рабочей папки.
+`meta.json` contains the ID, time and label. A format-2 manifest records relative paths,
+SHA-256, size, executable status and directories. New snapshots include regular files of
+any supported size and empty directories. Symbolic links and special files are rejected so
+history cannot escape the workspace.
 
-Объекты записываются через временный файл, синхронизацию и переименование. Новый снимок становится видимым только после готовности всех объектов и манифеста. Жёсткие ссылки на рабочие файлы не используются.
+Objects are written through a temporary file, synchronization and rename. A snapshot becomes
+visible only after its objects and manifest are ready. Do not hard-link live files into the
+object store or mutate an existing object. Object integrity is checked before restoration.
 
-## Миграция
+## Legacy migration
 
-При запуске приложения фоновый поток переводит старые `<id>/files/` в новый формат. Прежний формат также читается до завершения миграции. Операции истории сериализованы с миграцией.
+Startup migration converts old `<id>/files/` trees in the background; the old format remains
+readable until migration finishes. History operations and migration are serialized.
+`needsMigration()` inspects structure/metadata rather than rehashing the entire store at
+every startup. Manual `snap.migrate` still performs full validation.
 
-Быстрая проверка `needsMigration()` читает только структуру/метаданные снимков. Когда перенос уже завершён, запуск приложения не повторяет хеширование всех объектов и сборку мусора. Ручной `snap.migrate` по-прежнему выполняет полную проверку.
+For each snapshot, write objects and manifest first, then verify original paths, sizes and
+hashes. Only then rename the legacy tree to `.migrated-files` and remove it. Interrupted
+migration or cleanup resumes on a later run. Migration itself does not reduce snapshot count.
 
-Для каждого снимка сначала сохраняются объекты и манифест, затем сверяются все исходные пути, размеры и хеши. Только после успешной проверки старое дерево атомарно переименовывается в `.migrated-files` и удаляется. Если приложение остановилось на любом этапе, следующий запуск продолжит работу. Прерванная очистка уже проверенного дерева также возобновляется. Миграция сама не сокращает количество снимков.
+Old snapshots retain `legacyMaxFileBytes`: existing live files larger than the old 5 MiB
+limit, absent from that snapshot, survive rollback. Historical bytes that were never captured
+cannot be reconstructed. A conflict between such a file and the snapshot tree rejects
+rollback before modifying the workspace.
 
-У старых снимков сохраняется пометка `legacyMaxFileBytes`: отсутствующие в них текущие файлы больше 5 МиБ остаются при откате. Восстановить исторические байты, которые прежний формат никогда не сохранял, невозможно. Если такой файл конфликтует с деревом старого снимка, откат отклоняется до изменения рабочей папки.
+## Restore and retention
 
-## Откат и очистка
+Rollback verifies every referenced object and materializes a separate restore tree. It
+snapshots the current code so rollback can itself be undone, then swaps directories by
+rename. `state/restore-transaction.json` recovers an interrupted swap before factory files
+are installed. Personal module data and chats are outside the workspace and are not rolled back.
 
-Перед откатом проверяется каждый объект и собирается отдельная папка восстановления. Затем сохраняется снимок текущего состояния для отмены отката. Рабочая папка заменяется переименованиями; журнал `state/restore-transaction.json` позволяет восстановить согласованное состояние после прерывания. Восстановление журнала выполняется до установки заводских файлов. Данные модулей и чаты находятся вне этого дерева и не откатываются.
+Normal workspace maintenance keeps the latest 60 snapshots. An object is reclaimed only
+when no retained snapshot references it. An unreadable or corrupt committed manifest blocks
+object garbage collection; never guess which objects it needed. Large/binary files must not
+be loaded as unlimited line-oriented text for diffs.
 
-Обычная политика хранения остаётся прежней — последние 60 снимков. При удалении снимка объект освобождается только тогда, когда на него больше никто не ссылается. Нечитаемый или повреждённый манифест блокирует очистку общих объектов. Сравнение больших и двоичных файлов не загружает неограниченный текст в построчный diff.
+## APIs and checks
 
-Native API сохраняет `snap.list`, `snap.changes`, `snap.diff`, `snap.restore`. Добавлены `snap.storage` для статистики и `snap.migrate` для повторного запуска миграции. Статистика различает логический объём всех версий, объём уникальных объектов и физический объём файлов истории с манифестами; выделенные блоки файловой системы измеряются отдельно через `du`.
+Native operations: `snap.list`, `snap.changes`, `snap.diff`, `snap.restore`, `snap.storage`,
+`snap.migrate`. Statistics distinguish the logical size of all versions, unique object bytes
+and history file bytes including manifests. Filesystem allocated blocks are a separate measurement.
 
-## Проверки
+The implementation is in [SnapshotStore.kt](../app/src/main/java/app/axiko/core/SnapshotStore.kt)
+and [Workspace.kt](../app/src/main/java/app/axiko/core/Workspace.kt). Their JVM tests cover
+shared bytes, immutable objects, legacy migration/resumption, missing/corrupt objects, safe
+collection, large files, old-snapshot rollback, undo and interrupted directory swaps.
 
-JVM-тесты покрывают повторяющееся содержимое, неизменность объектов, совместимость со старой историей, продолжение прерванной миграции, повреждения и отсутствующие объекты, безопасную очистку, большие файлы, откат самого старого из 60 снимков и отмену отката, а также восстановление журнала после обоих переименований.
-
-## Проверка накопленной истории в эмуляторе, 15.11.2026
-
-По просьбе владельца дальнейшие проверки проводились только на `emulator-5554`, без подключения к Fold. В отдельную папку эмулятора перенесена свежая резервная копия истории; рабочая папка самого приложения для проверки отката не заменялась.
-
-| Показатель | Результат |
-| --- | ---: |
-| Снимки до и после | 57 |
-| Проверенные исторические файлы | 22 173 |
-| Уникальные объекты | 1 288 |
-| Байты файлов старой истории | 282 701 430 (269,60 МиБ) |
-| Байты уникального содержимого | 21 223 359 (20,24 МиБ) |
-| Вся новая история с манифестами | 24 657 656 (23,52 МиБ) |
-| Экономия по объёму файлов | 246,09 МиБ, 91,3% |
-
-Все ID и исходные `meta.json` совпали побайтово. Проверены SHA-256, размеры и исполняемые права каждого файла, списки каталогов, отсутствие потерянных ссылок и лишних объектов. Старый, средний и последний снимки успешно восстановлены production-методом `materialize` в отдельную папку. Повторная миграция ничего не меняет. На файловой системе эмулятора выделенные блоки сократились с 460 688 до 35 400 КиБ; эти цифры нельзя напрямую переносить на файловую систему Fold.
-
-Резервная копия перед миграцией: `D:\Backups\Axiko\2026-11-15_19-22-17_Before_history_migration`. Там находятся исходный архив истории/рабочей папки, установленный на тот момент APK, контрольные суммы, baseline по файлам, архив результата проверки и `emulator-validation.json`. Модели не копировались. Время первой миграции в эмуляторе — 185,31 с; результат можно прерывать и продолжать. Сам Fold на этом этапе ещё не обновлён и его история ещё в прежнем формате.
-
-## Последующая миграция Fold
-
-В тот же день владелец разрешил установку на телефон. Перед обновлением создана свежая резервная копия в `D:\Backups\Axiko\2026-11-15_21-11-05_Fold_update` и ещё один снимок рабочего слоя. Все 58 снимков перенесены, старые ID/метаданные/файлы проверены. История занимает 23,66 МиБ файлов и 27,9 МиБ выделенных блоков вместо прежних 338,5 МиБ блоков. Настройки и сохранения сохранены, пробное восстановление самого старого снимка в отдельную папку прошло успешно. Подробности: [отчёт установки](research/fold-deployment-2026-11-15.md).
+```powershell
+.\gradlew.bat testDebugUnitTest --tests app.axiko.SnapshotStoreTest --tests app.axiko.WorkspaceHistoryTest
+```

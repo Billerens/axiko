@@ -1,115 +1,106 @@
-# Web-хаб Axiko
+# Web hub contracts
 
-Реализация от 15 ноября 2026 года. Развитие [исследования web-интерфейса](D:/Projects/Axiko/docs/web-interface-proposal.md). [Аудит автономности агента](D:/Projects/Axiko/docs/agent-autonomy-audit.md) сохранён отдельным планом работ.
+English · [Русский](web-hub.ru.md)
 
-## Назначение
+The hub is the owner's browser workspace for modules, games, chat and Studio. The phone
+serves it over the LAN, normally at `http://axiko.local:8765`, after access is enabled and
+the owner enters the connection key. Host name and port are configurable.
 
-Одно рабочее место в браузере для модулей, игр, общения с агентом и доработки приложения. Обычный режим показывает функции и содержимое; технические инструменты собраны в «Студии».
+## Editable files and recovery
 
-- Обзор: быстрые входы в Игротеку, задачи и студию, установленный каталог модулей, поиск и недавно открытые экраны.
-- Боковая навигация использует ui/nav.json; системные разделы и модули доступны независимо от домашнего экрана.
-- Чат остаётся рядом с текущим занятием. Его можно скрывать и менять ширину. На узком экране чат и содержимое переключаются.
-- «Следовать» разрешает открывать экраны, которые показывает агент. По умолчанию работа в хабе не прерывается такими переходами.
-- Быстрый переход вызывается Ctrl/Cmd+K.
-- Игра может включить режим без окружающих панелей через axiko.stage; это изменяет браузерный хаб.
-- Пауза игры следует видимости браузерной вкладки и панели. Переход в файлы студии или мобильный чат скрывает игру; выключение экрана телефона само по себе её не останавливает.
-- Маршрут сохраняется в адресе и поддерживает возврат браузером.
+The single factory source lives in `app/src/main/assets/factory/ui/desk/`:
 
-## Оформление и отклик
+```text
+index.html       hub.css          hub.js
+transport.js     client.js
+editor-model.js  editor.js        editor.css
+```
 
-Обзор получил компактную графику Axiko, различимые быстрые действия для игр, задач и студии, цветовые акценты модулей и отдельные рабочую и разговорную панели. Оформление использует общие токены темы и проверяется в тёмном и светлом вариантах; внешних шрифтов, изображений и библиотек не добавлено.
+`Workspace.installFactory` places it under device `files/axiko/ui/desk/`. Fresh working and
+factory copies are identical. Updates replace untouched files and preserve local changes.
+The LAN server normally serves working files, with a factory fallback for missing files.
 
-Переходы между представлениями и появление карточек занимают около 200 мс. Анимации однократные, действия не ждут их окончания; скрытая вкладка и prefers-reduced-motion не запускают эти эффекты. Закрытая мобильная навигация исключена из порядка Tab через inert.
+`/?factory=1` uses the factory hub, client and common `ui/kit` / `ui/vendor` dependencies;
+`/?factory=0` returns to working files. Safe mode also uses factory content. Recovery does
+not overwrite personal files: it opens a usable interface for repairing them.
 
-Начальная загрузка больше не запрашивает editor.css, editor-model.js и editor.js. Они загружаются при первом открытии редактора и переиспользуются. При ошибке доступна повторная попытка, сохраняющая последний запрошенный файл и его контекст черновика.
+## Navigation and visibility
 
-Модули, меню, задачи и имя устройства применяются по мере получения своих ответов. Медленный источник не задерживает остальные. Неизменившиеся карточки и навигация не пересоздаются, поэтому сохраняются DOM-узлы и клавиатурный фокус.
+The overview exposes modules, games, tasks and Studio. Navigation reads `ui/nav.json` while
+keeping system sections and modules accessible independently of a customized Home screen.
+The chat can remain beside the current activity; a narrow layout switches between them.
+Ctrl/Cmd+K opens quick navigation. Routes support browser back/forward.
 
-## Студия
+Agent navigation changes the user's screen only when Follow is enabled. A game's
+`axiko.stage` request affects the browser hub, not the phone. Browser visibility follows the
+browser tab and active hub panel: switching to Studio or mobile chat hides a game, while
+turning off the phone's screen does not itself hide that browser game.
 
-**Файлы.** Дерево рабочей папки, фильтр открытых папок, несколько вкладок, номера строк, поиск в файле, Tab и Ctrl/Cmd+S. Для нового файла задаётся относительный путь; на телефоне он создаётся при сохранении.
+Editor assets load on first use. Modules, navigation, tasks and device information render as
+their independent requests finish. Preserve unchanged DOM nodes and focus rather than
+recreating the whole view. Motion must respect reduced-motion and hidden-page state.
 
-Документы имеют независимые состояния. Поздний ответ чтения A не подменяет содержимое B. Сохранение отправляет зафиксированный текст с ревизией; продолжающийся ввод остаётся несохранённым. При конфликте доступно сравнение с текущей версией телефона.
+## Transport and embedded pages
 
-Несохранённый текст сохраняется локально в этом браузере и восстанавливается при повторном открытии файла. Закрытие изменённой вкладки и перечитывание файла требуют осознанного решения пользователя. Если файл на телефоне изменился после сохранения локального черновика, редактор предлагает сравнение.
+One `AxikoTransport` serves the hub and its frames. Nested widgets find `axikoDesk` through
+parent windows, share the event stream and navigate in the main area. Do not create a
+separate EventSource per widget.
 
-Редактор принимает текст UTF-8 до 2 МБ. Его файловые операции ограничены рабочей папкой кода, без data/. До изменения рабочей версии создаётся снимок. Запись выполняется через временный файл и переименование. Это редактор кода с вкладками и поиском; подсветка синтаксиса и полноценный language server не входят в текущую версию.
+The transport exposes `rpc`, `native`, `call`, `eval`, `subscribe`, `onStatus`, `status`,
+`login` and `close`. Preserve error codes, HTTP status and file-conflict revisions. A timeout
+must not automatically replay a write: the original operation may already have completed.
 
-**Preview.** Экран можно посмотреть на ширине 344, 690 или всей доступной области. Для HTML самого хаба открывается отдельная вкладка, чтобы не вкладывать хаб в самого себя. Адрес черновика сохраняется.
+After EventSource reconnects, `desk.reconnected` refreshes navigation, modules and tasks.
+Chat reconciles with authoritative history while preserving input. If an answer is still
+streaming, final reconciliation waits for idle. This is not a general cursor/replay event protocol.
+An HTTP 401 keeps unsaved work and offers sign-in instead of a reload loop.
 
-**Журнал.** Чтение сообщений движка, фильтр текста и уровней, ручное обновление и выгрузка. Периодическое чтение работает только в открытом разделе журнала.
+Pages continue using `window.axiko`. Browser-local `ui.open`, `ui.back`, `ui.chat`, `ui.stage`
+and `draft.open` stay in the browser. Preview resources and RPC retain their draft context;
+a live page beside a draft must retain its own live context.
 
-## Одна заводская основа и рабочая копия
+Readiness comes from `DOMContentLoaded` or `ui.ready`, not completion of optional images.
+Accept readiness only from the expected main frame/document. Clear loading warnings after
+readiness or navigation; Retry reloads that screen. Hash navigation needs no new load event.
 
-Единственный исходный набор:
+## Studio and file revisions
 
-    app/src/main/assets/factory/ui/desk/
-      index.html
-      hub.css
-      hub.js
-      transport.js
-      client.js
-      editor-model.js
-      editor.js
-      editor.css
+Files have independent tabs and buffers. A late read for file A cannot overwrite file B.
+Saving captures the submitted text and revision; edits typed during the request remain dirty.
+Unsaved buffers are retained in this browser, and conflicting remote changes require comparison.
 
-При установке Workspace.installFactory копирует этот набор в files/axiko/ui/desk/. На чистой установке содержимое одинаково. При обновлении неизменённые файлы следуют заводской версии, а пользовательские правки сохраняются по существующему механизму хешей factory.json.
+The editor accepts UTF-8 text up to 2 MiB and only edits workspace code, not `data/`. A live
+write takes a snapshot and uses a temporary file plus rename. Preview preserves draft context;
+previewing the hub itself opens a separate tab rather than recursively framing the hub.
+Log polling runs only while the log section is visible.
 
-LAN отдаёт рабочую копию. При отсутствии файла используется заводской. Режим /?factory=1 включает заводской набор для всей оболочки, клиента и общих зависимостей ui/kit и ui/vendor, /?factory=0 возвращает рабочую версию. Также учитывается safe mode.
+Operations use `POST /__axiko/rpc`:
 
-Заводское восстановление не перезаписывает персональные файлы: оно позволяет открыть рабочее место и исправить их. Фабричная версия берётся из того же factory/ui/desk/, а не из отдельно поддерживаемого второго интерфейса.
+| Operation | Contract |
+|---|---|
+| `desk.read` | `path`, optional `draft` → `path`, `text`, `revision`, `size`, `exists`; missing files return `code=not_found` |
+| `desk.write` | `path`, `text`, `expectedRevision`, optional `draft`; use `expectedRevision=null` to create; mismatch returns `code=conflict` and current revision |
+| `desk.status` | Assistant/host/device/app information, protocol, factory mode and capabilities; never the connection key |
 
-Прежние desk.html и page-lan.js сохранены как материалы исходного исследования в docs/research/2026-11-15/; Android-сервер больше их не использует.
+Explicit `draft:null` means the live workspace. If omitted, the server may infer context from
+`where`/Referer. Successful writes emit `workspace.changed` with `path`, `revision` and `draft`.
 
-## Транспорт и вложенные экраны
+## Verification
 
-Один AxikoTransport обслуживает рабочее место и его iframe. Вложенные виджеты находят axikoDesk через цепочку родительских окон. Они используют общий поток событий и открывают модули в основной области.
+```powershell
+node --test scripts/web/editor-model.test.js scripts/web/transport.test.js scripts/web/chat-reconnect.test.js
+node scripts/web/editor-browser.cjs
+node scripts/web/hub-loading-browser.cjs
+node scripts/web/hub-runtime-browser.cjs
+.\gradlew.bat testDebugUnitTest assembleDebug
+```
 
-AxikoTransport предоставляет rpc, native, call, eval, subscribe, onStatus, status, login и close. Ошибки RPC сохраняют code, HTTP status и сведения о конфликте. Есть ограничение ожидания; запись после таймаута автоматически не повторяется, поскольку она могла уже выполниться.
+Browser scripts require Playwright; an external installation can use `PLAYWRIGHT_MODULE`
+and `PLAYWRIGHT_CHROMIUM_EXECUTABLE`. Verify wide/narrow layouts, nested navigation, one
+shared event stream, reconnects, unsaved text, revision conflicts and factory fallback.
+`DeskFilesTest` covers file boundaries, UTF-8, atomic writes and drafts.
 
-После восстановления EventSource отправляется desk.reconnected. Хаб обновляет навигацию, модули и задачи; чат синхронизирует авторитетную историю, сохраняя набранный текст. Если агент ещё отвечает, окончательная синхронизация ждёт завершения ответа: незавершённые токены не входят в сохранённую историю. Полного cursor/replay-протокола событий эта версия не вводит.
-
-При 401 интерфейс сохраняет открытые правки и показывает возможность войти снова. Нет автоматической бесконечной перезагрузки страницы.
-
-Обычные страницы продолжают пользоваться window.axiko. Browser-local операции ui.open, ui.back, ui.chat, ui.stage и draft.open исполняются в браузере. RPC и ресурсы preview передают контекст черновика; рабочая страница рядом с другим черновиком явно сохраняет собственный live-контекст.
-
-Готовность экрана сообщается клиентом по DOMContentLoaded или ui.ready: необязательные картинки не задерживают снятие индикатора. Хаб принимает сигнал только от основного iframe и ожидаемого документа. Предупреждение загрузки снимается при готовности или уходе с экрана; «Повторить» перезагружает именно этот экран. Переходы по hash не требуют нового события load.
-
-## Операции редактора
-
-POST /__axiko/rpc, ответ в общем существующем формате Axiko:
-
-- desk.read: path, необязательный draft → path, text, revision, size, exists. Для отсутствующего файла code=not_found.
-- desk.write: path, text, expectedRevision, необязательный draft. Для создания expectedRevision=null. Несовпадение даёт code=conflict и текущую ревизию.
-- desk.status: имя ассистента, имя хоста, устройство, версия приложения, protocol, factory и capabilities. Ключ подключения не возвращается.
-
-Явное draft:null означает рабочую версию. Если поле отсутствует, сервер может определить контекст по where/Referer. После сохранения приходит workspace.changed с path, revision и draft.
-
-## Что может дорабатывать встроенный агент
-
-Изменять ui/desk/ обычными fs_read/fs_edit/fs_write. Основной HTML/CSS/JS работает в браузерной среде и может использовать современный JavaScript. Изменения проявляются после обновления соответствующей страницы.
-
-При изменениях транспорта сохранять совместимость window.axiko и AxikoTransport. Заводской вариант остаётся доступным по recovery URL. Изменение Kotlin-сервера или нового RPC-протокола требует новой сборки приложения.
-
-Нативные инструменты проверки ui_open/ui_eval/ui_screenshot по-прежнему адресуют экран телефона. Независимый browser testing target из аудита автономности остаётся отдельной задачей; наличие web-preview само по себе его не заменяет.
-
-## Проверка
-
-- Node: node --test scripts/web/editor-model.test.js scripts/web/transport.test.js scripts/web/chat-reconnect.test.js. Браузерные регрессии: node scripts/web/editor-browser.cjs, node scripts/web/hub-loading-browser.cjs и node scripts/web/hub-runtime-browser.cjs (нужен Playwright; при внешней установке задать PLAYWRIGHT_MODULE и при необходимости PLAYWRIGHT_CHROMIUM_EXECUTABLE). Проверка загрузки удерживает изображения и скрипты настоящего iframe, проверяя готовность, позднее завершение, смену экрана и повторную навигацию. Runtime-проверка задерживает служебные RPC, проверяет независимое появление модулей, сохранность фокуса и восстановление редактора после сетевых и программных ошибок.
-- Android: gradlew.bat testDebugUnitTest assembleDebug.
-- DeskFilesTest проверяет конфликты, создание, атомарную запись, изменение файла во время snapshot, границы, UTF-8, draft и factory fallback.
-- В браузере проверяются широкий/средний/узкий экран, навигация вложенных виджетов, сохранность ввода чата, студия, preview и отсутствие лишних SSE.
-- На Android проверяются выдача factory/working файлов, реальный RPC, сохранение пользовательских изменений при повторной установке и восстановление заводского интерфейса.
-- scripts/web/live-visibility.cjs проверяет видимость реальной игры на отдельном QA-экземпляре. Адрес и ключ задаются через AXIKO_HUB_SESSION (JSON-файл) либо AXIKO_HUB_URL/AXIKO_HUB_CODE; внешняя установка браузера — через AXIKO_PLAYWRIGHT_MODULE/AXIKO_CHROMIUM_EXECUTABLE. Скрипт посылает тестовые события видимости, поэтому предназначен для тестового экземпляра.
-
-Проверено на отдельном эмуляторе Android SDK 37 и в Chromium: 28 Android unit-тестов, 29 тестов редактора, транспорта и восстановления чата; браузерные регрессии редактора на 1440 и 390 px. Реальный Android-сервер проверен с установленными модулями и играми, редактором, журналом, preview и одним SSE на оболочку, чат и вложенные виджеты. Конфликт ревизий и собственный backend/CSS черновика проверены через настоящий RPC. Пользовательская правка сохранилась после обновления APK. Заводское восстановление проверено с изменёнными kit.css, kit.js и preact.js, включая сохранение recovery-режима при входе. Тестовый эмулятор не использует настройки модели владельца; качество ответов реального LLM этим прогоном не оценивается.
-
-Финальная сборка установлена также на телефон SM-F946B. Содержимое восьми файлов оболочки и экрана чата совпало с исходниками. В Chromium через сервер телефона проверены все 20 установленных модулей в каталоге, открытие Игротеки и домашних виджетов, сохранность ввода чата, редактор, журнал и preview; ширины 1440 и 390 px, один SSE, без ошибок JavaScript и горизонтального переполнения. На настоящем DOM чата имитация потери середины ответа восстановила полное сообщение после idle, сохранив ввод; внешняя модель не вызывалась. Переходы в студию, preview и мобильный чат дали последовательность видимости панели true → false → true → false → true.
-
-После сообщения о предупреждении поверх уже видимой Игротеки исправлена привязка ожидания к событию load: DOM-сигнал, очистка позднего предупреждения, уход со страницы и повторная загрузка проверены в Chromium с искусственно удерживаемыми ресурсами. 31 Node-тест прошёл; на телефоне каталог остался без предупреждения после 15 секунд. Исправленные hub.js и client.js сначала записаны в рабочий слой с проверкой исходной ревизии, без переустановки приложения.
-
-После обновления оформления повторно проверены 20 модулей на сервере телефона, навигация, чат и восстановление истории, студия, preview и журнал; один SSE, без ошибок и переполнения на 1440/390 px. Отдельные браузерные проверки включают среднюю ширину, светлую тему, reduced-motion и четыре случая отказа загрузки редактора. Три открытия нового браузерного контекста до изменения дали время появления модулей 602/1019/272 мс; после — 461/334/605 мс. Разброс сети заметен, поэтому это не гарантия процентного ускорения. Проверяемое постоянное отличие: 0 начальных запросов редактора вместо 3; медленные задачи и меню больше не блокируют модули.
-
-Договорённости о будущем сетевом взаимодействии сохранены отдельно: [друзья, P2P-чаты и совместные игры](D:/Projects/Axiko/docs/p2p-social-proposal.md). Их реализация отложена.
-
-После обновления оформления новый APK установлен поверх приложения на Fold SM-F946B. Сверены все восемь файлов заводской оболочки через factory-режим сервера: совпадают с исходниками. Все восемь рабочих файлов также совпадают с новой заводской версией. Установленные 20 модулей сохранились.
+`live-visibility.cjs` is for a separate QA installation because it injects visibility events.
+Configure `AXIKO_HUB_SESSION` (a local JSON file) or `AXIKO_HUB_URL` / `AXIKO_HUB_CODE`, with
+`AXIKO_PLAYWRIGHT_MODULE` / `AXIKO_CHROMIUM_EXECUTABLE` when needed. Never publish session keys.
+Native `ui_open`, `ui_eval` and `ui_screenshot` target the phone; they do not verify desktop layout.

@@ -1,180 +1,172 @@
-# Репозитории и пакеты Axiko: формат v1
+English · [Русский](repository-format-v1.ru.md)
 
-Проект стандарта от **16 ноября 2026 года**. Основан на пожеланиях владельца: добавляемые репозитории, обязательный `index.json`, установка пакетов напрямую или через проверку агентом, читаемые исходники, ограниченный размер и единая структура.
+# Axiko repositories and packages: format v1
 
-Формат реализован в клиенте Axiko: добавление HTTPS/GitHub-источников, каталог, загрузка и проверка ZIP, установка, обновления, откат и отдельная проверка агентом. Состояние реализации и ограничения описаны в [implementation.md](implementation.md). Изоляция выполнения пакетов пока не реализована: текущий профиль — `trustedLegacy`, декларации возможностей не ограничивают Java/native-доступ.
+This is the current repository and package contract: connectable sources, a mandatory `index.json`, readable source code, bounded artifacts and verified installation. The client implements catalogs, downloads, installation, updates, rollback and dedicated agent review. See [implementation and guarantees](implementation.md).
 
-## 1. Как это выглядит для владельца
+Installed packages currently use `trustedLegacy`. Declared capabilities do not enforce a Java/native sandbox; `capabilitiesEnforced` is `false`.
 
-В web-хабе и приложении появляется «Каталог» с вкладками «Обзор», «Установленные», «Обновления», «Источники». Витрина находится в редактируемом слое, заводская копия содержит тот же исходный интерфейс.
+## 1. Owner-facing flow
 
-**Добавление источника:** вставить адрес `index.json` либо адрес GitHub-репозитория. Во втором случае клиент определяет ветку и ищет `index.json` в корне. Без файла, с неподдерживаемой версией схемы или нарушенными обязательными правилами источник не добавляется. Произвольная папка с JavaScript не становится магазином автоматически.
+The editable store and its factory copy expose Catalog, Installed, Updates and Sources in the app and web hub.
 
-Пользователь видит имя источника, владельца, адрес, дату последней успешной проверки и состояние связи. Удаление источника останавливает получение обновлений, но не удаляет установленные пакеты и данные. Один источник не может незаметно подменить установленный пакет другого.
+To add a source, provide an HTTPS `index.json` URL or a GitHub repository URL. For GitHub, the client resolves the default branch and finds the root index. A missing index, unsupported schema version or invalid mandatory metadata rejects the source. A JavaScript directory or arbitrary ZIP does not become an installable source by itself.
 
-У карточки пакета — описание, автор, лицензия, версия, размер, снимки экрана, совместимость, используемые данные/доступы, журнал изменений и источник. Предусмотрены две команды:
+Owners can see source identity, address, last successful refresh and connection state. Disabling or removing a source stops updates without deleting installed code or data. A different source cannot silently replace an installed package merely by reusing its ID.
 
-- **Установить.** Обычная установка через обязательный проверяющий механизм.
-- **Проверить и установить с агентом.** Сначала агент получает скачанные исходники и контекст установки, изучает пакет и составляет отчёт. Установка происходит только для той же проверенной версии и контрольной суммы, через тот же механизм.
+A card identifies description, publisher, license, version, size, compatibility, declared access, screenshots, changes and source. Installation has two paths:
 
-Оба пути относятся к пакету из валидного источника. Ссылка на произвольный ZIP без соответствующего `index.json` не является обычным источником установки v1. Ни один путь не обходит ограничения формата, размера, путей и совместимости. Просмотр каталога и установка публичных пакетов не требуют GitHub-аккаунта. Для публикации в GitHub от имени автора потребуется его авторизация.
+- **Install:** prepare and apply through mandatory shell validation with explicit trust acknowledgement.
+- **Review and install with agent:** inspect the staged sources and installation context, then apply that exact reviewed artifact through the same installer if review and consent allow it.
 
-## 2. Репозиторий обязан иметь index.json
+Neither path bypasses limits, compatibility or source identity. Public catalog browsing and downloads do not require a GitHub account. Publishing to GitHub requires the publisher's own authorization.
 
-Минимальная структура источника:
+## 2. Required repository index
 
-```
+An example repository layout is:
+
+```text
 index.json
 README.md
-packages/                  # исходники для разработки; схема каталогов автора
+catalog/
+  p-0.json
+  details/
+    example.counter.json
+packages/                    # Author-chosen source layout
   example.counter/
     ...
 ```
 
-`index.json` — заголовок машинного каталога, не исполняемый установщик. Он описывает репозиторий и перечисляет страницы `catalog/p-*.json` с карточками пакетов; карточка ссылается на `package.json` и на фиксированный ZIP конкретного выпуска, а также на иконку и файл подробностей (описание, снимки экрана, список изменений). Устройство страниц, карточек, подробностей и картинок — в [catalog-pages.md](catalog-pages.md). Никаких скриптов установки, запросов shell или инструкций агенту в качестве команд протокола.
+`index.json` is a machine-readable catalog header, not executable installation instructions. It identifies the repository and lists pages of package cards. Each card points to the external manifest and fixed ZIP of a release, with optional icon and detail references. [Catalog pages](catalog-pages.md) defines the header, cards, details, media and localization. Protocol data must not contain installation hooks, shell requests or commands for the agent to follow.
 
-Формальные схемы: [index.schema.json](index.schema.json), [page.schema.json](page.schema.json), [details.schema.json](details.schema.json), [package.schema.json](package.schema.json). Примеры: [index.json](examples/index.json), [page.json](examples/page.json), [details.json](examples/details.json), [package.json](examples/package.json). Примеры демонстрируют метаданные: адреса и хеши не являются опубликованными пакетами для скачивания.
+Schemas: [index](index.schema.json), [page](page.schema.json), [details](details.schema.json), [package](package.schema.json). Examples: [index](examples/index.json), [page](examples/page.json), [details](examples/details.json), [package](examples/package.json). Example URLs and hashes are illustrative, not downloadable validated releases.
 
-Основные сведения в каталоге:
+Key fields include:
 
-- `schemaVersion`: версия протокола, сейчас 1.
-- `repository`: стабильный идентификатор, название, домашняя страница.
-- `packages`: идентификатор, вид пакета (`module` либо вид, который объявляет модуль-хозяин, например `game` у «Игротеки» — см. [catalog-pages.md](catalog-pages.md#виды-пакетов)), название, описание, версия, издатель и лицензия.
-- `archive`: HTTPS-адрес конкретного архива, SHA-256, размер архива, распакованный размер, количество файлов.
-- `manifestUrl`: адрес манифеста конкретного выпуска. Его содержимое должно совпасть с манифестом внутри скачанного ZIP.
-- `compatibility`: минимальный API Axiko и, если у вида есть версии, версия правил его хозяина под именем, которое дал хозяин (`gamesEngine` для игр).
+- `schemaVersion`: protocol version, currently `1`.
+- `repository`: stable ID, title and homepage.
+- `pages`: relative page paths, sizes, SHA-256 and card counts; `packageCount` is the total.
+- Each page's `packages`: ID, kind, title, summary, version, publisher and license. The shell owns `module` and `mod`; hosts declare other [package kinds](catalog-pages.md#package-kinds), such as games.
+- `archive`: exact HTTPS URL, SHA-256, compressed size, unpacked size and file count.
+- `manifestUrl`: external release manifest; its bytes must match `package.json` inside the ZIP.
+- `compatibility`: `minAxikoApi` and, for a versioned host kind, the host's named rules version, such as `gamesEngine`.
 
-Версия пакета (`1.4.2`) отличается от версии формата каталога и `game.json.saveVersion`. Новое оформление игры может менять версию пакета, сохраняя формат сохранений 3.
+### Release versions
 
-**Версии — только SemVer, и только вверх.** У каждого пакета своя версия `MAJOR.MINOR.PATCH`; общей версии каталога нет. Любое изменение файлов пакета публикуется с новой версией: исправление — PATCH, новая возможность без поломки старого — MINOR, несовместимое изменение — MAJOR. Опубликованная версия не меняет содержимого: клиент отвергает другой архив под тем же номером и не принимает версию ниже установленной, а сборщик каталога сравнивает исходники с манифестом опубликованного выпуска и не собирает изменившийся пакет под прежним номером. Без новой версии изменение не дойдёт ни до одного устройства: обновлением клиент считает только больший номер.
+Each package has its own exact SemVer `MAJOR.MINOR.PATCH`. This differs from the catalog schema version and a game's `saveVersion`. A visual update can increase package version while leaving save format unchanged.
 
-В первой версии один элемент каталога обозначает один актуальный выпуск пакета, повторяющиеся ID отклоняются. Установщик хранит собственную прошлую версию для отката. Каналы beta и история всех выпусков могут добавляться отдельной версией протокола; в v1 их не имитируем дублирующимися ID.
+Versions only increase. Publish every change to packaged files under a new version: PATCH for a fix, MINOR for compatible features, MAJOR for an incompatible change. A published version is immutable. The client rejects a different archive for an existing version and versions below the installed one; the author builder compares source-file hashes with the published manifest and refuses changed bytes under the same version. Only a higher version is an update.
 
-## 3. Стартовые лимиты
+Each ID occurs once in the current catalog, naming its offered release. Duplicate IDs are invalid. The installer retains its own previous release for rollback. v1 does not simulate release histories or beta channels with duplicate IDs.
 
-Лимиты относятся к одному пакету, а не ко всему репозиторию:
+## 3. Client limits
 
-| Объект | Лимит v1 |
-| --- | ---: |
-| Каждый файл метаданных: `index.json`, `package.json` | 1 МиБ |
-| Страниц в каталоге | 256 |
-| Пакетов на странице | 2000, дополнительно действует лимит байтов |
-| Пакетов в каталоге | 20 000 |
-| Файл подробностей пакета | 256 КиБ |
-| Иконка | 128 КиБ |
-| Снимок экрана | 1 МиБ, до 8 на пакет |
-| ZIP пакета | 5 МиБ = 5 242 880 байт |
-| Сумма распакованных файлов | 20 МиБ = 20 971 520 байт |
-| Отдельный файл | 2 МиБ = 2 097 152 байта |
-| Число файлов в ZIP | 512, включая `package.json` |
+Package limits apply to each package, not to a whole source:
 
-Эти значения — стартовая политика клиента. Репозиторий может устанавливать более строгие ограничения, но не может повысить клиентский лимит своим JSON. Повышение общей политики требует отдельного изменения клиента/стандарта.
+| Object | v1 limit |
+|---|---:|
+| Index, catalog page or package manifest JSON | 1 MiB each |
+| Catalog pages | 256 |
+| Packages per page | 2,000, also bounded by page bytes |
+| Packages in a catalog | 20,000 |
+| Package details JSON | 256 KiB |
+| Icon | 128 KiB |
+| Screenshot | 1 MiB; at most 8 per package |
+| ZIP archive | 5 MiB = 5,242,880 bytes |
+| Total unpacked files | 20 MiB = 20,971,520 bytes |
+| Individual payload file | 2 MiB = 2,097,152 bytes |
+| Files in the ZIP | 512, including `package.json` |
+| Manifest inventory entries | 511, excluding the manifest itself |
 
-Обоснование: среди текущих 41 пакета axiko-store (24 игры и 17 модулей) крупнейший кодовый пакет — «Кузня»: 746 747 байт без сжатия и около 205 КБ в ZIP; словарь «Словоплёта» занимает ещё 713 856 байт. У лимита есть существенный запас для нынешних пакетов.
+A repository may be stricter but cannot increase these limits in JSON. Raising client policy requires a client/format change. There is no resource-download extension that permits hidden limit bypasses or arbitrary remote executable code. Publisher resources must not overwrite owner settings or saves.
 
-Большие словари, звук и изображения в дальнейшем допускаются отдельными пакетами ресурсов с собственными размером, хешем и явным скачиванием. **Расширение формата ресурсов ещё нужно определить**; v1 не разрешает произвольную фоновую загрузку исполняемого кода или скрытый обход лимита. Новые ресурсные файлы не должны перезаписывать пользовательские настройки или сохранения.
+## 4. Package archive
 
-## 4. Архив пакета
-
-```
+```text
 package.json
 README.md
 LICENSE
 code/
-  module.json               # для обычного модуля
+  module.json                # Ordinary module descriptor
   main.js
   checks.js
   ui/
     index.html
     app.js
     app.css
-assets/                    # необязательные штатные ресурсы
+assets/                      # Optional immutable resources
 ```
 
-Для игры в `code/` находятся `game.json`, `config.json`, `sim.js`, экран и остальные файлы игрового пакета. Точка входа указывается относительно архива, внутри `code/`. Полный список файлов с SHA-256 и размером хранится в `package.json.files`; сам манифест в этот список не включается. README и LICENSE включаются.
+A hosted game places its `game.json`, `config.json`, `sim.js`, UI and other runtime files under `code/`. The manifest entry path is archive-relative and inside `code/`. A mod uses a different layout and no executable entry; see [mods](mods.md).
 
-Манифест содержит идентификатор, версию, издателя, лицензию, тип, `sourceFormat: "readable"`, совместимый runtime, точку входа, строгие и необязательные зависимости, используемые возможности и сетевые домены. `target` и произвольный путь установки не принимаются от автора. Место установки определяет клиент.
+`package.json.files` lists every payload file with SHA-256 and size, including README, LICENSE and the entry. It must not list the manifest itself. The total unpacked size includes that manifest. Paths use `/`, Unicode NFC and safe relative segments; reject parent traversal, absolute paths, backslashes, hidden/empty segments, unsafe names, case/Unicode collisions and file/directory conflicts.
 
-Пакетный ID, runtime ID игры и путь сохранений — разные сущности. При переносе существующего магазина установщик должен сохранить старые runtime ID через явно проверенное сопоставление. Например, `sparks-ring` сейчас обновляет `daily/2026-11-15`, а папка `life-rpg` имеет ID `rpg`. Простое переименование по новой карточке потеряет связь с прежним прогрессом.
+The manifest identifies ID, version, publisher, license, kind, `sourceFormat: "readable"`, runtime, entry, required and optional dependencies, capabilities and optional network domains. Runtime uses `axikoApi` and at most one host-specific version. Arbitrary `target` or installation paths are not author-controlled manifest fields: the client chooses the destination.
 
-Зависимости v1 разрешаются внутри выбранного источника и установленного совместимого окружения. Пакет не добавляет другие источники сам. Межисточниковые зависимости требуют явной привязки к уже добавленному источнику; нельзя выбирать первый совпавший ID из всех каталогов.
+Package IDs, runtime IDs and save locations must not be renamed automatically. An incompatible legacy mapping is excluded until explicitly migrated. A source folder can differ from its package ID; for example, `life-rpg` contains package `rpg`. Renaming from a catalog title can break access to existing progress.
 
-## 5. Читаемый код
+Dependencies are resolved within the selected source and installed compatible environment. v1 supports exact SemVer or a single `>=` constraint. A package cannot add other sources or select an arbitrary matching ID from all catalogs. Cross-source dependency selection is not an implicit fallback.
 
-Разрешено сжатие ZIP при передаче. Запрещена минификация исполняемых исходников: имена, форматирование и структура должны позволять агенту и владельцу изучить именно тот код, который будет работать.
+## 5. Readable source and language
 
-Правила публикации:
+Transport compression is allowed; minification of executable sources is not. Names, formatting and structure must let owners and reviewers inspect the actual code that will run.
 
-1. JavaScript, CSS и HTML поставляются читаемыми. Минифицированные библиотеки, обфускация, упакованный в строку исполняемый код и подмена исходников одним source map не соответствуют правилу.
-2. Наличие исходников рядом с минифицированным исполняемым файлом не делает такой пакет допустимым. Устанавливается и проверяется читаемый вариант.
-3. Код не подтягивается с произвольного CDN во время запуска. Исполняемые зависимости входят в проверяемый выпуск либо предоставляются совместимым runtime Axiko.
-4. Бинарные Android-компоненты, APK/DEX/JAR/SO и отдельные исполняемые установщики не входят в формат v1. Такие изменения относятся к оболочке Axiko.
-5. Подозрение на минификацию по длине строки или плотности операторов — повод для проверки. Эвристика сама по себе не доказывает ни минификацию, ни безопасность: длинные SVG/строковые данные могут быть законными.
+1. Ship readable JavaScript, CSS and HTML. Minified libraries, obfuscation, packed executable strings or a source map in place of source are unacceptable.
+2. Shipping readable originals beside a minified executable does not satisfy this rule. The installed executable must itself be readable.
+3. Do not fetch executable dependencies from an arbitrary CDN at runtime. Include them in the reviewed release or use the compatible Axiko runtime.
+4. APK/DEX/JAR/SO/WASM and other executable binaries or separate installers are outside the package format. Native runtime changes belong to the Axiko shell.
+5. Heuristics such as line length or operator density need context. Long SVG and string data can be legitimate. A heuristic is not proof of either minification or safety.
 
-**Язык пакета.** Каждый пакет с интерфейсом (модуль, игра) обязан полностью работать по-английски. Подходят два способа: тексты интерфейса написаны по-английски, либо они написаны по-русски и рядом со `store.json` лежит `i18n-en.json`, покрывающий каждый текст интерфейса (плоский словарь «русский текст → английский»; `{}` в ключе стоит на месте подставляемого значения). Русский желателен, но не обязателен, как и любой другой язык: каждый лежит в папке пакета файлом `i18n-<код>.json`; у пакета, написанного по-английски, русский — `i18n-ru.json` (английский текст → русский). Это требование к качеству выпуска, а не правило проверки безопасности: оно не меняет статус проверки агентом. Витрина (то, что магазин показывает до установки) пишется так же: английский обязателен, русский и любой другой язык нет. Основные поля — `title`, `summary`, `tags` в `store.json`, `store/description.md`, `store/changelog.md`, подписи снимков — содержат английский текст; другие языки лежат отдельно: `locales` в `store.json`, `store/description.<код>.md`, `store/changelog.<код>.md`. Язык без какого-то текста показывает английский. Подробности — «Язык витрины» в [catalog-pages.md](catalog-pages.md).
+Every package with a UI must work fully in English. It may be authored in English, or use Russian strings with a complete package-local `i18n-en.json` dictionary. Russian and other languages are supplementary and optional; English-authored packages use `i18n-ru.json` for Russian. Dictionary placeholders use `{}` for substituted values.
 
-Манифестное поле `sourceFormat` — декларация автора. Проверяющий архивы компонент обязан проверять фактические файлы; валидатор JSON не подтверждает читаемость программ.
+The listing is English-first too: primary `title`, `summary`, `tags`, screenshot captions, `store/description.md` and `store/changelog.md` are English. Other languages use `locales` and language-suffixed files, falling back to English. See [listing language](catalog-pages.md#listing-language). This is a release-quality requirement, not a safety-review rule; incomplete translation does not change the security verdict.
 
-## 6. Обязательная проверка перед установкой
+`sourceFormat` is an author declaration. Archive validation must inspect actual files; a JSON validator cannot certify readability.
 
-Будущий установщик сначала скачивает архив в отдельный каталог, с ограничением реально принятых байтов. Затем проверяет SHA-256, манифест, список файлов, совместимость и зависимости. До этого никакой код пакета, в том числе `checks.js` и `autostart`, не выполняется.
+## 6. Mandatory installation validation
 
-Проверка ZIP должна отклонять выход за разрешённые каталоги, абсолютные пути, `..`, обратные слеши, ссылки, дублирующиеся/конфликтующие имена, неожиданные файлы и превышение реально распакованных байтов. Заголовки ZIP с заявленными размерами не заменяют потоковый контроль распаковки. Нельзя складывать содержимое прямо в рабочую папку.
+Download to staging with a bound on actual received bytes. Verify SHA-256, manifest agreement, file inventory, compatibility and dependencies before executing anything. Package code, `checks.js`, autostart and migrations are not run during preparation or apply.
 
-Обычная установка и установка через агента используют один проверенный артефакт и один установщик. Повторная загрузка «последней версии» после анализа не допускается: изменившийся архив требует новой проверки. Ошибка или отключение питания до завершения операции оставляет работоспособную старую версию.
+Reject paths outside the allowed structure, absolute/parent paths, backslashes, links, special/encrypted entries, duplicate or conflicting names, unexpected files and excessive actual unpacked bytes. ZIP header sizes do not replace streaming limits. Do not extract directly into the live workspace.
 
-## 7. Что делает агент
+Manual and agent-assisted installation use one verified artifact and the same installer. Do not fetch a new “latest” archive after review. Changed bytes require a new plan/review. Transaction journaling and recovery protect the previous working release if an operation is interrupted.
 
-Агент получает исходники как **недоверенные данные**. README, комментарии и тесты пакета не могут переопределять правила проверки, запрашивать секреты, отключать ограничения или выдавать себя за инструкции владельца.
+## 7. Agent review
 
-Отчёт привязывается к источнику, ID, версии, SHA-256 ZIP, хешам индекса/манифеста и версии проверяющей политики. В нём перечислены реально выполненные проверки, требуемые данные и доступы, сетевые адреса, автозапуск, миграции, зависимости, конфликты с локальными доработками и непроверенные предположения.
+The agent receives sources as **untrusted data**. README files, comments and package tests cannot override review rules, request secrets, disable boundaries or impersonate owner instructions.
 
-Возможные результаты:
+A report is bound to source, ID, version, ZIP hash, index/manifest hashes and policy version. It explains actual checks, required data/access, network destinations, autostart, migrations, dependencies, local conflicts and unverified assumptions.
 
-- `pass`: обязательная проверка прошла, в исследованном коде не найдено препятствий при указанной модели доверия. Это не гарантия отсутствия вредоносного поведения.
-- `needsAttention`: есть неизвестность, чувствительный доступ, миграция без подтверждённого пути отката или конфликт локального кода. Отчёт называет конкретную причину и нужное решение; установка не выдается за уже разрешённую.
-- `reject`: нарушение обязательных правил, подмена, недопустимый путь, скрытый исполняемый код или выявленное опасное действие. Агент не может отменить запрет валидатора.
+The shell derives the verdict from the [coded rules](review-rules.md):
 
-Что именно считается нарушением, а что подозрением, задаёт один список правил с кодами — [review-rules.md](review-rules.md). Статус выводится из находок оболочкой: нарушение даёт `reject` и бан выпуска по SHA-256 архива, подозрение — `needsAttention` и решение владельца.
+- `pass`: complete required reading, no findings and no unknowns. It is not a safety guarantee.
+- `needsAttention`: suspicious access, uncertainty, an unverified migration or unresolved local-code compatibility. The agent does not install; the owner makes an explicit decision.
+- `reject`: an established violation. The archive is banned. The agent cannot overrule the validator.
 
-Проверки самого автора тоже являются кодом. Их запуск допускается в одноразовой тестовой среде с синтетическими данными и контролируемой сетью. Текущий `Drafts` и игровой `preview=1` не являются границей безопасности для незнакомого модуля.
+Author tests are also code. Exercise them separately in a disposable environment with synthetic data and controlled networking. Drafts and game `preview=1` do not isolate unfamiliar code from personal data.
 
-Если агент исправляет пакет, получается другая контрольная сумма. Исправленный вариант должен стать явно отмеченным локальным ответвлением/наложением либо новой публикацией автора; нельзя молча переписать исходник и оставить отметку проверки оригинального выпуска.
+An edited package has a different hash. Identify it as a local variant/overlay or new author release; never retain the original review or signature after changing its source. See [agent review](agent-review.md).
 
-## 8. Обновления без потери доработок
+## 8. Preserve customizations and data
 
-Клиент хранит реестр установленных пакетов: источник, ID, версию, хеш архива, список принадлежащих пакету файлов, исходную установленную копию и актуальное состояние локальных изменений.
+The installation registry records source, ID, version, archive hash, owned files, original release base and local state. Updates compare **old release, live version and incoming release**. Untouched files update; owner and agent edits survive; conflicts require a decision. A different source gains no replacement rights from a matching package ID.
 
-При обновлении сравниваются **прежний пакет, локальная версия и новый пакет**. Нетронутые файлы обновляются. Изменения владельца или агента сохраняются; конфликт показывается как задача на слияние. Пакет другого источника не получает права заменить локальную установку только из-за совпадения ID.
+Snapshot code before replacement. Code snapshots do not roll back databases: any future data migration needs a separate data backup and rollback design. Removing a package normally retains its settings and saves; deleting owner data is a separate explicit action.
 
-Перед заменой создаётся снимок кода. Затронутые миграцией данные резервируются отдельно: существующий снимок рабочего кода не откатывает автоматически базу данных. Удаление пакета по умолчанию оставляет его сохранения и настройки; очистка данных — отдельное действие.
+Keep publisher resources separate from personal data. The author builder only accepts legacy `_data/assets/` as immutable archive `assets/`; the store never copies those resources over user `data/`. Direct ADB helper scripts are not the transactional store installer.
 
-Обычные ресурсы, установленные издателем, отделяются от пользовательских данных. Существующее правило `_data → data/` требуется переработать: текущий install.ps1 перезаписывает совпавшие файлы, и это нельзя переносить в публичный установщик без изменений.
+## 9. Runtime boundary
 
-## 9. Реальные ограничения нынешней Axiko
+The editable storefront is separate from the shell's sources, archive validation, registry, transactions and recovery. Installed code, however, still uses `trustedLegacy`: Rhino has direct Java/Android access and local pages share a privileged bridge. `capabilitiesEnforced: false` is intentional and must not be represented as sandbox enforcement.
 
-Уже есть пакеты `store.json`, отдельные код/данные, проверки игр/модулей, черновики и дедуплицированные снимки. Но текущий ADB-установщик сначала удаляет целевой каталог, а затем копирует новый; он не является готовым транзакционным установщиком каталога.
+An agent review supplements an owner's trust decision. A package-aware runtime with enforceable identity, data boundaries and permissions remains separate work; guarding Native calls alone cannot provide it while direct Java access remains available.
 
-Поле `shell` нынешнего store.json обозначает совместимость с оболочкой, **не ограничения доступа**. Rhino передаёт коду Java/Android context, локальные страницы имеют общий привилегированный bridge с native/call/eval, модуль не ограничен собственной базой/папкой. Обычная установка и установка «после проверки AI» сейчас означали бы доверие исполняемому коду с правами Axiko.
+## 10. Hosting and publishing
 
-Поэтому нужно разделить:
+A catalog needs no dedicated backend. Host headers, pages and media statically and publish explicit versioned ZIPs/manifests, for example as GitHub Releases. Any HTTPS host implementing the format can be a source. Do not substitute an automatically generated archive of the whole repository for a package release.
 
-- редактируемую витрину, поиск, карточки и диалог с агентом;
-- базовый механизм источников, проверки архивов, реестр, транзакционную установку и восстановление;
-- ограниченный runtime сторонних пакетов с идентичностью вызывающего пакета, собственными данными и проверяемыми возможностями. Только проверки в `Native.call` недостаточно, пока код может обратиться к Java напрямую.
+Use cached and conditional catalog requests and local search/filtering; a card should not require its own GitHub API request. Publish artifacts at the exact URLs listed in the catalog before publishing the new index/pages. Keep an already published archive immutable.
 
-Первый выпуск можно запустить с проверяемым официальным каталогом и явно обозначенным доверием к коду. Свободная установка произвольных сторонних модулей требует полноценной границы выполнения. Проверка агентом дополняет её, но не заменяет.
+SHA-256 detects disagreement with the selected artifact, not publisher authenticity if an attacker can replace both index and archive. Index/package signatures, pinned publisher keys, key rotation and metadata rollback protection are not implemented guarantees of v1.
 
-## 10. GitHub как хранилище
-
-Свой backend для каталога и загрузки не нужен: индекс и картинки можно публиковать статически, пакеты — отдельными ZIP в Releases. Поддерживается любой HTTPS-источник того же формата, поэтому протокол не привязан к GitHub.
-
-GitHub Pages имеет предел опубликованного сайта 1 ГБ и мягкий лимит трафика 100 ГБ/месяц. Поэтому большие архивы лучше отделить от витрины. Бесплатный каталог не следует автоматически превращать на Pages в коммерческий сервис с оплатами: условия Pages исключают использование как бесплатного хостинга для e-commerce/коммерческого SaaS. [Официальные ограничения Pages](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits).
-
-Releases предназначены для распространяемых версий ПО и файлов выпуска; пакеты стоит выкладывать явными архивами, а не брать автоматически созданный ZIP всего исходного репозитория. Можно включить неизменяемость выпусков. [Releases](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases), [неизменяемые выпуски](https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/establish-provenance-and-integrity/prevent-release-changes).
-
-Клиент загружает индекс с кэшированием и условными запросами, ищет/фильтрует локально. GitHub REST API без авторизации имеет лимит 60 запросов/час на исходящий IP, поэтому не стоит строить каждый экран на отдельном API-запросе к каждому пакету. [Лимиты API](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api).
-
-SHA-256 обнаруживает несовпадение с проверенным артефактом, но сам по себе не удостоверяет автора, если атакующий может заменить и индекс, и архив. Для источников следует добавить подпись индекса/пакетов и закрепление ключа; протокол ротации ключей и защиты от отката метаданных нужно определить до выдачи такой защите статуса готовой.
-
-Публикация автора: исходники → PR → проверки без секретов и пользовательских данных → ревью → версионный ZIP → индекс. Отзывы, оценки и платные продажи не появляются из одного статического JSON: для них понадобятся GitHub Discussions/Issues с учётными записями либо отдельный сервис. Установка и обновление бесплатных пакетов работают независимо от этих социальных возможностей.
+The publication flow is source changes, review and checks without personal data/secrets, a versioned artifact, then a validated catalog update. Ratings, comments and payments need separate infrastructure; they are not provided by a static JSON catalog. See the [author tools](../../scripts/store/README.md) for commands.

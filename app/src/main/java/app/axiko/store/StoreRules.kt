@@ -184,7 +184,7 @@ object StoreRules {
             .put("unclear", rule.unclear ?: JSONObject.NULL).put("validator", rule.validator)
     })
 
-    /** The two tables of docs/marketplace/review-rules.md, between its `rules:begin` and `rules:end` marks. */
+    /** The exact Russian tables in docs/marketplace/review-rules.ru.md; the primary English document preserves their rule metadata. */
     fun markdown(): String {
         fun cell(text: String) = text.replace("|", "\\|")
         val out = StringBuilder()

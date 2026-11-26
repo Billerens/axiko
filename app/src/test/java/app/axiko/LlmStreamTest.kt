@@ -9,7 +9,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -65,6 +67,55 @@ class LlmStreamTest {
         assertEquals("fs_write", reply.calls[0].name)
         assertEquals("a.txt", JSONObject(reply.calls[0].arguments).getString("path"))
         assertEquals("ui_open", reply.calls[1].name)
+    }
+
+    @Test
+    fun connectionEndingWithoutACompletionIsRetryable() {
+        server.enqueue(MockResponse().setHeader("Content-Type", "text/event-stream")
+            .setBody("data: {\"choices\":[{\"delta\":{\"content\":\"Начало\"}}]}\n\n"))
+        val pieces = ArrayList<String>()
+        val error = assertThrows(LlmError::class.java) { ask(target()) { pieces.add(it) } }
+        assertTrue(error.retryable)
+        assertEquals(listOf("Начало"), pieces)
+    }
+
+    @Test
+    fun explicitFinishReasonIsACompletionWithoutADoneMarker() {
+        server.enqueue(MockResponse().setHeader("Content-Type", "text/event-stream")
+            .setBody("data: {\"choices\":[{\"delta\":{\"content\":\"Ответ\"},\"finish_reason\":\"stop\"}]}\n\n"))
+        assertEquals("Ответ", ask(target()).text)
+    }
+
+    @Test
+    fun incompleteArgumentsFailEvenWhenTheProviderSaysDone() {
+        server.enqueue(events("""{"tool_calls":[{"index":0,"id":"call_a","function":{"name":"fs_write","arguments":"{\"path\":\"a.txt\""}}]}"""))
+        assertTrue(assertThrows(LlmError::class.java) { ask(target()) }.retryable)
+    }
+
+    @Test
+    fun aTokenLimitNeverReleasesToolCalls() {
+        val body = """{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_a","function":{"name":"ui_open","arguments":"{}"}}]},"finish_reason":"length"}]}"""
+        server.enqueue(MockResponse().setHeader("Content-Type", "text/event-stream").setBody("data: $body\n\n"))
+        assertFalse(assertThrows(LlmError::class.java) { ask(target()) }.retryable)
+    }
+
+    @Test
+    fun cancellationReturnsOnlyTextEvenIfToolArgumentsWereAlreadyComplete() {
+        val call = """{"tool_calls":[{"index":0,"id":"call_a","function":{"name":"ui_open","arguments":"{}"}}]}"""
+        server.enqueue(events(call, """{"content":"Секунду"}"""))
+        var stopped = false
+        val reply = Llm.stream(target(), JSONArray(), JSONArray(), { stopped }, {}) { stopped = true }
+        assertEquals("Секунду", reply.text)
+        assertTrue(reply.calls.isEmpty())
+    }
+
+    @Test
+    fun rateLimitRetainsTheProvidersRetryDelay() {
+        server.enqueue(MockResponse().setResponseCode(429).setHeader("Retry-After", "2")
+            .setBody("""{"error":{"message":"Try again"}}"""))
+        val error = assertThrows(LlmError::class.java) { ask(target()) }
+        assertTrue(error.retryable)
+        assertEquals(2000L, error.retryAfterMs)
     }
 
     @Test
@@ -137,6 +188,7 @@ class LlmStreamTest {
             ask(target())
             throw AssertionError("an error was expected")
         } catch (error: LlmError) {
+            assertFalse(error.retryable)
             assertTrue(error.message!!.contains("401"))
             assertTrue(error.message!!.contains("No auth credentials found"))
         }

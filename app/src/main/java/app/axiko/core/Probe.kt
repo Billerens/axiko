@@ -211,7 +211,7 @@ object Probe {
         main.removeCallbacks(idle)
         val old = screen ?: return
         screen = null
-        runCatching { if (!MainActivity.shown) old.bridge.web.pauseTimers() }
+        runCatching { if (!MainActivity.shown && !app.axiko.sense.OnScreenAssistant.hasVisiblePanel()) old.bridge.web.pauseTimers() }
         runCatching { old.window.setOnDismissListener(null) }
         runCatching { old.window.dismiss() }
         runCatching { old.bridge.destroy() }

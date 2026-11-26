@@ -128,7 +128,7 @@ object Bubble {
     private fun showNow() {
         // Recheck when the posted operation runs: the foreground activity or preference may
         // have changed since EngineService.restore() or set(true) requested the bubble.
-        if (view != null || !wanted || !allowed || visibleActivities.isNotEmpty()) return
+        if (view != null || !wanted || !allowed || visibleActivities.isNotEmpty() || OnScreenAssistant.hasVisiblePanel()) return
         val context: Context = App.instance
         val density = context.resources.displayMetrics.density
         val look = BubbleLook.now()
@@ -204,6 +204,10 @@ object Bubble {
         button.visibility = View.INVISIBLE
         Engine.pool.execute {
             Thread.sleep(120)
+            if (AssistService.request()) {
+                main.post { button.visibility = View.VISIBLE }
+                return@execute
+            }
             Assist.captureNow()
             main.post { button.visibility = View.VISIBLE }
             Assist.openChat(App.instance)

@@ -1,63 +1,78 @@
-# Как устроен Axiko
+# Architecture
 
-Коротко и для всех — в [README](../README.ru.md). Здесь — подробности.
+English · [Русский](architecture.ru.md)
 
-| Слой | Где | Кто меняет |
+Axiko is an Android shell around an editable workspace. The [project overview](../README.md)
+explains the product; this document defines the boundaries developers must preserve.
+
+## Layers and storage
+
+| Layer | Location | Responsibility |
 |---|---|---|
-| Оболочка: WebView, движок Rhino, цикл агента, голос, системные службы | `app/src/main/java` | разработчик, редко |
-| Заводская копия рабочей папки: экраны, библиотека, промпт агента | `app/src/main/assets/factory` | разработчик |
-| Рабочая папка на устройстве (`files/axiko`): то же самое плюс модули и агенты | на телефоне | агент, постоянно |
+| Native shell | `app/src/main/java/app/axiko/` | WebView, Rhino, agent loop, Android services, credentials, installation and recovery |
+| Factory workspace | `app/src/main/assets/factory/` | Default screens, libraries, themes, templates and agent instructions |
+| Working workspace | Device `files/axiko/` | Files the owner and agent edit and the app runs |
+| Personal data | Device `files/data/` | Module state, game saves, databases and downloads |
+| Shell state | Device `files/state/` | Conversations, tasks, factory hashes and store state |
+| Drafts / history | Device `files/drafts/`, `files/history/` | Proposed code changes and recoverable workspace snapshots |
 
-- **Экраны** — обычный HTML из рабочей папки (`https://axiko.local/...`), без сборки. Для сложных
-  экранов в поставке лежит Preact (`ui/vendor/preact.js`); библиотеки с CDN кэшируются на диск.
-- **Движок** — Rhino: JavaScript, которому напрямую доступны все классы Android
-  (`Packages.android...`). В нём работает логика модулей, инструменты агента, фоновые задачи.
-- **Агенты** — основной (`agent/`) и любые в `agents/<id>/`; у каждого свои чаты, инструменты и
-  модель. Модели назначаются по ролям в настройках; провайдер — любой OpenAI-совместимый адрес.
-- **Страховка** — снимок рабочей папки перед каждым ходом агента (откат в «Истории изменений»),
-  безопасный режим с заводским интерфейсом (долгое нажатие на круглую кнопку), зашифрованная
-  резервная копия всего личного одним файлом, вручную и по расписанию ([backup.md](backup.md)).
-- **Голос** — распознавание GigaAM v3 на устройстве (sherpa-onnx, модель скачивается из настроек),
-  синтез через модель роли `tts` (`/audio/speech`, образец — Gemini Flash TTS), запасной голос на
-  самом телефоне (Supertonic 3). Имя для обращения голосом задаёт владелец; его караулит лёгкая
-  потоковая модель, а большая подтверждает.
-- **Язык** — экраны написаны по-русски; другой язык — словарь `ui/i18n/<код>.json`, который кит
-  применяет ко всему, что появляется на экране (в поставке английский, новый может добавить агент).
-  Модули и игры обязаны полностью работать по-английски (тексты по-английски либо по-русски с
-  `i18n-en.json`); русский желателен, но не обязателен, как и другие языки: `i18n-<код>.json` рядом
-  с модулем. `python scripts\i18n.py` показывает тексты без перевода. Ассистент отвечает на языке запроса.
-- **Маскот** — аксолотль Axiko живёт в `ui/mascot/`: векторные позы и `mascot.json`. Он носит цвета
-  темы, а владелец или агент может перекрасить его, заменить другим персонажем или выключить —
-  экраны работают и без него. Подробности и как пересобрать позы — `brand.md`.
-- **Вид** — темы лежат файлами в `themes/` (их пишет и агент), меню экранов — в `ui/nav.json`;
-  полоса меню — снизу, на широком экране слева.
-- **Чувства телефона** — чтение и управление экраном других приложений, уведомления (с ответом
-  в них), роль системного ассистента, плавающая кнопка, плитка в шторке, события телефона.
-  Включаются владельцем в системных настройках — или разом через Shizuku (права ADB без компьютера).
-- **Чат** — отдельные чаты у каждого агента, вложения и «Поделиться в Axiko», список изменённых
-  файлов с разницей и отменой под ответом, учёт трат с дневным лимитом, сжатие длинной истории.
-  У чата может быть своя модель и своё усилие размышления — их меняют и посреди работы. Сказанное,
-  пока агент занят, видно над полем ввода и доходит до модели между шагами — или ждёт ответа.
-- **Внешний мир** — поиск в сети и чтение страниц, серверы MCP, вход в сервисы по OAuth,
-  хранилище секретов, долгая память с поиском по словам и по смыслу.
-- **Без облака** — модели на устройстве (Google LiteRT-LM: Gemma 4, Qwen 3.5 и любая по ссылке) и
-  Linux-окружение (Ubuntu под PRoot) для Python, Node, ffmpeg и прочего.
-- **С компьютера** — web-хаб с обзором модулей, Игротекой, чатом и студией: редактор файлов,
-  preview и журнал. Оболочка живёт в редактируемом `ui/desk/`, заводской вариант доступен для
-  восстановления (подробнее — `web-hub.md`). Доступ включается в настройках: телефон
-  находится по имени `http://axiko.local:8765` и пускает по ключу владельца. По тому же адресу,
-  `/mcp`, телефон — сервер MCP для агентов на других машинах.
-- **Работа агента** — уточняющие вопросы формой, план с отметкой шагов, части работы параллельно
-  (`subtasks`), черновики (правки в отдельном слое до решения владельца), проверки модулей
-  (`checks.js`), экран «Задачи», рутины по расписанию и событиям, общая база личных данных
-  (`lib/base.js`), запись показанных действий в чужих приложениях.
-- **Магазин** — подключаемые HTTPS/GitHub-репозитории с обязательным `index.json`, каталог
-  модулей и игр, установка, обновления и откат через предварительный план. Сохранения и локальные
-  правки сохраняются; конфликт останавливает замену. Проверку и установку можно поручить агенту
-  в отдельном разговоре с ограниченным набором инструментов: он проверяет пакет по
-  [правилам с кодами](marketplace/review-rules.md). Нарушение правила — выпуск сразу в бан
-  (снять может только владелец); подозрение — предупреждение с файлом и строкой, и ставить ли
-  пакет, решает владелец. Установленные пакеты пока работают
-  с возможностями Axiko без изоляции доступа — см. [реализацию и границы доверия](marketplace/implementation.md).
+The application ID and Kotlin namespace are `app.axiko`. Pages use `https://axiko.local/`,
+`window.axiko` and the engine library `require('lib/axiko')`. Keep native, browser and engine
+contracts in sync when changing these interfaces.
 
-Справка, которую читает сам агент: `app/src/main/assets/factory/agent/system.md` и `api.md`.
+`Workspace.installFactory` updates a working file only when it is missing or still matches
+its previously installed factory hash. Locally modified files remain intact. Factory and
+working UI share one source tree; there is no separately maintained recovery UI.
+
+## Execution and trust
+
+HTML/CSS/JavaScript pages run directly from the workspace in WebView. Browser code talks to
+the shell or engine through the injected bridge. Rhino runs module logic, tools and background
+work and can access Android and Java classes. Shell changes require an APK rebuild; workspace
+changes normally require only a page or module reload.
+
+Installed modules run with the app's privileges, not in a per-package sandbox. Declared
+capabilities describe access; they do not enforce isolation. Source hashes, installation
+validation and agent review cannot prove safety. See the [store trust model](marketplace/implementation.md)
+and [review rules](marketplace/review-rules.md).
+
+Use the shell's credential interfaces: protected system input, supported secret references
+in HTTP requests, and no keys in code, chat or logs. Data sent to a selected remote model
+leaves the device; an on-device model is a separate choice. These API protections do not
+turn the trusted module runtime into a sandbox.
+
+## Agents and background work
+
+The main agent lives in `agent/`; additional agents live in `agents/<id>/`. Each has its own
+conversations and can have its own model and tool set. Models are assigned by role, with
+OpenAI-compatible providers and an optional on-device runtime.
+
+The native conversation loop handles streaming, tools, questions, plans, delegated work,
+spending limits and context compaction. An ordinary editing turn snapshots workspace code.
+Drafts isolate proposed code changes but share personal `data/` with the live app: they are
+not a safe place for destructive data migrations.
+
+Background work belongs in engine subscriptions and scheduled jobs. A module's `start()` is
+registered explicitly or through `module.json` with `autostart: true`. Safe mode skips
+workspace boot scripts. Do not rely on a visible page or a continuous UI timer for background work.
+
+## Recovery and interfaces
+
+[Snapshot history](snapshot-storage.md) restores workspace code, not module data or chats.
+An [encrypted backup](backup.md) carries personal state and has a different scope. Android
+permissions, downloaded models and WebView storage have separate restore limitations.
+
+The native recovery control must remain usable when workspace pages break. Safe mode serves
+the factory UI and suppresses workspace boot scripts. Keep recovery outside editable code.
+
+- The [web hub](web-hub.md) serves modules, games, chat and Studio from the phone over LAN;
+  `/mcp` exposes tools. LAN access uses the owner's connection key.
+- [Modules](modules.md) provide screens, home cards, widgets and background logic. Games
+  follow the [shared game-engine contract](game-development.md).
+- [Mascot and theme conventions](brand.md) keep the character optional and editable.
+- [Repository packages](marketplace/repository-format-v1.md) use an index, manifests, hashes
+  and a prepared installation plan. Updates must preserve local edits and personal data.
+
+[Development conventions](development.md) list build and verification commands. Runtime
+references supplied to the agent live beside the implementation in
+[`factory/agent/`](../app/src/main/assets/factory/agent/).

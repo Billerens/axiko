@@ -12,6 +12,7 @@ import app.axiko.MainActivity
 import app.axiko.R
 import android.util.Base64
 import app.axiko.agent.Agent
+import app.axiko.agent.ChatParticipants
 import app.axiko.agent.Inbox
 import app.axiko.agent.Usage
 import app.axiko.agent.Llm
@@ -23,6 +24,7 @@ import app.axiko.agent.Threads
 import app.axiko.sense.Bubble
 import app.axiko.sense.Dnd
 import app.axiko.sense.Notices
+import app.axiko.sense.OnScreenAssistant
 import app.axiko.sense.Recorder
 import app.axiko.sense.Screen
 import app.axiko.sense.Widgets
@@ -45,17 +47,19 @@ import java.io.File
 object Native {
     /**
      * What this shell can do beyond its first version, by the names modules ask for
-     * (`native('shell.features')`, see docs/shell-changes.md): a module checks before it relies on one.
+     * (`native('shell.features')`, see docs/native-contracts.md): a module checks before it relies on one.
      */
     val FEATURES = listOf(
         "notice.full", "notice.removed", "notice.open", "notify.actions", "dnd", "off", "job.once",
         "vibrate.pattern", "app.visible", "speech.stream", "transcribe.segments", "speech.render",
         "theme.decor", "widget.image", "home.cards", "usage", "store.v1", "button.face", "launcher.icon",
         "launcher.icons", "ui.scale", "store.adopt", "ui.probe", "bubble.looks", "store.pages", "store.kinds", "store.mods", "store.carry", "store.share", "secrets.sealed",
+        "assistant.panel",
     )
 
     fun call(method: String, args: JSONArray): Any? = when (method) {
         "shell.features" -> JSONArray(FEATURES)
+        "assistant.pref.get", "assistant.pref.set", "assistant.preview", "assistant.settings" -> OnScreenAssistant.call(method, args)
         "store.sources", "store.source.add", "store.source.refresh", "store.source.remove", "store.source.enable",
         "store.catalog", "store.kinds", "store.mod.remove", "store.mod.again", "store.mod.draft", "store.mod.draftBrief", "store.mod.carryStart", "store.mod.carry", "store.details", "store.media", "store.installed", "store.prepare", "store.plans", "store.plan", "store.read", "store.resolve",
         "store.apply", "store.rollback", "store.review", "store.reviewStart", "store.rules", "store.bans", "store.discard",
@@ -96,6 +100,10 @@ object Native {
             Agent.chat(args.getString(0), args.getString(1)).send("Работа была прервана: приложение закрылось. Посмотрите, что уже сделано, и продолжайте с того места.")
         }
         "agent.busy" -> Agent.chat(args.getString(0), text(args, 1)).busy
+        "agent.retry" -> Agent.chat(args.getString(0), text(args, 1)).retry()
+        "agent.retryStatus" -> Agent.chat(args.getString(0), text(args, 1)).retryStatus()
+        "agent.participants" -> ChatParticipants.view(Agent.chat(args.getString(0), text(args, 1)))
+        "agent.participant" -> ChatParticipants.set(Agent.chat(args.getString(0), text(args, 1)), args.getString(2), args.getBoolean(3))
         // The agent's separate chats: list, start a new one, switch, forget.
         "agent.threads" -> Threads.list(args.getString(0))
         "agent.thread" -> Threads.current(args.getString(0))
@@ -314,6 +322,8 @@ object Native {
         }
         // The name, the way of listening, the small model that keeps watch for the name.
         "wake.status" -> Wake.status()
+        "wake.aliases.get" -> Wake.aliases()
+        "wake.aliases.set" -> Wake.setAliases(args.getString(0), args.getJSONArray(1))
         "wake.name" -> {
             Wake.rename(args.getString(0))
             Wake.status()
@@ -427,8 +437,9 @@ object Native {
         // (text, path, 'cloud'|'local'?) — the text spoken into an audio file; the path written comes back.
         "speech.render" -> Tts.render(args.getString(0), args.getString(1), text(args, 2))
         "speech.say" -> {
-            // (text, "local"?) — the second argument asks for the voice on the phone.
-            Tts.say(args.getString(0), args.optString(1) == "local")
+            // (text, "local"?, id?) — the second argument asks for the voice on the phone; with an id
+            // the "tts" event says {say: id, state: "start" | "end"} as it sounds and when it is said.
+            Tts.say(args.getString(0), args.optString(1) == "local", text(args, 2).orEmpty())
             true
         }
         "speech.stop" -> {

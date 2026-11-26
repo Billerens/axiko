@@ -140,6 +140,20 @@
     background: var(--accent);
     color: var(--accent-ink);
   }
+
+  .assistant-opacity {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 100%;
+  }
+
+  .assistant-opacity input {
+    width: min(145px, 42vw);
+    accent-color: var(--accent);
+  }
+
+  .assistant-opacity output { min-width: 3em; font-variant-numeric: tabular-nums; }
 </style>
 <body>
 <main class="page">
@@ -208,6 +222,11 @@
       <p class="muted small">Сделав столько шагов подряд, ассистент останавливается, говорит, что успел, и ждёт вашего «Продолжить».</p>
       <div class="scale" id="step-limit"></div>
     </section>
+    <section class="section">
+      <h2>Повторы запроса</h2>
+      <p class="muted small">После временного сбоя Axiko повторяет незавершённый шаг. При нуле запрос можно повторить вручную.</p>
+      <div class="list" id="retry-limit"></div>
+    </section>
   </div>
 
   <div class="tab" data-tab="voice">
@@ -225,6 +244,23 @@
       <h2>Имя</h2>
       <p class="muted small">На это имя ассистент откликается голосом: «<span class="wake-name">Axiko</span>, который час?»</p>
       <div class="list" id="wake"></div>
+    </section>
+  </div>
+
+  <div class="tab" data-tab="assistant">
+    <section class="section">
+      <h2>Наэкранный ассистент</h2>
+      <p class="muted small">Выберите Axiko системным ассистентом, чтобы открывать голосовую панель поверх других приложений. Способ вызова зависит от настроек Android.</p>
+      <div class="list" id="assistant-role"></div>
+    </section>
+    <section class="section" id="assistant-talk-settings" hidden>
+      <h2>Разговор</h2>
+      <div class="list" id="assistant-talk"></div>
+      <p class="muted small">При закрытии панели микрофон выключается. Начатую работу можно продолжить при следующем вызове.</p>
+    </section>
+    <section class="section" id="assistant-look-settings" hidden>
+      <h2>Панель поверх приложений</h2>
+      <div class="list" id="assistant-look"></div>
     </section>
   </div>
 
@@ -373,7 +409,7 @@
   const DEFAULT_TTS_MODEL = 'google/gemini-3.8-flash-tts';
 
   const showTab = ui.tabs(document.getElementById('tabs'), [
-    ['models', 'Модели'], ['agents', 'Агенты'], ['voice', 'Голос'], ['look', 'Вид'], ['phone', 'Телефон'], ['links', 'Связи'], ['system', 'Система'],
+    ['models', 'Модели'], ['agents', 'Агенты'], ['voice', 'Голос'], ['assistant', 'Ассистент'], ['look', 'Вид'], ['phone', 'Телефон'], ['links', 'Связи'], ['system', 'Система'],
   ]);
 
   let providers = [];
@@ -382,6 +418,7 @@
   let modules = [];
   let speech = {};
   let prefs = {};
+  let assistantLoading = 0;
 
   const field = (label, control) => h('label', { class: 'field' }, h('span', {}, label), control);
   const providerName = id => (providers.find(provider => provider.id === id) || {}).name || 'провайдер не выбран';
@@ -416,6 +453,7 @@
     rows.push(roleRow('embed', 'Поиск по смыслу в памяти', 'Модель эмбеддингов; без неё память ищет по словам', true));
     document.getElementById('roles').replaceChildren(...rows);
     renderVoice();
+    renderAssistant();
     renderAgents();
     renderChecklist();
   }
@@ -830,6 +868,27 @@
       option('after', 'После ответа', 'Сообщение подождёт, пока ассистент закончит, и уйдёт отдельным запросом'));
   }
 
+  async function renderRetryLimit() {
+    const pref = 'chat.retryLimit';
+    const label = 'Максимум автоматических повторов';
+    const saved = Number(await axiko.native('pref.get', pref, '2'));
+    let current = Number.isInteger(saved) && saved >= 0 && saved <= 10 ? saved : 2;
+    const control = h('select', { class: 'input', 'aria-label': label },
+      Array.from({ length: 11 }, (_, value) => h('option', { value }, String(value))));
+    control.value = current;
+    control.onchange = async () => {
+      control.disabled = true;
+      try {
+        await axiko.native('pref.set', pref, control.value);
+        current = control.value;
+      } catch (error) {
+        control.value = current;
+        ui.toast(error.message);
+      } finally { control.disabled = false; }
+    };
+    document.getElementById('retry-limit').replaceChildren(h('label', {}, h('span', { class: 'grow' }, label), control));
+  }
+
   // ---- how many steps one request may take -------------------------------------------------------
 
   const STEPS = { min: 20, max: 400, by: 20, usual: 80 };
@@ -950,6 +1009,95 @@
     return box;
   };
 
+  async function renderAssistant() {
+    const ticket = ++assistantLoading;
+    const roleList = document.getElementById('assistant-role');
+    const talkSection = document.getElementById('assistant-talk-settings');
+    const lookSection = document.getElementById('assistant-look-settings');
+    let profile;
+    try {
+      profile = await axiko.native('assistant.pref.get');
+    } catch (error) {
+      if (ticket !== assistantLoading) return;
+      roleList.replaceChildren(h('div', { class: 'value' }, 'Панель ассистента недоступна'));
+      talkSection.hidden = true;
+      lookSection.hidden = true;
+      return;
+    }
+    if (ticket !== assistantLoading || !profile) return;
+    talkSection.hidden = false;
+    lookSection.hidden = false;
+
+    const run = async (method, ...args) => {
+      try { return await axiko.native('assistant.' + method, ...args); }
+      catch (error) { ui.toast(error.message); return null; }
+    };
+    const save = async (key, value, control, setControl) => {
+      const previous = profile[key];
+      control.disabled = true;
+      const result = await run('pref.set', { [key]: value });
+      if (result === null || result === false) setControl(previous);
+      else profile[key] = result?.[key] ?? value;
+      control.disabled = false;
+    };
+    const about = (title, description) => h('span', { class: 'grow' }, title,
+      description && h('div', { class: 'value' }, description));
+    const select = (key, title, options, description, userValues = false) => {
+      const control = h('select', { class: 'input' }, options.map(([value, label]) =>
+        h('option', { value }, userValues ? ui.raw(label) : label)));
+      control.value = profile[key] ?? options[0]?.[0] ?? '';
+      if (control.selectedIndex < 0) control.selectedIndex = 0;
+      control.onchange = () => save(key, control.value, control, previous => { control.value = previous; });
+      return h('label', {}, about(title, description), control);
+    };
+    const switchRow = (key, title, description) => {
+      const control = h('input', { type: 'checkbox', class: 'switch', checked: profile[key] === true });
+      control.onchange = () => save(key, control.checked, control, previous => { control.checked = previous === true; });
+      return h('label', {}, about(title, description), control);
+    };
+    const phonePage = axiko.platform !== 'web';
+    roleList.replaceChildren(
+      h('div', {},
+        h('span', {}, ui.icon(profile.role ? 'check' : 'phone')),
+        about(profile.role ? 'Axiko выбран ассистентом Android' : 'Axiko пока не выбран ассистентом Android',
+          phonePage ? null : 'Роль ассистента выбирается на телефоне')),
+      phonePage && row('Выбрать системного ассистента', 'Открыть настройки Android', () => run('settings')),
+      phonePage && h('button', { disabled: !profile.role, onclick: () => run('preview') },
+        h('span', {}, ui.icon('play')), about('Попробовать панель')));
+
+    const agentOptions = (agents || []).map(agent => [agent.id, agent.title || agent.id]);
+    if (!agentOptions.length) agentOptions.push([profile.agent || 'axiko', 'Axiko']);
+    const idleLabel = 'Завершить разговор после паузы (секунды)';
+    const idle = h('input', { type: 'number', class: 'input', min: 0, max: 3600, step: 1,
+      value: profile.conversationIdleSeconds ?? 180, 'aria-label': idleLabel });
+    idle.onchange = () => {
+      if (!idle.value || !idle.checkValidity()) { idle.value = profile.conversationIdleSeconds ?? 180; return; }
+      save('conversationIdleSeconds', Number(idle.value), idle, previous => { idle.value = previous ?? 180; });
+    };
+    document.getElementById('assistant-talk').replaceChildren(
+      select('agent', 'Агент в панели', agentOptions, null, true),
+      select('activation', 'При открытии', [['manual', 'Ждать нажатия'], ['voice', 'Сразу слушать']]),
+      switchRow('wakePanel', 'Открывать панель по имени', 'Использует настройку «Откликаться на имя» во вкладке «Голос».'),
+      select('voice', 'Голос в панели', [['default', 'Голос из настроек'], ['local', 'Голос на телефоне'], ['silent', 'Только текст']]),
+      row('Настройки голоса', 'Распознавание речи, голос и имя', () => showTab('voice')),
+      select('history', 'Сохранение разговора', [['save', 'Сохранять в истории чатов'], ['temporary', 'Временный разговор']]),
+      h('label', {}, about(idleLabel, 'Удерживайте микрофон, чтобы начать разговор. Ноль оставляет микрофон активным до завершения вручную.'), idle),
+      switchRow('screen', 'Разрешить добавлять экран', 'Контекст попадёт в сообщение только после нажатия «Добавить экран».'));
+
+    const opacity = h('input', { type: 'range', min: 0, max: 100, value: profile.opacity ?? 91, 'aria-label': 'Непрозрачность панели' });
+    const opacityValue = h('output', {}, opacity.value + '%');
+    opacity.oninput = () => { opacityValue.value = opacity.value + '%'; };
+    opacity.onchange = () => save('opacity', Number(opacity.value), opacity, previous => {
+      opacity.value = previous;
+      opacityValue.value = opacity.value + '%';
+    });
+    document.getElementById('assistant-look').replaceChildren(
+      select('layout', 'Положение панели', [['bottom', 'Снизу'], ['side', 'Сбоку на широком экране']]),
+      h('label', {}, about('Непрозрачность панели'), h('span', { class: 'assistant-opacity' }, opacity, opacityValue)),
+      switchRow('animation', 'Анимировать волну'),
+      switchRow('mascot', 'Показывать маскота в панели'));
+  }
+
   async function renderVoice() {
     [localVoice, wake] = await Promise.all([axiko.native('tts.local.status'), axiko.native('wake.status')]);
     const tts = assigned('tts');
@@ -997,10 +1145,11 @@
     };
     const how = wake.mode === 'full' ? 'Тщательно: распознаётся каждая услышанная фраза'
       : !wake.lightReady ? 'Тщательно. Лёгкая модель бережёт батарею: скачать, ' + wake.megabytes + ' МБ'
-        : wake.spottable ? 'Бережно: имя караулит лёгкая модель'
-          : 'Тщательно: лёгкая модель знает только русские буквы';
+        : wake.spottable ? 'Бережно: лёгкая модель проверяет фразы вызова'
+          : 'Тщательно: не все фразы доступны лёгкой модели';
     document.getElementById('wake').replaceChildren(
       row('Имя ассистента', wake.name, editName, true),
+      row('Фразы вызова агентов', wake.aliasCount ? ui.raw(ui.t('Фраз вызова — {}', wake.aliasCount)) : 'Настроить фразы', editWakeAliases, Boolean(wake.aliasCount)),
       h('label', {},
         h('span', { class: 'grow' }, 'Откликаться на имя',
           h('div', { class: 'value' }, 'Слушать всё время и выполнять сказанное после имени. Работает, пока приложение не выгружено')),
@@ -1018,11 +1167,50 @@
       field('Имя, на которое откликаться', name),
       h('div', { class: 'actions' }, h('button', { class: 'btn primary', onclick: async () => {
         if (!name.value.trim()) { ui.toast('Имя не может быть пустым'); return; }
-        await axiko.native('wake.name', name.value.trim());
+        try { await axiko.native('wake.name', name.value.trim()); }
+        catch (error) { ui.toast(ui.t(error.message)); return; }
         close();
         agents = await axiko.native('agent.list');
         render();
       } }, 'Сохранить')),
+    ]);
+  }
+
+  async function editWakeAliases() {
+    try {
+      const [available, configured] = await Promise.all([axiko.native('agent.list'), axiko.native('wake.aliases.get')]);
+      const byAgent = new Map(configured.map(item => [item.agent, item.phrases]));
+      const close = ui.sheet([
+        h('h3', {}, 'Фразы вызова агентов'),
+        h('p', { class: 'small muted' }, 'Фразы работают, когда включено «Откликаться на имя».'),
+        ...available.map(agent => {
+          const phrases = byAgent.get(agent.id) || [];
+          return row(ui.raw(agent.title || agent.id), phrases.length ? ui.raw(phrases.join(' · ')) : 'Настроить фразы', () => {
+            close();
+            editAgentWakePhrases(agent, phrases);
+          }, phrases.length > 0);
+        }),
+      ]);
+    } catch (error) { ui.toast(ui.t(error.message)); }
+  }
+
+  function editAgentWakePhrases(agent, phrases) {
+    const area = h('textarea', { class: 'input', rows: 5, spellcheck: false });
+    area.value = phrases.join('\n');
+    const save = h('button', { class: 'btn primary', onclick: async () => {
+      save.disabled = true;
+      try {
+        await axiko.native('wake.aliases.set', agent.id, area.value.split(/\r?\n/));
+        close();
+        await renderVoice();
+      } catch (error) { ui.toast(ui.t(error.message)); }
+      finally { save.disabled = false; }
+    } }, 'Сохранить');
+    const close = ui.sheet([
+      h('h3', {}, ui.raw(agent.title || agent.id)),
+      h('p', { class: 'small muted' }, 'По одной фразе на строку. Пустое поле отключает вызов этого агента по отдельным фразам.'),
+      field('Фразы вызова', area),
+      h('div', { class: 'actions' }, save),
     ]);
   }
 
@@ -1040,8 +1228,8 @@
       download.hidden = wake.lightReady;
       state.textContent = !wake.lightReady
         ? 'Без лёгкой модели каждая услышанная фраза распознаётся целиком — это точно, но тратит батарею. С ней большая модель включается, только когда прозвучало что-то похожее на имя.'
-        : wake.spottable ? 'Лёгкая модель на телефоне. Она ловит имя с запасом, а большая проверяет, что обращались действительно к ассистенту.'
-          : 'Лёгкая модель записывает слова русскими буквами, имя «' + wake.name + '» ей не по силам: слушать придётся тщательно.';
+        : wake.spottable ? ui.t('Лёгкая модель проверяет все настроенные фразы вызова. Большая модель подтверждает обращение.')
+          : ui.t('Часть фраз вызова недоступна лёгкой модели. Телефон будет распознавать каждую фразу целиком.');
     };
     describe();
     const off = axiko.on('wake.download', event => {
@@ -1527,7 +1715,7 @@
     document.getElementById('senses').replaceChildren(
       row('Видеть экран', 'Читать, что открыто в других приложениях, и действовать в них', sense.screen, () => axiko.native('sense.open', 'screen')),
       row('Читать уведомления', 'Письма, сообщения, банки — всё, что показывает телефон', sense.notices, () => axiko.native('sense.open', 'notices')),
-      row('Системный ассистент', 'Вызов жестом ассистента поверх любого приложения, с его экраном', sense.assistant, () => axiko.native('sense.open', 'assistant')),
+      row('Системный ассистент', 'Настроить голосовую панель поверх приложений', () => { showTab('assistant'); renderAssistant(); }, sense.assistant),
       h('label', {},
         h('span', { class: 'grow' }, 'Плавающая кнопка',
           h('div', { class: 'value' }, 'Поверх других приложений: нажали — и спрашиваете Axiko об этом экране')),
@@ -1540,7 +1728,9 @@
         h('span', { class: 'muted' }, ui.icon('right'))));
   }
 
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) renderSenses(); });
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) { renderSenses(); renderAssistant(); }
+  });
   renderSenses();
   // Granting access to all files restarts the app; what was granted is shown once it is back.
   axiko.native('pref.get', 'empower.report').then(report => {
@@ -1775,6 +1965,7 @@
   renderMcp();
   renderLan();
   renderBusy();
+  renderRetryLimit().catch(error => ui.toast(error.message));
   renderSteps();
   renderLinux();
   renderLocal();
