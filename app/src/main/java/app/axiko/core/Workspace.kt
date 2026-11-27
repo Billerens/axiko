@@ -2,6 +2,7 @@ package app.axiko.core
 
 import android.content.Context
 import android.content.res.AssetManager
+import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -110,28 +111,58 @@ object Workspace {
      * the factory version it came from follows the new factory version.
      * With [reset], every factory file under that prefix is put back.
      */
+    @Synchronized
     fun installFactory(ctx: Context, reset: String? = null) {
         val manifestFile = File(state, "factory.json")
         val installed = runCatching { JSONObject(manifestFile.readText()) }.getOrElse { JSONObject() }
         val next = JSONObject()
+        val observations = mutableListOf<ScreenSuspicions.FactoryObservation>()
         for (path in assetTree(ctx.assets, FACTORY)) {
-            val bytes = ctx.assets.open("$FACTORY/$path").use { it.readBytes() }
+            val bytes = factoryBytes(ctx, path)
             val hash = sha1(bytes)
             next.put(path, hash)
-            val target = File(root, path)
             val forced = reset != null && path.startsWith(reset)
-            val untouched = !target.exists() ||
-                (installed.has(path) && sha1(target.readBytes()) == installed.getString(path))
-            if (forced || untouched) {
+            val important = path in ScreenSuspicions.titles
+            val previous = installed.optString(path).takeIf(String::isNotEmpty)
+            val target = if (important) {
+                runCatching { ScreenSuspicions.workingFile(root, path) }.getOrElse { error ->
+                    Log.w("Axiko", "Пропущен недоступный системный экран $path", error)
+                    next.put(path, previous)
+                    continue
+                }
+            } else File(root, path)
+            val exists = target.exists()
+            val local = if (!forced && exists && (previous != null || important)) {
+                if (important) {
+                    runCatching { sha1(target.readBytes()) }.getOrElse { error ->
+                        Log.w("Axiko", "Не удалось прочитать системный экран $path", error)
+                        null
+                    }
+                } else sha1(target.readBytes())
+            } else null
+            val replace = forced || !exists || (previous != null && local == previous)
+            if (replace) {
                 target.parentFile?.mkdirs()
                 target.writeBytes(bytes)
             }
+            if (important) observations.add(ScreenSuspicions.FactoryObservation(path, previous, hash, !replace && local != hash))
         }
+        // If recording a finding fails, retry it against the previous factory hash next time.
+        runCatching { ScreenSuspicions.observe(ctx, observations, hasLegacyManifest = installed.length() > 0) }
+            .onFailure { error ->
+                Log.w("Axiko", "Не удалось сохранить подозрения к экранам", error)
+                for (screen in observations) {
+                    if (screen.preservedLocalEdit) next.put(screen.path, screen.previous)
+                }
+            }
         manifestFile.writeText(next.toString())
     }
 
+    internal fun factoryBytes(ctx: Context, path: String): ByteArray =
+        ctx.assets.open("$FACTORY/$path").use { it.readBytes() }
+
     fun factoryText(ctx: Context, path: String): String? =
-        runCatching { ctx.assets.open("$FACTORY/$path").use { it.readBytes().decodeToString() } }.getOrNull()
+        runCatching { factoryBytes(ctx, path).decodeToString() }.getOrNull()
 
     private fun assetTree(assets: AssetManager, dir: String, prefix: String = ""): List<String> {
         val out = ArrayList<String>()

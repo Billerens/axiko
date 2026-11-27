@@ -1,6 +1,7 @@
 package app.axiko.core
 
 import android.annotation.SuppressLint
+import android.app.AlertDialog
 import android.content.Intent
 import android.net.Uri
 import android.os.Handler
@@ -37,6 +38,7 @@ import java.util.concurrent.CountDownLatch
 object Pages {
     const val HOST = "axiko.local"
     const val ORIGIN = "https://$HOST"
+    const val SUSPICIONS_VIEW = "ui/settings/index.html?tab=system&screenReview=factory#suspicions"
     private const val KIT_CSS = "ui/kit/kit.css"
     private const val KIT_JS = "ui/kit/kit.js"
 
@@ -58,6 +60,10 @@ object Pages {
     fun url(path: String): String =
         if (path.startsWith("http://") || path.startsWith("https://")) path
         else "$ORIGIN/" + path.trimStart('/')
+
+    fun isStockScreenReview(uri: Uri): Boolean =
+        uri.scheme == "https" && uri.encodedAuthority == HOST &&
+            uri.path == "/ui/settings/index.html" && uri.getQueryParameter("screenReview") == "factory"
 
     fun register(bridge: Bridge) {
         bridges.add(bridge)
@@ -214,7 +220,9 @@ class Bridge(val web: WebView, val name: String) : WebViewCompat.WebMessageListe
                     // What a draft's screen asks for by an absolute address (/ui/kit/…, /modules/…) is the draft's too.
                     val path = request.url.path.orEmpty()
                     val from = Drafts.of(path) ?: Drafts.of(request.requestHeaders["Referer"]?.let { Uri.parse(it).path })
-                    Drafts.within(from) { Pages.serve(path) }
+                    val stock = name == "page" && (Pages.isStockScreenReview(request.url) ||
+                        request.requestHeaders["Referer"]?.let { Pages.isStockScreenReview(Uri.parse(it)) } == true)
+                    Drafts.within(from) { Pages.serve(path, stock) }
                 }
                 WebCache.wants(request) -> WebCache.serve(request)
                 else -> null
@@ -291,6 +299,7 @@ class Bridge(val web: WebView, val name: String) : WebViewCompat.WebMessageListe
 
         /** What a page asks of the owner's screen; on the agent's own screen it is that screen's business. */
         val OWN = setOf("ui.open", "ui.back", "ui.chat", "ui.stage")
+        val SCREEN_REVIEW_ACTIONS = setOf("suspicions.dismiss", "suspicions.restore", "suspicions.merge", "suspicions.applyMerge")
 
         val main = Handler(Looper.getMainLooper())
     }
@@ -394,6 +403,22 @@ class Bridge(val web: WebView, val name: String) : WebViewCompat.WebMessageListe
             }
             return
         }
+        if (request.optString("op") == "native" && request.optString("method") in SCREEN_REVIEW_ACTIONS) {
+            val activity = MainActivity.current
+            if (activity == null || activity.page !== this || !isMainFrame || !MainActivity.visible ||
+                sourceOrigin.toString().trimEnd('/') != Pages.ORIGIN ||
+                Uri.parse(view.url.orEmpty()).path != "/ui/settings/index.html"
+            ) {
+                reply(replyProxy, id, null, I18n.t("Откройте настройки Axiko на телефоне."))
+                return
+            }
+            val args = runCatching { JSONArray(request.optString("args", "[]")) }.getOrElse {
+                reply(replyProxy, id, null, Engine.describe(it))
+                return
+            }
+            screenReview(activity, replyProxy, id, request.getString("method"), args)
+            return
+        }
         // A draft's screen calls the draft's code.
         val draft = Drafts.of(runCatching { Uri.parse(view.url).path }.getOrNull())
         when (request.optString("op")) {
@@ -432,6 +457,54 @@ class Bridge(val web: WebView, val name: String) : WebViewCompat.WebMessageListe
                 answer(replyProxy, id) { Drafts.within(draft) { Engine.call("__evalJson", request.getString("code")) as String? } }
             }
         }
+    }
+
+    private fun screenReview(activity: MainActivity, proxy: JavaScriptReplyProxy, id: Long, method: String, args: JSONArray) {
+        val installScreen = method == "suspicions.restore" || method == "suspicions.applyMerge"
+        fun finish(approved: Boolean) {
+            Engine.pool.execute {
+                var changed = false
+                answer(proxy, id) {
+                    val result = if (!approved) {
+                        if (method == "suspicions.merge") null else ScreenSuspicions.state(activity)
+                    } else {
+                        val path = args.getString(0)
+                        val revision = args.getString(1)
+                        when (method) {
+                            "suspicions.dismiss" -> ScreenSuspicions.dismiss(activity, path, revision)
+                            "suspicions.merge" -> ScreenMerge.start(activity, path, revision)
+                            "suspicions.applyMerge" -> ScreenMerge.apply(activity, path, revision, args.getString(2))
+                            else -> ScreenSuspicions.restore(activity, path, revision)
+                        }.also {
+                            if (method != "suspicions.merge") Pages.broadcast("suspicions.changed", it.toString())
+                            changed = installScreen
+                        }
+                    }
+                    Native.encode(result)
+                }
+                if (changed) activity.reloadPages()
+            }
+        }
+        val dialog = when (method) {
+            "suspicions.dismiss" -> Triple("Снять подозрение?",
+                "Axiko скроет отметку для текущей заводской версии экрана. Рабочая версия сохранится.",
+                "Снять подозрение")
+            "suspicions.merge" -> Triple("Объединить с помощью агента?",
+                "Axiko передаст сравнение выбранного экрана настроенной модели. Результат можно будет просмотреть перед применением.",
+                "Подготовить объединение")
+            "suspicions.applyMerge" -> Triple("Применить объединение?",
+                "Axiko сохранит текущую версию экрана в истории правок.", "Применить")
+            else -> Triple("Восстановить заводской экран?",
+                "Рабочая версия этого экрана будет сохранена в истории правок.", "Восстановить")
+        }
+        var approved = false
+        AlertDialog.Builder(activity)
+            .setTitle(I18n.t(dialog.first))
+            .setMessage(I18n.t(dialog.second))
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(I18n.t(dialog.third)) { _, _ -> approved = true }
+            .setOnDismissListener { finish(approved) }
+            .show()
     }
 
     private fun assistantResource(uri: Uri, mainFrame: Boolean): Boolean {

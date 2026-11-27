@@ -157,6 +157,22 @@ the APK against the offer, including its SHA-256, package ID, version, architect
 signing certificate. The system installer asks the owner to confirm an in-place update.
 Package updates for modules and mods use the store contracts below.
 
+## Important screens
+
+The shell registers the home, navigation, chat, Settings and assistant screens as important.
+After a factory file changes, a preserved working copy can produce a suspicion in Settings.
+An initial check also covers installations that kept a modified screen before this feature
+existed. A suspicion marks a possible loss of functionality.
+
+With `screen.suspicions`, `suspicions.state` returns the open entries and a notification
+generation. `suspicions.compare(path)` returns the difference from the working file to the
+factory file and the current revision. These two calls are available in the paired web hub.
+On the phone, the owner confirms dismissal for the current factory version or restoration of the
+factory screen in a native dialog. The agent can prepare a merge proposal for one screen. The
+owner sees the proposed diff before applying it. Restore and apply verify the revision and save
+a snapshot for rollback. The shell's recovery menu can open the factory review when a customized
+Settings page omits the section.
+
 ## Store and backup
 
 The shell advertises separate features for repository installation (`store.v1`), adopting an

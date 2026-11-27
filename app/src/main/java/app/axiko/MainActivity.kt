@@ -38,6 +38,7 @@ import app.axiko.core.Engine
 import app.axiko.core.I18n
 import app.axiko.core.EngineService
 import app.axiko.core.Pages
+import app.axiko.core.ScreenSuspicions
 import app.axiko.core.Themes
 import app.axiko.core.Workspace
 import app.axiko.agent.Inbox
@@ -82,6 +83,8 @@ class MainActivity : Activity() {
     private var alive = false
     private var typing = false
     private var appUpdateDialog: AlertDialog? = null
+    private var screenNotice: JSONObject? = null
+    private var screenNoticeDialog: AlertDialog? = null
 
     /** The address of the screen that was given the whole display, or null. */
     private var staged: String? = null
@@ -110,6 +113,15 @@ class MainActivity : Activity() {
             if (!alive) toast("Экран не отвечает. Удерживайте круглую кнопку — там восстановление.")
         }, 9000)
         handle(intent)
+        Engine.pool.execute {
+            runCatching { ScreenSuspicions.state(this) }.onSuccess { state ->
+                handler.post {
+                    if (isDestroyed) return@post
+                    screenNotice = state
+                    offerScreenReview()
+                }
+            }.onFailure { Log.w("Axiko", "Could not read important screen notices", it) }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -181,11 +193,12 @@ class MainActivity : Activity() {
         if (hasFocus) {
             UpdateInstaller.present()
             offerAppUpdate()
+            offerScreenReview()
         }
     }
 
     private fun offerAppUpdate() {
-        if (!visible || current !== this || isFinishing || !hasWindowFocus()) return
+        if (!visible || current !== this || isFinishing || !hasWindowFocus() || screenNoticeDialog?.isShowing == true) return
         if (page.location.substringBefore('?').endsWith("/ui/settings/index.html")) return
         val update = AppUpdates.get(this).state()
         val version = update.optString("version")
@@ -193,6 +206,23 @@ class MainActivity : Activity() {
             version.isBlank() || App.prefs.getString("update.offered", null) == version
         ) return
         showAppUpdate(update)
+    }
+
+    private fun offerScreenReview() {
+        val state = screenNotice ?: return
+        if (!visible || current !== this || isFinishing || !hasWindowFocus() || appUpdateDialog?.isShowing == true) return
+        screenNotice = null
+        val generation = state.optString("generation")
+        if (generation.isEmpty() || (state.optJSONArray("entries")?.length() ?: 0) == 0 ||
+            App.prefs.getString("suspicions.offered", null) == generation
+        ) return
+        App.prefs.edit().putString("suspicions.offered", generation).apply()
+        screenNoticeDialog = AlertDialog.Builder(this)
+            .setTitle(I18n.t("Важные экраны изменены"))
+            .setMessage(I18n.t("После обновления некоторые действия могут отсутствовать на локально изменённых экранах."))
+            .setNegativeButton(I18n.t("Позже"), null)
+            .setPositiveButton(I18n.t("Посмотреть подозрения")) { _, _ -> open(Pages.SUSPICIONS_VIEW) }
+            .show()
     }
 
     private fun checkAppUpdate() {
@@ -631,6 +661,7 @@ class MainActivity : Activity() {
             "Откатить последнее изменение",
             "Сбросить интерфейс к заводскому",
             "Проверить обновления",
+            "Подозрения",
             // Only while the folders from before a restore are still kept (until the first good start).
         ) + if (app.axiko.backup.Backup.undoable) arrayOf("Вернуть как было до восстановления из копии") else emptyArray<String>()
         AlertDialog.Builder(this).setTitle("Axiko").setItems(items.map { I18n.t(it) }.toTypedArray()) { _, which ->
@@ -646,7 +677,8 @@ class MainActivity : Activity() {
                     toast("Интерфейс сброшен")
                 }
                 5 -> checkAppUpdate()
-                6 -> runCatching { app.axiko.backup.Backup.undo() }.onFailure { toast(it.message ?: it.toString()) }
+                6 -> open(Pages.SUSPICIONS_VIEW)
+                7 -> runCatching { app.axiko.backup.Backup.undo() }.onFailure { toast(it.message ?: it.toString()) }
             }
         }.show()
     }

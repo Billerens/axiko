@@ -170,6 +170,26 @@
     white-space: normal;
   }
 
+  #update-check .value {
+    display: block;
+  }
+
+  #update-check:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+
+  #update-status {
+    display: block;
+    min-height: 0;
+    padding-block-start: 0;
+    border: 0;
+  }
+
+  #update-status:empty {
+    padding-block-end: 0;
+  }
+
   #update-offer {
     align-items: start;
   }
@@ -192,6 +212,51 @@
     overflow-wrap: anywhere;
     white-space: pre-wrap;
     margin: 6px 0 0;
+  }
+  #suspicions {
+    scroll-margin-block-start: 66px;
+  }
+
+  .suspicion-count {
+    background: var(--accent-soft);
+    color: var(--accent);
+    flex: none;
+  }
+
+  .chip.on .suspicion-count {
+    background: var(--surface);
+  }
+
+  #suspicions-list > .suspicion-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .suspicion-item .btn {
+    max-width: 100%;
+    white-space: normal;
+  }
+
+  .suspicion-review summary {
+    cursor: pointer;
+  }
+
+  .suspicion-diff {
+    max-height: min(45vh, 420px);
+    overflow: auto;
+    padding: 12px;
+    border-radius: var(--radius-s);
+    background: var(--bg);
+    color: var(--ink);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    margin: 8px 0 0;
+  }
+
+  .suspicion-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
   }
 </style>
 <body>
@@ -402,13 +467,14 @@
     <section class="section app-updates" aria-labelledby="update-heading">
       <h2 id="update-heading">Обновления Axiko</h2>
       <div class="list">
-        <div>
-          <div class="grow">
-            <div id="update-installed" data-raw>Axiko</div>
-            <div id="update-status" class="value" role="status"></div>
-          </div>
-          <button type="button" class="btn soft" id="update-check" disabled data-icon="refresh">Проверить обновления</button>
-        </div>
+        <button type="button" id="update-check" aria-controls="update-status update-offer" disabled>
+          <span class="grow">
+            <strong id="update-installed" data-raw>Axiko</strong>
+            <span class="value">Проверить обновления</span>
+          </span>
+          <span class="muted" data-icon="refresh" aria-hidden="true"></span>
+        </button>
+        <div id="update-status" class="value" role="status"></div>
         <div id="update-offer" hidden>
           <div class="grow">
             <strong id="update-version"></strong>
@@ -422,6 +488,15 @@
           <button type="button" class="btn primary" id="update-install" data-icon="download" hidden><span id="update-install-text">Скачать и установить</span></button>
         </div>
       </div>
+    </section>
+
+    <section id="suspicions" class="section" aria-labelledby="suspicions-heading" hidden>
+      <div class="row">
+        <h2 id="suspicions-heading" tabindex="-1">Подозрения</h2>
+        <span class="badge suspicion-count" id="suspicions-count" aria-hidden="true" hidden></span>
+      </div>
+      <p class="muted small" id="suspicions-summary" role="status"></p>
+      <div class="list" id="suspicions-list" hidden></div>
     </section>
 
     <section class="section">
@@ -474,7 +549,13 @@
 
   const showTab = ui.tabs(document.getElementById('tabs'), [
     ['models', 'Модели'], ['agents', 'Агенты'], ['voice', 'Голос'], ['assistant', 'Ассистент'], ['look', 'Вид'], ['phone', 'Телефон'], ['links', 'Связи'], ['system', 'Система'],
-  ], tab => { if (tab === 'system') queueMicrotask(refreshUpdate); });
+  ], tab => {
+    if (tab === 'system') {
+      queueMicrotask(refreshUpdate);
+      queueMicrotask(refreshSuspicions);
+      queueMicrotask(refreshSuspicionReview);
+    }
+  });
 
   let providers = [];
   let roles = {};
@@ -2101,7 +2182,8 @@
     const web = axiko.platform === 'web';
     const actionVisible = offer && Number(bytes) > 0 && (busy || canInstall !== false);
     const error = downloadError && (downloadErrors[downloadError] || 'Не удалось проверить скачанное обновление.');
-    document.getElementById('update-status').textContent = ui.t(error || updateErrors[code] || updateMessages[status] || '');
+    const message = busy ? updateMessages[status] : error || updateErrors[code] || updateMessages[status];
+    document.getElementById('update-status').textContent = ui.t(message || '');
     document.getElementById('update-offer').hidden = !offer;
     document.getElementById('update-version').textContent = offer ? ui.t('Доступна версия {}', version) : '';
     document.getElementById('update-size').textContent = offer && Number(bytes) > 0 ? ui.t('Размер загрузки {}', sized(bytes)) : '';
@@ -2152,9 +2234,184 @@
 
   axiko.on('update.changed', refreshUpdate);
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) clearTimeout(updatePoll);
-    else if (!updateCheck.closest('.tab').hidden) refreshUpdate();
+    if (document.hidden) {
+      clearTimeout(updatePoll);
+    } else {
+      if (!updateCheck.closest('.tab').hidden) refreshUpdate();
+      refreshSuspicions();
+      refreshSuspicionReview();
+    }
   });
+
+  const suspicions = document.getElementById('suspicions');
+  const suspicionsList = document.getElementById('suspicions-list');
+  const suspicionCount = document.getElementById('suspicions-count');
+  const systemTab = document.querySelector('#tabs [data-id="system"]');
+  const tabSuspicionCount = h('span', { class: 'badge suspicion-count', 'aria-hidden': 'true', hidden: true });
+  systemTab.append(tabSuspicionCount);
+  let suspicionsRequest = 0;
+  let suspicionsKey;
+  let suspicionReview = null;
+
+  function showSuspicions(state) {
+    if (!Array.isArray(state?.entries)) return;
+    const entries = state.entries;
+    suspicions.hidden = false;
+    suspicionsList.hidden = !entries.length;
+    for (const badge of [suspicionCount, tabSuspicionCount]) {
+      badge.hidden = !entries.length;
+      badge.textContent = entries.length || '';
+    }
+    if (entries.length) systemTab.setAttribute('aria-label', ui.t('Система · Подозрения {}', entries.length));
+    else systemTab.removeAttribute('aria-label');
+    document.getElementById('suspicions-summary').textContent = ui.t(entries.length
+      ? 'После обновления некоторые действия могут отсутствовать на локально изменённых экранах.'
+      : 'Подозрений нет.');
+    const key = JSON.stringify(entries);
+    if (key !== suspicionsKey) {
+      suspicionsKey = key;
+      suspicionReview = null;
+      suspicionsList.replaceChildren(...entries.map(suspicionItem));
+    }
+  }
+
+  let openSuspicions = location.hash === '#suspicions';
+  async function refreshSuspicions() {
+    const request = ++suspicionsRequest;
+    try {
+      const state = await axiko.native('suspicions.state');
+      if (request !== suspicionsRequest) return;
+      showSuspicions(state);
+      if (openSuspicions && !suspicions.hidden && !suspicions.closest('.tab').hidden) {
+        openSuspicions = false;
+        suspicions.scrollIntoView({ block: 'start' });
+        document.getElementById('suspicions-heading').focus({ preventScroll: true });
+      }
+    } catch {
+      // The editable screen may also run in a shell without this feature.
+    }
+  }
+
+  function suspicionItem(entry) {
+    const panel = h('div', { class: 'section suspicion-review', hidden: true });
+    const button = h('button', { type: 'button', class: 'btn small', 'aria-expanded': 'false' },
+      'Сравнить с заводским');
+    button.onclick = () => {
+      const last = suspicionReview;
+      if (last?.button === button && last.failed) {
+        refreshSuspicionReview();
+        return;
+      }
+      if (last) {
+        last.panel.hidden = true;
+        last.button.setAttribute('aria-expanded', 'false');
+      }
+      suspicionReview = null;
+      if (last?.button === button) return;
+      suspicionReview = { entry, panel, button, request: 0 };
+      panel.hidden = false;
+      button.setAttribute('aria-expanded', 'true');
+      panel.replaceChildren(h('p', { class: 'value', role: 'status' }, 'Загружаем сравнение экрана…'));
+      refreshSuspicionReview();
+    };
+    return h('div', { class: 'suspicion-item' },
+      h('div', { class: 'row' }, h('div', { class: 'grow' }, h('strong', {}, entry.title),
+        h('div', { class: 'value mono' }, ui.raw(entry.path))), button),
+      panel);
+  }
+
+  function suspicionDiff(text, label) {
+    const preview = h('pre', {
+      class: 'mono suspicion-diff', tabindex: 0, 'aria-label': label, 'data-raw': '',
+    });
+    preview.textContent = text ?? '';
+    return preview;
+  }
+
+  function showSuspicionReview(review, comparison) {
+    const { merge, revision, diff } = comparison;
+    const key = JSON.stringify([revision, merge, diff]);
+    if (review.key === key) return;
+    review.key = key;
+    const pending = merge?.status === 'pending';
+    const ready = merge?.status === 'ready' && Boolean(merge.id);
+    const actual = h('details', { open: !ready }, h('summary', {}, 'Рабочая версия → заводская'),
+      suspicionDiff(diff, 'Различия с заводской версией'));
+    if (axiko.platform === 'web') {
+      review.panel.replaceChildren(actual, h('p', { class: 'value' }, 'Снять подозрение или изменить экран можно в Axiko на телефоне.'));
+      return;
+    }
+    const mergeAction = pending ? h('p', { class: 'value', role: 'status' }, 'Агент готовит объединение…') :
+      ready ? h('section', { class: 'section' },
+        h('h3', {}, 'Предложение агента'),
+        h('p', { class: 'value' }, 'Рабочая версия → объединённая'),
+        suspicionDiff(merge.diff, 'Предлагаемые изменения'),
+        h('button', { type: 'button', class: 'btn primary', onclick: () => changeSuspicion(review, 'applyMerge', merge.id) },
+          'Применить объединение')) :
+        h('div', { class: 'section' }, merge?.status === 'failed' &&
+          h('p', { class: 'value', role: 'status' }, merge.error || 'Агенту не удалось объединить экран.'),
+          h('p', { class: 'value' }, 'Настроенная модель получит сравнение только этого экрана.'),
+          h('div', {}, h('button', { type: 'button', class: 'btn primary', onclick: () => changeSuspicion(review, 'merge') },
+            'Объединить агентом')));
+    review.panel.replaceChildren(actual, mergeAction,
+      h('div', { class: 'suspicion-actions' },
+        h('button', { type: 'button', class: 'btn', onclick: () => changeSuspicion(review, 'restore') },
+          'Восстановить заводской экран'),
+        h('button', { type: 'button', class: 'btn', onclick: () => changeSuspicion(review, 'dismiss') },
+          'Снять подозрение')));
+  }
+
+  async function refreshSuspicionReview() {
+    const review = suspicionReview;
+    if (!review || review.busy || document.hidden || suspicions.closest('.tab').hidden) return;
+    const request = ++review.request;
+    try {
+      const comparison = await axiko.native('suspicions.compare', review.entry.path);
+      if (review !== suspicionReview || request !== review.request || review.busy) return;
+      if (!comparison || comparison.revision !== review.entry.revision) {
+        refreshSuspicions();
+        throw new Error('Экран изменился. Сравните его ещё раз.');
+      }
+      review.failed = false;
+      review.button.textContent = ui.t('Сравнить с заводским');
+      showSuspicionReview(review, comparison);
+    } catch (error) {
+      if (review === suspicionReview && request === review.request) {
+        review.failed = true;
+        review.key = null;
+        review.button.textContent = ui.t('Повторить сравнение');
+        review.panel.replaceChildren(h('p', { class: 'value', role: 'status' }, error.message || 'Не удалось сравнить экран.'));
+        if (axiko.platform !== 'web') {
+          review.panel.append(h('div', {}, h('button', { type: 'button', class: 'btn', onclick: () => changeSuspicion(review, 'dismiss') },
+            'Снять подозрение')));
+        }
+      }
+    }
+  }
+
+  async function changeSuspicion(review, action, proposal) {
+    if (review !== suspicionReview || review.busy) return;
+    review.busy = true;
+    const buttons = review.panel.querySelectorAll('button');
+    buttons.forEach(button => { button.disabled = true; });
+    try {
+      await axiko.native('suspicions.' + action, review.entry.path, review.entry.revision,
+        ...(proposal === undefined ? [] : [proposal]));
+    } catch (error) {
+      ui.toast(error.message || 'Не удалось изменить состояние подозрения.');
+    } finally {
+      review.busy = false;
+      buttons.forEach(button => { button.disabled = false; });
+      await refreshSuspicions();
+      await refreshSuspicionReview();
+    }
+  }
+
+  axiko.on('suspicions.changed', async () => {
+    await refreshSuspicions();
+    await refreshSuspicionReview();
+  });
+  refreshSuspicions();
 
   async function cacheSize() {
     const cache = await axiko.native('webcache.info');

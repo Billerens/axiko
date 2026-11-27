@@ -55,7 +55,7 @@ object Native {
         "vibrate.pattern", "app.visible", "speech.stream", "transcribe.segments", "speech.render",
         "theme.decor", "widget.image", "home.cards", "usage", "store.v1", "button.face", "launcher.icon",
         "launcher.icons", "ui.scale", "store.adopt", "ui.probe", "bubble.looks", "store.pages", "store.kinds", "store.mods", "store.carry", "store.share", "secrets.sealed",
-        "assistant.panel", "app.update",
+        "assistant.panel", "app.update", "screen.suspicions",
     )
 
     fun call(method: String, args: JSONArray): Any? = when (method) {
@@ -617,6 +617,10 @@ object Native {
             true
         }
 
+        "suspicions.state" -> ScreenSuspicions.state(App.instance)
+        "suspicions.compare" -> ScreenSuspicions.compare(App.instance, args.getString(0)).apply {
+            ScreenMerge.status(getString("path"), getString("revision"))?.let { put("merge", it) }
+        }
         "update.state" -> AppUpdates.get(App.instance).state()
         "update.check" -> AppUpdates.get(App.instance).let { updates ->
             updates.check(manual = true)
