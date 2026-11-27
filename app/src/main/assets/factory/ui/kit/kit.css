@@ -136,10 +136,20 @@ button {
   min-width: min(100%, 7.5em);
 }
 
-.list > * > select.input {
-  flex: 0 1 auto;
-  width: auto;
-  max-width: 100%;
+/* Let the value use the full row in narrow panels, and most of the row in wide ones. */
+.list:has(> * > .grow + select.input) {
+  container: select-list / inline-size;
+}
+
+.list > :has(> .grow + select.input) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@container select-list (min-width: 34rem) {
+  .list > :has(> .grow + select.input) {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  }
 }
 
 .muted {
@@ -486,7 +496,10 @@ select:not([multiple]):is(:not([size]), [size="0"], [size="1"]) {
     background: var(--surface);
     color: var(--ink);
     font: inherit;
-    inline-size: anchor-size(width);
+    inline-size: max(16rem, anchor-size(width, 0px));
+    position-area: block-end span-all;
+    justify-self: anchor-center;
+    position-try-fallbacks: flip-block;
     min-inline-size: 0;
     max-inline-size: calc(100dvw - 24px);
     max-block-size: min(22rem, 55dvh);
@@ -635,7 +648,11 @@ select:not([multiple]):is(:not([size]), [size="0"], [size="1"]) {
 
 @media (prefers-reduced-motion: no-preference) {
   @supports (width: 1cqi) {
-    .select-label { container-type: inline-size; }
+    .select-label {
+      container-type: inline-size;
+      /* Keep a useful natural width in controls without an explicit field layout. */
+      contain-intrinsic-inline-size: 14ch;
+    }
 
     :is(
       select:focus-visible:not(:open) .select-trigger,

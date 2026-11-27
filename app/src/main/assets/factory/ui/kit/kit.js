@@ -409,7 +409,8 @@
       var view = window.visualViewport;
       var x = view ? view.offsetLeft : 0, y = view ? view.offsetTop : 0;
       var w = view ? view.width : innerWidth, h = view ? view.height : innerHeight;
-      var width = Math.max(1, Math.min(Math.max(rect.width, 144), w - 16));
+      var minWidth = 16 * parseFloat(getComputedStyle(document.documentElement).fontSize);
+      var width = Math.max(1, Math.min(Math.max(rect.width, minWidth), w - 16));
       var above = rect.top - y - 12, below = y + h - rect.bottom - 12;
       var down = below >= 260 || below >= above;
       popup.style.position = 'fixed';
