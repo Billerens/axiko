@@ -82,7 +82,7 @@ async function main() {
           if (method === 'assistant.setMode') {
             state.mode = args[0];
             state.conversation = false;
-            state.audio = { active: false, state: 'off' };
+            state.audio = { active: false, state: state.audio.state === 'speaking' ? 'speaking' : 'off' };
             push();
             return true;
           }
@@ -262,12 +262,29 @@ async function main() {
     await reply.waitFor({ state: 'hidden', timeout: 10000 });
     await transcript.click();
     await page.locator('#assistant-log').getByText('Finished appointment', { exact: true }).waitFor();
+    await page.evaluate(() => {
+      const { state, push } = window.fixture;
+      state.audio = { active: true, state: 'speaking' };
+      push();
+    });
+    await page.waitForFunction(() => document.querySelector('#assistant-panel').dataset.phase === 'speaking');
+    const stopsBeforeText = await countCalls('stopSpeaking');
+    const micStopsBeforeText = await countCalls('stopVoice');
     await page.locator('#assistant-chat').click();
     await called('setMode', 'text');
     await composer.waitFor();
     await page.locator('#assistant-log').getByText('Finished appointment', { exact: true }).waitFor();
     await composer.fill('In progress, unsent');
     await page.waitForFunction(() => window.fixture.state.draft === 'In progress, unsent');
+    assert.equal(await panel.getAttribute('data-phase'), 'speaking', 'Opening text mode keeps current narration playing');
+    assert.equal(await mic.getAttribute('aria-pressed'), 'false', 'Opening text mode stops the voice microphone');
+    assert.equal(await countCalls('stopSpeaking'), stopsBeforeText);
+    assert.equal(await countCalls('stopVoice'), micStopsBeforeText);
+    const silence = page.locator('#assistant-silence');
+    assert.equal(await silence.isVisible(), true, 'Text mode keeps an explicit narration stop action');
+    await silence.click();
+    await page.waitForFunction(() => document.querySelector('#assistant-panel').dataset.phase === 'idle');
+    assert.equal(await countCalls('stopSpeaking'), stopsBeforeText + 1);
     await mic.click();
     await page.waitForFunction(() => window.fixture.calls.filter(([method]) => method === 'assistant.startVoice').length === 2);
     await page.evaluate(() => {

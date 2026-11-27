@@ -1,6 +1,7 @@
 package app.axiko.voice
 
 import kotlin.math.abs
+import kotlin.math.hypot
 import kotlin.math.sqrt
 
 /** A short reference of PCM actually queued to the speaker, indexed by AudioTrack frame. */
@@ -60,6 +61,7 @@ internal class PcmEchoReference(private val sampleRate: Int) {
         }
         var bestSimilarity = 0.0
         var bestPower = 0.0
+        var bestOffset = 0
         var peakPower = 0.0
         var referenceSum = 0.0
         var referenceSquare = 0.0
@@ -84,6 +86,7 @@ internal class PcmEchoReference(private val sampleRate: Int) {
             if (similarity > bestSimilarity) {
                 bestSimilarity = similarity.coerceAtMost(1.0)
                 bestPower = power
+                bestOffset = offset
             }
         }
         val microphoneLevel = sqrt(microphonePower / microphone.size)
@@ -94,6 +97,7 @@ internal class PcmEchoReference(private val sampleRate: Int) {
             echo = echo,
             reference = sqrt(bestPower / microphone.size),
             peakReference = sqrt(peakPower / microphone.size),
+            delaySamples = reference.size - bestOffset - microphone.size,
         )
     }
 
@@ -109,33 +113,58 @@ internal data class EchoMatch(
     val echo: Double,
     val reference: Double,
     val peakReference: Double,
+    val delaySamples: Int,
 )
 
-/** Conservative evidence of a nearby voice. VAD and several consecutive windows are still required. */
+/** Learn the room's reflected echo from repeated matches at approximately the same delay. */
 internal class SpeakerEchoGuard {
     private var calibration = 0
-    private var speakerGain = 0.0
-    private var residualFloor = 0.0
+    private var delay: Int? = null
+    private var reflection = 0.0
+    private var noise = 0.0
 
     fun reset() {
         calibration = 0
-        speakerGain = 0.0
-        residualFloor = 0.0
+        delay = null
+        reflection = 0.0
+        noise = 0.0
     }
 
-    fun hearsOwner(level: Double, match: EchoMatch?): Boolean {
+    fun hearsOwner(match: EchoMatch?): Boolean {
         if (match == null) return false
-        // A quiet mic during playback demonstrates echo suppression by the device. A closely
-        // correlated window instead lets us estimate the speaker's leakage into the mic.
-        val echoOnly = match.similarity >= 0.78 && match.residual < maxOf(0.014, match.echo * 0.42)
-        if (match.peakReference >= 0.020 && (level < 0.012 || echoOnly)) {
-            val gain = if (echoOnly && match.reference > 0.005) match.echo / match.reference else 0.0
-            speakerGain = if (calibration == 0) gain else speakerGain * 0.9 + gain * 0.1
-            residualFloor = if (calibration == 0) match.residual else residualFloor * 0.9 + match.residual * 0.1
+        val level = hypot(match.echo, match.residual)
+        val quiet = level < 0.018
+        if (match.peakReference < 0.012) return !quiet && match.residual >= 0.018
+
+        val aligned = match.reference >= 0.010 && match.similarity >= 0.57 &&
+            (delay?.let { abs(it - match.delaySamples) <= 36 } != false || match.similarity >= 0.88)
+        val cleanEcho = match.similarity >= 0.88 && match.residual <= maxOf(0.016, match.echo * 0.55)
+        val farEnd = maxOf(0.52, reflection * 1.25) * match.echo
+        val independent = !quiet && !cleanEcho && match.residual > maxOf(0.017, noise * 2.4, farEnd)
+        if (quiet || aligned && (calibration < 4 || !independent)) {
+            if (quiet) {
+                noise = if (noise == 0.0) level else noise * 0.9 + level * 0.1
+            } else {
+                val ratio = match.residual / match.echo
+                reflection = if (delay == null) ratio else reflection * 0.9 + ratio * 0.1
+                delay = match.delaySamples
+            }
             calibration = (calibration + 1).coerceAtMost(4)
+            return false
         }
-        if (calibration < 4 || echoOnly) return false
-        val expectedEcho = maxOf(match.echo, speakerGain * match.peakReference)
-        return level >= 0.035 && match.residual > maxOf(0.022, residualFloor * 2.5, expectedEcho * 0.68)
+        return calibration >= 4 && independent
     }
+}
+
+/** Evidence accumulates within 384 ms so short gaps between syllables do not discard the onset. */
+internal class SpeakerOverlap {
+    private var windows = 0
+    val pending: Boolean get() = windows != 0
+
+    fun record(owner: Boolean): Boolean {
+        windows = ((windows shl 1) or (if (owner) 1 else 0)) and 0xfff
+        return Integer.bitCount(windows) >= 7
+    }
+
+    fun reset() { windows = 0 }
 }

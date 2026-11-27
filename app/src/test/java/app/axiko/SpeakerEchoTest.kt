@@ -2,7 +2,8 @@ package app.axiko
 
 import app.axiko.voice.PcmEchoReference
 import app.axiko.voice.SpeakerEchoGuard
-import kotlin.math.sqrt
+import app.axiko.voice.SpeakerOverlap
+import java.util.Random as JavaRandom
 import kotlin.random.Random
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -22,7 +23,7 @@ class SpeakerEchoTest {
             // A 70 ms delay between the recorded echo and the playback head.
             val match = requireNotNull(reference.match(window, (start + 64 + 140).toLong() * 12))
             assertTrue("Delayed echo stays aligned, including after wrap", match.similarity > .999)
-            assertFalse("Turning up the speaker is not a user interruption", guard.hearsOwner(level(window), match))
+            assertFalse("Turning up the speaker is not a user interruption", guard.hearsOwner(match))
         }
     }
 
@@ -36,9 +37,9 @@ class SpeakerEchoTest {
             val window = microphone(start, 0.36f, person)
             val match = reference.match(window, (start + 64 + 115).toLong() * 12)
             assertTrue("A loud independent voice is accepted over established echo",
-                guard.hearsOwner(level(window), match) == (person != null))
+                guard.hearsOwner(match) == (person != null))
         }
-        assertFalse("Even a calibrated guard needs a live PCM reference", guard.hearsOwner(.2, null))
+        assertFalse("Even a calibrated guard needs a live PCM reference", guard.hearsOwner(null))
     }
 
     @Test
@@ -48,9 +49,48 @@ class SpeakerEchoTest {
         val independent = microphone(2760, 0f, signal(64, 10))
         val match = reference.match(independent, (2760 + 64 + 120).toLong() * 12)
         assertNotNull(match)
-        assertFalse("Unrelated sound is not trusted without calibration", guard.hearsOwner(level(independent), match))
-        assertFalse("Unplayed queued audio cannot supply a valid match",
-            guard.hearsOwner(level(independent), reference.match(independent, 0)))
+        assertFalse("Unrelated sound is not trusted without calibration", guard.hearsOwner(match))
+        assertFalse("Unplayed queued audio cannot supply a valid match", guard.hearsOwner(reference.match(independent, 0)))
+    }
+
+    @Test
+    fun learnsMultipleReflectionsAndStillAcceptsVoiceOverThem() {
+        val random = JavaRandom(18)
+        val source = FloatArray(8_000) { (random.nextFloat() - .5f) * .42f }
+        // Only the tail of the PCM track is in the playback-reference ring at any one time.
+        val reference = PcmEchoReference(24_000)
+        val guard = SpeakerEchoGuard()
+        val overlap = SpeakerOverlap()
+        var queued = 0
+        var interrupted = false
+        for (tick in 0 until 48) {
+            val start = 350 + tick * 56
+            val head = start + 64 + 140
+            val next = head + 245
+            reference.append(pcm(source.copyOfRange(queued, next)), 0, (next - queued) * 24)
+            queued = next
+            val microphone = FloatArray(64) { index ->
+                val at = start + index
+                val person = if (tick >= 12) (random.nextFloat() - .5f) * .24f else 0f
+                source[at] * .36f + source[at - 5] * .31f - source[at - 13] * .32f + person
+            }
+            val match = reference.match(FloatArray(512) { microphone[it / 8] }, head * 12L)
+            val sustained = overlap.record(guard.hearsOwner(match))
+            if (tick < 12) assertFalse("Reflected speaker audio alone cannot interrupt", sustained)
+            else interrupted = interrupted || sustained
+        }
+        assertTrue("A new voice reaches the interruption threshold over a reflected echo", interrupted)
+    }
+
+    @Test
+    fun overlapToleratesBriefSyllableGapsButForgetsOldEvidence() {
+        val overlap = SpeakerOverlap()
+        val phrase = listOf(true, true, false, true, true, false, true, false, true, true)
+        assertFalse(phrase.dropLast(1).any(overlap::record))
+        assertTrue(overlap.record(phrase.last()))
+        repeat(12) { overlap.record(false) }
+        assertFalse(overlap.pending)
+        assertFalse(overlap.record(true))
     }
 
     private fun signal(length: Int, seed: Int): FloatArray {
@@ -58,7 +98,7 @@ class SpeakerEchoTest {
         return FloatArray(length) { (random.nextFloat() - .5f) * .45f }
     }
 
-    private fun reference(source: FloatArray): PcmEchoReference {
+    private fun pcm(source: FloatArray): ByteArray {
         // Eight mic frames or twelve PCM frames represent one reference sample.
         val pcm = ByteArray(source.size * 12 * 2)
         for (index in 0 until pcm.size / 2) {
@@ -66,6 +106,11 @@ class SpeakerEchoTest {
             pcm[index * 2] = sample.toByte()
             pcm[index * 2 + 1] = (sample shr 8).toByte()
         }
+        return pcm
+    }
+
+    private fun reference(source: FloatArray): PcmEchoReference {
+        val pcm = pcm(source)
         return PcmEchoReference(24_000).also {
             for (offset in pcm.indices step 406) it.append(pcm, offset, minOf(406, pcm.size - offset))
         }
@@ -75,6 +120,4 @@ class SpeakerEchoTest {
         val group = index / 8
         .02f + playback[start + group] * gain + (person?.get(group) ?: 0f)
     }
-
-    private fun level(window: FloatArray): Double = sqrt(window.map { (it * it).toDouble() }.average())
 }

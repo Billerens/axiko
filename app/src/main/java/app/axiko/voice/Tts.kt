@@ -35,6 +35,7 @@ object Tts {
     const val ROLE = "tts"
     private const val DEFAULT_RATE = 24_000
     private const val CHUNK = 600
+    private const val MAX_ECHO_PCM_BYTES = 16 * 1024 * 1024
     private const val GEMINI_STYLE = "provider.options.google-ai-studio.speech_metadata.style"
 
     /** A sample quieter than this, of 32767, counts as silence at the start of a piece. */
@@ -141,21 +142,24 @@ object Tts {
 
     internal class RoomPlayback(
         val source: Any, val id: String, private val reference: PcmEchoReference?, private val renderedFrames: Long,
+        val deviceId: Int? = null,
     ) {
         fun match(window: FloatArray): EchoMatch? = reference?.match(window, renderedFrames)
     }
 
-    /** Capture a playback head and its PCM together. Encoded output supplies no PCM reference. */
+    /** Capture the playback head and its PCM together. The MediaPlayer fallback has no reference. */
     internal fun roomPlayback(): RoomPlayback? {
         val output = track
         if (output != null) return runCatching {
             val sink = output.output
-            if (sink.playState != AudioTrack.PLAYSTATE_PLAYING || sink.routedDevice?.type in HEADPHONES) null
-            else RoomPlayback(output, output.id, output.reference, sink.playbackHeadPosition.toLong() and 0xFFFF_FFFFL)
+            val device = sink.routedDevice
+            if (sink.playState != AudioTrack.PLAYSTATE_PLAYING || device?.type in HEADPHONES) null
+            else RoomPlayback(output, output.id, output.reference, sink.playbackHeadPosition.toLong() and 0xFFFF_FFFFL, device?.id)
         }.getOrElse { RoomPlayback(output, output.id, null, 0L) }
         val media = player ?: return null
         return runCatching {
-            if (media.isPlaying && media.routedDevice?.type !in HEADPHONES) RoomPlayback(media, "", null, 0L) else null
+            val device = media.routedDevice
+            if (media.isPlaying && device?.type !in HEADPHONES) RoomPlayback(media, "", null, 0L, device?.id) else null
         }.getOrNull()
     }
 
@@ -391,9 +395,7 @@ object Tts {
                         if (carried > 0) buffer[0] = buffer[whole]
                     }
                 } else {
-                    val file = File(App.instance.cacheDir, "tts-${System.nanoTime()}")
-                    file.outputStream().use { source.byteStream().copyTo(it) }
-                    if (clip.alive()) clip.file = file else file.delete()
+                    fillEncoded(clip, source.byteStream())
                 }
             }
         } catch (error: java.io.IOException) {
@@ -401,6 +403,28 @@ object Tts {
         } finally {
             clip.request = null
             call = null
+        }
+    }
+
+    private fun fillEncoded(clip: Clip, input: java.io.InputStream) {
+        val file = File.createTempFile("tts-", null, App.instance.cacheDir)
+        try {
+            file.outputStream().use { input.copyTo(it) }
+            if (!clip.alive()) return
+            if (clip.id.startsWith("assistant:") && !clip.callAudio) {
+                val pcm = runCatching { MediaPcm.decode(file.path, MAX_ECHO_PCM_BYTES, clip::alive) }.getOrNull()
+                if (!clip.alive()) return
+                if (pcm != null) {
+                    clip.rate = pcm.format.rate
+                    clip.put(pcm.mono16())
+                    return
+                }
+            }
+            // Fallback for a format MediaPlayer can play without giving us its samples.
+            clip.file = file
+            if (!clip.alive()) clip.file = null
+        } finally {
+            if (clip.file != file) file.delete()
         }
     }
 

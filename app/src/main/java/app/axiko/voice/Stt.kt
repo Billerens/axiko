@@ -5,9 +5,6 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.media.AudioFormat
 import android.media.AudioRecord
-import android.media.MediaCodec
-import android.media.MediaExtractor
-import android.media.MediaFormat
 import android.media.MediaRecorder
 import android.os.Bundle
 import android.os.Handler
@@ -29,7 +26,6 @@ import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
-import java.nio.ByteOrder
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.math.sqrt
@@ -430,67 +426,16 @@ object Stt {
 
     /** Decodes an audio file to 16 kHz mono samples. */
     private fun decodeAudio(path: String): FloatArray {
-        val extractor = MediaExtractor()
-        extractor.setDataSource(path)
-        val track = (0 until extractor.trackCount).firstOrNull {
-            extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME).orEmpty().startsWith("audio/")
-        } ?: error("В файле нет звука")
-        extractor.selectTrack(track)
-        val format = extractor.getTrackFormat(track)
-        val codec = MediaCodec.createDecoderByType(format.getString(MediaFormat.KEY_MIME)!!)
-        codec.configure(format, null, null, 0)
-        codec.start()
-        var rate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
-        var channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
-        val pcm = java.io.ByteArrayOutputStream()
-        val info = MediaCodec.BufferInfo()
-        var inputDone = false
-        try {
-            while (true) {
-                if (!inputDone) {
-                    val index = codec.dequeueInputBuffer(10_000)
-                    if (index >= 0) {
-                        val size = extractor.readSampleData(codec.getInputBuffer(index)!!, 0)
-                        if (size < 0) {
-                            codec.queueInputBuffer(index, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
-                            inputDone = true
-                        } else {
-                            codec.queueInputBuffer(index, 0, size, extractor.sampleTime, 0)
-                            extractor.advance()
-                        }
-                    }
-                }
-                val index = codec.dequeueOutputBuffer(info, 10_000)
-                if (index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                    rate = codec.outputFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
-                    channels = codec.outputFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
-                } else if (index >= 0) {
-                    val chunk = ByteArray(info.size)
-                    codec.getOutputBuffer(index)!!.get(chunk)
-                    pcm.write(chunk)
-                    codec.releaseOutputBuffer(index, false)
-                    if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break
-                }
-            }
-        } finally {
-            codec.stop()
-            codec.release()
-            extractor.release()
-        }
-        val shorts = java.nio.ByteBuffer.wrap(pcm.toByteArray()).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
-        val frames = shorts.remaining() / channels
-        val mono = FloatArray(frames) { frame ->
-            var sum = 0f
-            for (channel in 0 until channels) sum += shorts.get(frame * channels + channel) / 32768f
-            sum / channels
-        }
+        val decoded = MediaPcm.decode(path)
+        val rate = decoded.format.rate
+        val mono = decoded.monoSamples()
         if (rate == RATE) return mono
         // Linear resampling is enough for speech recognition.
-        val length = (frames.toLong() * RATE / rate).toInt()
+        val length = (mono.size.toLong() * RATE / rate).toInt()
         return FloatArray(length) { index ->
             val position = index.toDouble() * rate / RATE
-            val left = position.toInt().coerceAtMost(frames - 1)
-            val right = (left + 1).coerceAtMost(frames - 1)
+            val left = position.toInt().coerceAtMost(mono.lastIndex)
+            val right = (left + 1).coerceAtMost(mono.lastIndex)
             val weight = (position - left).toFloat()
             mono[left] * (1 - weight) + mono[right] * weight
         }

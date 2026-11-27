@@ -67,6 +67,12 @@
   .sheet .actions.wrap {
     flex-wrap: wrap;
   }
+
+  .wake-phrase-list {
+    flex: none;
+    overflow-wrap: anywhere;
+  }
+
   /* The scale of the interface: smaller, the value, larger. */
   .scale {
     display: flex;
@@ -1180,16 +1186,17 @@
     try {
       const [available, configured] = await Promise.all([axiko.native('agent.list'), axiko.native('wake.aliases.get')]);
       const byAgent = new Map(configured.map(item => [item.agent, item.phrases]));
+      const rows = available.map(agent => {
+        const phrases = byAgent.get(agent.id) || [];
+        return row(ui.raw(agent.title || agent.id), phrases.length ? ui.raw(phrases.join(' · ')) : 'Настроить фразы', () => {
+          close();
+          editAgentWakePhrases(agent, phrases);
+        }, phrases.length > 0);
+      });
       const close = ui.sheet([
         h('h3', {}, 'Фразы вызова агентов'),
         h('p', { class: 'small muted' }, 'Фразы работают, когда включено «Откликаться на имя».'),
-        ...available.map(agent => {
-          const phrases = byAgent.get(agent.id) || [];
-          return row(ui.raw(agent.title || agent.id), phrases.length ? ui.raw(phrases.join(' · ')) : 'Настроить фразы', () => {
-            close();
-            editAgentWakePhrases(agent, phrases);
-          }, phrases.length > 0);
-        }),
+        h('div', { class: 'list wake-phrase-list' }, rows),
       ]);
     } catch (error) { ui.toast(ui.t(error.message)); }
   }

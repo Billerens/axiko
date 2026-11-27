@@ -325,9 +325,8 @@ object OnScreenAssistant {
     private fun setMode(session: Session, mode: String): Boolean {
         if (mode != "voice" && mode != "text") return false
         if (session.mode != mode) {
-            stopVoice(session)
             session.mode = mode
-            refresh(session)
+            stopRecording(session)
         }
         return true
     }
@@ -470,7 +469,7 @@ object OnScreenAssistant {
                         it.audio = state
                         if (!state.optBoolean("active")) { it.conversation = false; refresh(it) }
                         state.optString("error").takeIf(String::isNotBlank)?.let { error -> it.error = error; refresh(it) }
-                        Pages.assistantEvent(id, "assistant.audio", state)
+                        Pages.assistantEvent(id, "assistant.audio", audioState(it))
                     }
                 }
             },
@@ -482,17 +481,26 @@ object OnScreenAssistant {
         return started
     }
 
-    private fun stopVoice(session: Session) {
+    private fun stopRecording(session: Session) {
         session.audioGeneration++
         session.conversation = false
         Live.stopAssistant(session.id)
-        stopSpeaking(session)
         session.audio = idleAudio()
         if (session.visible) {
-            Pages.assistantEvent(session.id, "assistant.audio", session.audio)
+            Pages.assistantEvent(session.id, "assistant.audio", audioState(session))
             refresh(session)
         }
     }
+
+    private fun stopVoice(session: Session) {
+        stopSpeaking(session)
+        stopRecording(session)
+    }
+
+    private fun audioState(session: Session): JSONObject =
+        if (!session.audio.optBoolean("active") && Tts.speakingFor(voiceId(session))) {
+            JSONObject(session.audio.toString()).put("state", "speaking")
+        } else session.audio
 
     private fun stopSpeaking(session: Session) {
         session.voiceGeneration++
@@ -570,8 +578,7 @@ object OnScreenAssistant {
         .put("mode", session.mode).put("saved", session.dialog.saved).put("draft", session.dialog.draft)
         .put("conversation", session.conversation).put("participants", ChatParticipants.view(session.dialog.chat))
         .put("draftRevision", session.dialog.draftRevision).put("draftAudioRevision", session.dialog.draftAudioRevision)
-        .put("profile", session.profile).put("audio", if (!session.audio.optBoolean("active") && Tts.speakingFor(voiceId(session)))
-            idleAudio().put("state", "speaking") else session.audio)
+        .put("profile", session.profile).put("audio", audioState(session))
         .put("context", JSONObject().put("available", session.capture != null).put("attached", session.attach).put("app", session.capture?.app.orEmpty()))
         .put("canResume", previous()?.chat?.let { it !== session.dialog.chat } == true)
         .put("canOpenChat", session.dialog.saved && startedDialog(session.dialog))

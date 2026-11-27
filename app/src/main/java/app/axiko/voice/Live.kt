@@ -28,8 +28,8 @@ import kotlin.math.sqrt
  *
  * The in-app call uses Android's communication audio path for echo cancellation. The system
  * assistant keeps the current system route while recording recognition audio. PCM playback
- * supplies a speaker reference to distinguish a nearby voice from echo. Encoded audio uses
- * a manual interruption while it plays through a speaker.
+ * supplies a speaker reference to distinguish a nearby voice from echo. Playback without
+ * a reference can still be interrupted from the panel controls.
  *
  * What is still left of the echo is kept from counting as the owner: speaking over the answer
  * means a stretch of sound well above what the answer itself leaves in the microphone, and a
@@ -301,11 +301,13 @@ object Live {
             // What the phrase being heard is made of: the owner's voice, or only the answer's echo.
             var ownerSpoke = false
             var echoSpoke = false
+            var interrupted = false
             val speakerEcho = SpeakerEchoGuard()
+            val overlap = SpeakerOverlap()
             val silence = FloatArray(WINDOW)
             var speakerSource: Any? = null
+            var speakerDevice: Int? = null
             var interruptedSource: Any? = null
-            var overlap = 0
             var suppressingSpeaker = false
             var speakerEchoUntil = 0L
             var idleConfiguration = panel?.conversationIdleMs
@@ -339,30 +341,37 @@ object Live {
                         detector.reset()
                         ownerSpoke = false
                         echoSpoke = false
+                        interrupted = false
                         residue = 0.0
                         loud = 0
-                        overlap = 0
+                        overlap.reset()
                         speakerSource = activeSpeaker?.source
-                        speakerEcho.reset()
                         suppressingSpeaker = true
                     }
+                    if (activeSpeaker != null && activeSpeaker.deviceId != speakerDevice) {
+                        speakerEcho.reset()
+                        speakerDevice = activeSpeaker.deviceId
+                    }
                     lastWord = now
-                    if (activeSpeaker != null && activeSpeaker.id == panelSpeech && speakerEcho.hearsOwner(level, activeSpeaker.match(window))) {
+                    val ownerWindow = activeSpeaker != null && activeSpeaker.id == panelSpeech &&
+                        speakerEcho.hearsOwner(activeSpeaker.match(window))
+                    val pendingOverlap = overlap.pending
+                    val sustained = overlap.record(ownerWindow)
+                    if (ownerWindow) {
                         detector.acceptWaveform(window)
-                        overlap = (overlap + 1).coerceAtMost(OVER_WINDOWS)
-                        if (overlap >= OVER_WINDOWS && detector.isSpeechDetected()) {
+                        if (sustained && detector.isSpeechDetected()) {
                             interruptedSource = activeSpeaker.source
                             speakerEchoUntil = 0L
                             suppressingSpeaker = false
                             ownerSpoke = true
-                            panel?.onInterrupt?.invoke()
+                            interrupted = true
+                            panel.onInterrupt()
                             interruptions++
                             tell(session, "hearing", level)
                             continue
                         }
-                    } else if (overlap > 0) {
-                        overlap = (overlap - 2).coerceAtLeast(0)
-                        if (overlap == 0) detector.reset() else detector.acceptWaveform(silence)
+                    } else if (pendingOverlap) {
+                        if (overlap.pending) detector.acceptWaveform(silence) else detector.reset()
                     }
                     tell(session, "speaking")
                     continue
@@ -386,6 +395,7 @@ object Live {
                         if (panel == null) Tts.stop() else panel.onInterrupt()
                         interruptions++
                         ownerSpoke = true
+                        interrupted = panel != null
                         loud = 0
                         lastWord = now
                         tell(session, "hearing", level)
@@ -407,15 +417,17 @@ object Live {
                     val samples = detector.front().samples
                     detector.pop()
                     val mine = ownerSpoke || !echoSpoke
+                    val minSamples = if (interrupted) RATE / 5 else RATE * 4 / 10
                     ownerSpoke = false
                     echoSpoke = false
+                    interrupted = false
                     // What the microphone caught of the answer itself is not the owner's phrase.
                     if (!mine) {
                         echoes++
                         continue
                     }
-                    // A cough or a knock is not a phrase.
-                    if (samples.size < RATE * 4 / 10) continue
+                    // A confirmed interruption can be a one-word correction.
+                    if (samples.size < minSamples) continue
                     tell(session, "thinking")
                     val said = runCatching { Stt.decode(samples) }.getOrDefault("").trim()
                     if (current !== session) break

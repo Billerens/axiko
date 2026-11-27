@@ -29,7 +29,8 @@ can also be opened in the regular chat after its first message. **Open Axiko** r
 main app from any assistant conversation. Closing the overlay releases the conversation's
 microphone and silences its voice.
 The task can continue in the background. Stopping speech, stopping the microphone and
-cancelling the agent's task are separate controls.
+cancelling the agent's task are separate controls. Switching to text stops voice input and
+lets the current reply finish playing.
 
 Press and hold the center microphone in voice mode to start a continuous conversation. It
 keeps listening across turns until you tap the microphone again, close the panel, or reach
@@ -39,7 +40,8 @@ working. Set it to 0 to keep listening until you stop or close the panel.
 The overlay uses the audio output selected by Android. You can speak over a reply with
 headphones or through the phone's speaker when Axiko has access to the playback samples.
 Axiko compares audio from the microphone with those samples to avoid picking up the reply.
-With encoded playback that supplies no samples, tap **Stop narration** and keep speaking.
+It decodes WAV and other supported formats for this comparison. If playback supplies no
+samples, tap **Stop narration** and keep speaking.
 
 Ask the agent to open a recent chat by topic, for example, “Open my chat about creatine.”
 Axiko searches saved chats by title and recent messages, then opens the match in the same
