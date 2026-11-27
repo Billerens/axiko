@@ -1,10 +1,10 @@
-# Source code and third-party notices for Axiko 0.3.1
+# Source code and third-party notices for Axiko 0.3.2
 
 The APK bundles the components below. Each directory contains the upstream terms and notices for that component.
 
 ## Corresponding sources
 
-[Download axiko-dependency-sources.zip with the v0.3.1 release](https://github.com/Billerens/axiko/releases/download/v0.3.1/axiko-dependency-sources.zip). The archive contains the upstream Java sources of Rhino 1.9.2, Jakarta Mail for Android 1.6.7 and Jakarta Activation for Android 1.6.7, plus the Public Suffix List source used by OkHttp 4.12.0. It includes the original download addresses. The components are distributed without Axiko-specific source modifications.
+[Download axiko-dependency-sources.zip with the v0.3.2 release](https://github.com/Billerens/axiko/releases/download/v0.3.2/axiko-dependency-sources.zip). The archive contains the upstream Java sources of Rhino 1.9.2, Jakarta Mail for Android 1.6.7 and Jakarta Activation for Android 1.6.7, plus the Public Suffix List source used by OkHttp 4.12.0. It includes the original download addresses. The components are distributed without Axiko-specific source modifications.
 
 | Component and version | Supplier's source or release |
 | --- | --- |

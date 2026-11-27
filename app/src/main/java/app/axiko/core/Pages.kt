@@ -380,6 +380,20 @@ class Bridge(val web: WebView, val name: String) : WebViewCompat.WebMessageListe
             }
             return
         }
+        // Only the foreground Settings document can ask Android to install a verified release.
+        if (request.optString("op") == "native" && request.optString("method") == "update.install") {
+            val activity = MainActivity.current
+            val url = Uri.parse(view.url.orEmpty())
+            answer(replyProxy, id) {
+                check(activity != null && activity.page === this && isMainFrame &&
+                    sourceOrigin.toString().trimEnd('/') == Pages.ORIGIN &&
+                    url.path == "/ui/settings/index.html"
+                ) { I18n.t("Откройте настройки Axiko на телефоне.") }
+                val version = JSONArray(request.optString("args", "[]")).getString(0)
+                Native.encode(app.axiko.update.UpdateInstaller.request(activity, version))
+            }
+            return
+        }
         // A draft's screen calls the draft's code.
         val draft = Drafts.of(runCatching { Uri.parse(view.url).path }.getOrNull())
         when (request.optString("op")) {

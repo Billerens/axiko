@@ -35,6 +35,7 @@ import app.axiko.voice.Stt
 import app.axiko.voice.Tts
 import app.axiko.voice.Wake
 import app.axiko.store.StoreAgent
+import app.axiko.update.AppUpdates
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -54,7 +55,7 @@ object Native {
         "vibrate.pattern", "app.visible", "speech.stream", "transcribe.segments", "speech.render",
         "theme.decor", "widget.image", "home.cards", "usage", "store.v1", "button.face", "launcher.icon",
         "launcher.icons", "ui.scale", "store.adopt", "ui.probe", "bubble.looks", "store.pages", "store.kinds", "store.mods", "store.carry", "store.share", "secrets.sealed",
-        "assistant.panel",
+        "assistant.panel", "app.update",
     )
 
     fun call(method: String, args: JSONArray): Any? = when (method) {
@@ -616,6 +617,11 @@ object Native {
             true
         }
 
+        "update.state" -> AppUpdates.get(App.instance).state()
+        "update.check" -> AppUpdates.get(App.instance).let { updates ->
+            updates.check(manual = true)
+            updates.state()
+        }
         "sys.info" -> JSONObject()
             .put("safeMode", Workspace.safeMode)
             .put("language", I18n.language)

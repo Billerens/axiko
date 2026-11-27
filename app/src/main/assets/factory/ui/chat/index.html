@@ -902,6 +902,7 @@
     <strong id="retry-status" role="status"></strong>
     <button class="btn small" id="retry-action" hidden><span data-icon="refresh"></span>Повторить запрос</button>
     <button class="btn small" id="retry-settings" hidden>Открыть настройки</button>
+    <button class="btn small" id="retry-stop" hidden>Остановить повторы</button>
   </div>
   <div id="retry-message" class="retry-message" data-raw></div>
   <details class="retry-partial" id="retry-partial" hidden>
@@ -946,6 +947,7 @@
   const retryBox = document.getElementById('retry');
   const retryButton = document.getElementById('retry-action');
   const retrySettings = document.getElementById('retry-settings');
+  const retryStop = document.getElementById('retry-stop');
   const retryMessage = document.getElementById('retry-message');
   const retryPartial = document.getElementById('retry-partial');
   const retryLabel = document.getElementById('retry-status');
@@ -961,6 +963,8 @@
   let written = '';
   let drawing = false;
   let hearing = false;
+  const browserVoice = axiko.platform === 'web'
+    ? 'web-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2) : null;
   let speaking = false;
   let retry = {};
   let retryRevision = 0;
@@ -1113,10 +1117,10 @@
     return add(h('div', { class: 'it md', 'data-raw': '', html: ui.md(text) }));
   }
 
-  function finishedAnswer(text, author) {
+  function finishedAnswer(text, author, autoSpeak = false) {
     if (author) add(h('div', { class: 'participant-author' }, ui.raw(author)));
     answerRow(text);
-    if (text.trim()) add(sayRow(text));
+    if (text.trim()) add(sayRow(text, autoSpeak));
   }
 
   // ---- an answer read aloud on request: once more, or for the first time ------------------------
@@ -1124,11 +1128,87 @@
   let sayCount = 0;
   const sayButtons = {};   // id → the button of an answer that is being read or waits to be
 
+  let browserSpeech = null;
+  const browserSpeechQueue = [];
+
+  function finishBrowserSpeech(clip, error) {
+    if (browserSpeech !== clip) return;
+    browserSpeech = null;
+    clip.controller.abort();
+    if (clip.player) {
+      clip.player.onended = null;
+      clip.player.onerror = null;
+      clip.player.pause();
+      clip.player.removeAttribute('src');
+    }
+    if (clip.url) URL.revokeObjectURL(clip.url);
+    showSay(clip.button, '');
+    if (error) ui.toast(error);
+    playBrowserSpeech();
+  }
+
+  function stopBrowserSpeech() {
+    for (const clip of browserSpeechQueue.splice(0)) showSay(clip.button, '');
+    if (browserSpeech) finishBrowserSpeech(browserSpeech);
+  }
+
+  function enqueueBrowserSpeech(text, button) {
+    showSay(button, 'wait');
+    browserSpeechQueue.push({ text, button });
+    playBrowserSpeech();
+  }
+
+  async function playBrowserSpeech() {
+    if (browserSpeech || !browserSpeechQueue.length) return;
+    const clip = browserSpeech = browserSpeechQueue.shift();
+    clip.controller = new AbortController();
+    try {
+      const response = await fetch('/__axiko/audio', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: clip.text }), signal: clip.controller.signal,
+      });
+      if (response.status === 401) throw new Error('Сеанс доступа закончился. Войдите снова.');
+      if (!response.ok) {
+        const details = await response.json().catch(() => null);
+        throw new Error(details?.error || 'Телефон не смог подготовить озвучку.');
+      }
+      if (!/^audio\//i.test(response.headers.get('Content-Type') || '')) throw new Error('Телефон не вернул аудио.');
+      const blob = await response.blob();
+      if (browserSpeech !== clip) return;
+      clip.url = URL.createObjectURL(blob);
+      clip.player = new Audio(clip.url);
+      clip.player.onended = () => finishBrowserSpeech(clip);
+      clip.player.onerror = () => finishBrowserSpeech(clip, 'Браузер не смог воспроизвести озвучку.');
+      await clip.player.play();
+      if (browserSpeech === clip) showSay(clip.button, 'on');
+    } catch (error) {
+      finishBrowserSpeech(clip, error.name === 'NotAllowedError'
+        ? 'Браузер заблокировал звук. Нажмите «Озвучить» у сообщения.'
+        : error.message);
+    }
+  }
+
+  if (browserVoice) window.addEventListener('pagehide', stopBrowserSpeech);
+
+  function autoSpeakHere(event) {
+    return browserVoice && speaking && event.browserVoice === browserVoice;
+  }
+
   /** The button under a finished answer: a tap reads it aloud, a second tap stops it. */
-  function sayRow(text) {
+  function sayRow(text, autoSpeak = false) {
     const id = 'say-' + (++sayCount);
     const button = h('button', { class: 'icon-btn' });
     showSay(button, '');
+    if (browserVoice) {
+      button.onclick = () => {
+        const was = button.dataset.state;
+        stopBrowserSpeech();
+        if (!was) enqueueBrowserSpeech(text, button);
+      };
+      if (autoSpeak) enqueueBrowserSpeech(text, button);
+      return h('div', { class: 'said' }, button);
+    }
     button.onclick = async () => {
       const was = button.dataset.state;
       Object.keys(sayButtons).forEach(key => { showSay(sayButtons[key], ''); delete sayButtons[key]; });
@@ -1464,6 +1544,17 @@
       needsSetup && h('button', { class: 'btn small', onclick: openSettings }, 'Открыть настройки')));
   }
 
+  let retryDeadline = 0;
+  let retryCountdown = null;
+
+  function updateRetryCountdown() {
+    const seconds = Math.max(0, Math.ceil((retryDeadline - Date.now()) / 1000));
+    const label = retry.limit === -1
+      ? ui.t('Повтор через {} с · попытка {}', seconds, retry.attempt)
+      : ui.t('Повтор через {} с · {} из {}', seconds, retry.attempt, retry.limit);
+    if (retryLabel.textContent !== label) retryLabel.textContent = label;
+  }
+
   function showRetry(state) {
     const becameFailure = state?.phase === 'failed' && retry.phase !== 'failed';
     retry = state || {};
@@ -1473,9 +1564,17 @@
     const active = retry.phase === 'retrying';
     retryBox.hidden = !failed && !waiting && !active;
     retryBox.classList.toggle('failed', failed);
-    retryLabel.textContent = failed ? ui.t('Ответ прерван') : waiting
-      ? ui.t('Повтор через {} с · {} из {}', Math.ceil(retry.delayMs / 1000), retry.attempt, retry.limit)
-      : active ? ui.t('Повторяю запрос') : '';
+    retryLabel.setAttribute('aria-live', waiting ? 'off' : 'polite');
+    if (waiting) {
+      retryDeadline = Date.now() + (Number(retry.delayMs) || 0);
+      updateRetryCountdown();
+      if (retryCountdown === null) retryCountdown = setInterval(updateRetryCountdown, 1000);
+    } else {
+      clearInterval(retryCountdown);
+      retryCountdown = null;
+      retryLabel.textContent = failed ? ui.t('Ответ прерван') : active ? ui.t('Повторяю запрос') : '';
+    }
+    retryStop.hidden = !waiting && !active;
     retryButton.hidden = !failed;
     retryButton.disabled = busy || retryPending || !retry.available;
     retrySettings.hidden = !failed || !/Настройки/.test(retry.message || '');
@@ -1501,7 +1600,7 @@
     retryPending = true;
     retryButton.disabled = true;
     try {
-      const accepted = await axiko.native('agent.retry', who, thread);
+      const accepted = await axiko.native('agent.retry', who, thread, ...(browserVoice ? [browserVoice] : []));
       if (!sameChat(who, thread, ticket)) return;
       if (accepted) {
         if (revision === retryRevision) {
@@ -1594,13 +1693,13 @@
       case 'message':
         draw();
         thoughtDone();
-        if (bubble && written.trim()) bubble.after(sayRow(written));
+        if (bubble && written.trim()) bubble.after(sayRow(written, autoSpeakHere(event)));
         bubble = null;
         written = '';
         break;
       case 'participant':
         thoughtDone();
-        finishedAnswer(event.text, event.agentName);
+        finishedAnswer(event.text, event.agentName, autoSpeakHere(event));
         break;
       case 'attach': attachRow(event.text); break;
       case 'changes': changesRow(event, true); break;
@@ -1630,7 +1729,7 @@
     document.getElementById('name').textContent = agent.title;
     input.placeholder = attached ? (screenAttached ? 'Что сделать с этим экраном?' : 'Что с этим сделать?')
       : agent.id === 'axiko' ? 'Что сделать?' : 'Сообщение для «' + agent.title + '»';
-    speaking = (await axiko.native('speech.status')).tts;
+    speaking = browserVoice ? localStorage.getItem('chat.webSpeak') === 'on' : (await axiko.native('speech.status')).tts;
     voice.replaceChildren(ui.icon(speaking ? 'speaker' : 'mute'));
     voice.classList.toggle('on', speaking);
   }
@@ -1787,6 +1886,7 @@
     const who = agentId;
     const selectedThread = await axiko.native('agent.thread', who);
     if (ticket !== chatLoadVersion || who !== agentId) return;
+    if (browserVoice && selectedThread !== threadId) stopBrowserSpeech();
     threadId = selectedThread;
     participantsButton.disabled = !selectedThread;
     const version = agentEventsVersion;
@@ -1838,10 +1938,13 @@
   }
 
   async function stopWork() {
+    if (browserVoice) stopBrowserSpeech();
+    const who = agentId, thread = threadId, version = chatLoadVersion;
     const texts = waiting.map(item => item.text);
-    await axiko.native('agent.stop', agentId, threadId);
-    // What was waiting is not lost with the work: it comes back to the input.
-    if (texts.length && !input.value.trim()) {
+    await axiko.native('agent.stop', who, thread);
+    // Queued messages and the current draft remain editable after stopping.
+    if (texts.length && sameChat(who, thread, version)) {
+      if (input.value.trim()) texts.push(input.value);
       input.value = texts.join('\n');
       grow();
     }
@@ -1972,6 +2075,7 @@
   }
 
   function switchTo(id) {
+    if (browserVoice && id !== agentId) stopBrowserSpeech();
     agentId = id;
     localStorage.setItem('chat.agent', id);
     return load();
@@ -1980,10 +2084,12 @@
   async function submit(text) {
     text = (text || input.value).trim();
     if (!text) return;
+    if (browserVoice && !busy) stopBrowserSpeech();
     input.value = '';
     grow();
     const who = agentId, thread = threadId, version = agentEventsVersion;
-    const accepted = await axiko.native('agent.send', agentId, text, threadId, attached);
+    const accepted = await axiko.native('agent.send', agentId, text, threadId, attached,
+      ...(browserVoice ? [null, browserVoice] : []));
     if (accepted) { showAttach(null); expectEcho(who, thread, version); }
   }
 
@@ -2248,6 +2354,7 @@
     if (event.level !== undefined) mic.style.setProperty('--level', Math.min(1, event.level * 6));
   });
   axiko.on('tts', event => {
+    if (browserVoice) return;
     if (event.error) ui.toast(event.error);
     // An answer read on request that could not be said ends here too.
     if (event.error) Object.keys(sayButtons).forEach(key => { showSay(sayButtons[key], ''); delete sayButtons[key]; });
@@ -2292,17 +2399,33 @@
 
   voice.onclick = async () => {
     speaking = !speaking;
-    await axiko.native('pref.set', 'tts.on', speaking ? 'on' : 'off');
-    if (!speaking) axiko.native('speech.stop');
+    if (browserVoice) {
+      localStorage.setItem('chat.webSpeak', speaking ? 'on' : 'off');
+      if (!speaking) stopBrowserSpeech();
+    } else {
+      await axiko.native('pref.set', 'tts.on', speaking ? 'on' : 'off');
+      if (!speaking) axiko.native('speech.stop');
+    }
     voice.replaceChildren(ui.icon(speaking ? 'speaker' : 'mute'));
     voice.classList.toggle('on', speaking);
-    if (speaking) {
+    if (speaking && browserVoice) ui.toast('Ответы будут озвучиваться в этом браузере');
+    if (speaking && !browserVoice) {
       const roles = await axiko.native('models.roles');
       ui.toast(roles.tts && roles.tts.model ? 'Ответы будут озвучиваться' : 'Выберите голос в настройках, раздел «Голос»');
     }
   };
 
   input.addEventListener('input', grow);
+  if (axiko.platform === 'web') {
+    input.enterKeyHint = 'send';
+    input.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' || event.shiftKey || event.altKey || event.metaKey ||
+          event.isComposing || event.keyCode === 229 || event.defaultPrevented) return;
+      event.preventDefault();
+      // With no draft, Enter must not activate the busy button's Stop action.
+      if (!event.repeat && !send.disabled && input.value.trim()) submit();
+    });
+  }
   send.onclick = () => (busy && !input.value.trim() ? stopWork() : submit());
   mic.onclick = listen;
   document.getElementById('pick').onclick = pickAgent;
@@ -2310,6 +2433,12 @@
   document.getElementById('model').onclick = pickModel;
   participantsButton.onclick = pickParticipants;
   retryButton.onclick = retryRequest;
+  retryStop.onclick = async () => {
+    retryStop.disabled = true;
+    try { await stopWork(); }
+    catch (error) { ui.toast(error.message); }
+    finally { retryStop.disabled = false; }
+  };
   retrySettings.onclick = openSettings;
   document.getElementById('threads').onclick = pickThread;
   document.getElementById('close').onclick = () => axiko.native('ui.chat', false);

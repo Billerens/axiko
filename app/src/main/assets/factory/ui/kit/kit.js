@@ -13,6 +13,8 @@
   var CYRILLIC = /[А-Яа-яЁё]/;
   var LATIN = /[A-Za-z]/;
   var READ = ['placeholder', 'aria-label', 'title', 'alt'];
+  var customSelect = Boolean(window.CSS && typeof CSS.supports === 'function' &&
+    CSS.supports('appearance', 'base-select') && CSS.supports('selector(::picker(select))'));
   var patterns = null;
   var missed = window.__i18nMissed = {};
 
@@ -115,13 +117,16 @@
 
   // Whatever appears on the page later is translated as it appears, before it is painted.
   new MutationObserver(function (records) {
-    if (!window.__i18n) return;
-    records.forEach(function (record) {
+    if (window.__i18n) records.forEach(function (record) {
       if (record.type === 'characterData') word(record.target);
-      else if (record.type === 'attributes') attribute(record.target, record.attributeName);
+      else if (record.type === 'attributes') {
+        if (READ.indexOf(record.attributeName) >= 0) attribute(record.target, record.attributeName);
+      }
       else record.addedNodes.forEach(function (node) { if (node.nodeType === 3) word(node); else translate(node); });
     });
-  }).observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: READ });
+    if (customSelect) selectChanges(records);
+  }).observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true,
+    attributeFilter: customSelect ? READ.concat(['label', 'multiple', 'size']) : READ });
 
   /** h('button', { class: 'btn', onclick: fn }, 'Текст', childNode) */
   function h(tag, attrs) {
@@ -242,6 +247,323 @@
     });
   }
 
+  function selectLabel(parent) {
+    var label = document.createElement('span'), text = document.createElement('span');
+    label.className = 'select-label';
+    text.className = 'select-label-text';
+    label.appendChild(text);
+    parent.appendChild(label);
+    return text;
+  }
+
+  // WebView may not set :active on option text when a finger stays down.
+  (function selectLabelHold() {
+    var pressed = null, pointer = null;
+    function release(event) {
+      if (!pressed || (event.pointerId != null && event.pointerId !== pointer)) return;
+      pressed.removeAttribute('data-label-pressed');
+      pressed = null;
+      pointer = null;
+    }
+    document.addEventListener('pointerdown', function (event) {
+      if (event.pointerType !== 'touch' || !event.isPrimary) return;
+      var node = event.target.closest('.select-popup-option, option, select');
+      if (!node || !node.querySelector('.select-label-text')) return;
+      release({});
+      pressed = node;
+      pointer = event.pointerId;
+      pressed.setAttribute('data-label-pressed', '');
+    }, true);
+    document.addEventListener('pointerup', release, true);
+    document.addEventListener('pointercancel', release, true);
+    window.addEventListener('blur', release);
+  })();
+  var selectTriggers = new WeakMap();
+
+  function selectedContent() {
+    var content = document.createElement('selectedcontent');
+    content.setAttribute('data-raw', '');
+    return content;
+  }
+
+  function styleSelect(select) {
+    var trigger = selectTriggers.get(select), first = select.firstElementChild;
+    if (first && first.nodeName === 'BUTTON' && first !== trigger) return;
+    // Keep the browser's label when an option names itself separately from its text.
+    if (select.multiple || select.size > 1 || Array.prototype.some.call(select.options, function (option) {
+      return option.label !== option.text;
+    })) {
+      if (trigger) trigger.remove();
+      return;
+    }
+    Array.prototype.forEach.call(select.options, function (option) {
+      if (option.childElementCount || !option.firstChild) return;
+      var text = selectLabel(option);
+      while (option.firstChild !== text.parentNode) text.appendChild(option.firstChild);
+    });
+    if (!trigger) {
+      trigger = document.createElement('button');
+      trigger.className = 'select-trigger';
+      trigger.type = 'button';
+      var chevron = icon('down');
+      chevron.classList.add('select-chevron');
+      trigger.append(selectedContent(), chevron);
+      selectTriggers.set(select, trigger);
+    }
+    if (select.firstElementChild !== trigger) select.prepend(trigger);
+    else {
+      // The browser clones on selection, but some versions keep stale text after an option edit.
+      var chosen = select.selectedOptions[0], content = trigger.firstElementChild;
+      if (chosen && chosen.querySelector(':scope > .select-label') &&
+          (content.textContent !== chosen.textContent || !content.querySelector('.select-label'))) {
+        content.replaceWith(selectedContent());
+      }
+    }
+  }
+
+  function selectChanges(records) {
+    var updates = new Set();
+    records.forEach(function (record) {
+      var target = record.target.nodeType === 1 ? record.target : record.target.parentElement;
+      if (target && target.nodeName === 'SELECT') updates.add(target);
+      else if (target && (target.nodeName === 'OPTION' || target.nodeName === 'OPTGROUP')) {
+        updates.add(target.closest('select'));
+      } else if (target && target.classList.contains('select-label-text')) {
+        var option = target.closest('option');
+        if (option) updates.add(option.closest('select'));
+      }
+      if (record.type !== 'childList') return;
+      record.addedNodes.forEach(function (node) {
+        if (node.nodeName === 'SELECT') updates.add(node);
+        else if (node.nodeType === 1 && node.childElementCount) node.querySelectorAll('select').forEach(function (select) { updates.add(select); });
+      });
+    });
+    updates.forEach(function (select) { if (select && select.isConnected) styleSelect(select); });
+  }
+
+  // Older WebViews use the same native select value and form events with an in-page picker.
+  (function selectFallback() {
+    if (customSelect) return;
+
+    var current = null, nextId = 0;
+    var linked = ['aria-controls', 'aria-expanded', 'aria-activedescendant'];
+
+    function dropdown(node) {
+      return node && node.nodeName === 'SELECT' && !node.multiple && node.size <= 1 && !node.matches(':disabled');
+    }
+
+    function shown(node) {
+      if (node.hidden) return false;
+      var style = getComputedStyle(node);
+      return style.display !== 'none' && style.visibility !== 'hidden' && style.visibility !== 'collapse';
+    }
+
+    function close() {
+      if (!current) return;
+      var state = current;
+      current = null;
+      linked.forEach(function (attr, index) {
+        if (state.original[index] === null) state.select.removeAttribute(attr);
+        else state.select.setAttribute(attr, state.original[index]);
+      });
+      state.popup.remove();
+    }
+
+    function activate(index) {
+      var state = current;
+      if (index < 0 || !state.rows[index] || state.rows[index].disabled) return;
+      if (state.active >= 0) state.rows[state.active].row.removeAttribute('data-active');
+      state.active = index;
+      var row = state.rows[index].row;
+      row.setAttribute('data-active', 'true');
+      state.select.setAttribute('aria-activedescendant', row.id);
+      // Scroll the menu alone, keeping the page and its anchor still.
+      var box = state.popup.getBoundingClientRect(), item = row.getBoundingClientRect();
+      if (item.top < box.top) state.popup.scrollTop += item.top - box.top;
+      else if (item.bottom > box.bottom) state.popup.scrollTop += item.bottom - box.bottom;
+    }
+
+    function move(direction, edge) {
+      var state = current, rows = state.rows;
+      var start = edge || state.active < 0 ? (direction > 0 ? -1 : rows.length) : state.active;
+      for (var i = start + direction; i >= 0 && i < rows.length; i += direction) {
+        if (!rows[i].disabled) { activate(i); return; }
+      }
+    }
+
+    function choose(index) {
+      var state = current, item = state.rows[index];
+      if (!item || item.disabled) return;
+      close();
+      var select = state.select, option = item.option;
+      var group = option.parentElement;
+      var at = Array.prototype.indexOf.call(select.options, option);
+      if (!select.isConnected || !dropdown(select) || at < 0 || option.disabled || !shown(option) ||
+          (group && group.nodeName === 'OPTGROUP' && (group.disabled || !shown(group))) || at === select.selectedIndex) return;
+      select.selectedIndex = at;
+      select.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    function place(popup, rect) {
+      var view = window.visualViewport;
+      var x = view ? view.offsetLeft : 0, y = view ? view.offsetTop : 0;
+      var w = view ? view.width : innerWidth, h = view ? view.height : innerHeight;
+      var width = Math.max(1, Math.min(Math.max(rect.width, 144), w - 16));
+      var above = rect.top - y - 12, below = y + h - rect.bottom - 12;
+      var down = below >= 260 || below >= above;
+      popup.style.position = 'fixed';
+      popup.style.margin = '0';
+      popup.style.right = 'auto';
+      popup.style.left = Math.max(x + 8, Math.min(rect.left, x + w - width - 8)) + 'px';
+      popup.style.top = down ? rect.bottom + 4 + 'px' : 'auto';
+      popup.style.bottom = down ? 'auto' : innerHeight - rect.top + 4 + 'px';
+      popup.style.width = width + 'px';
+      popup.style.maxHeight = Math.max(1, Math.min(320, down ? below : above)) + 'px';
+    }
+
+    function open(select) {
+      close();
+      select.focus({ preventScroll: true });
+      var rect = select.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      var popup = document.createElement('div'), rows = [], lastGroup, holder;
+      popup.className = 'select-popup';
+      popup.id = 'axiko-select-popup-' + (++nextId);
+      popup.setAttribute('role', 'listbox');
+      popup.setAttribute('data-raw', '');
+      var labelledBy = select.getAttribute('aria-labelledby');
+      if (labelledBy) popup.setAttribute('aria-labelledby', labelledBy);
+      else {
+        var label = select.labels && select.labels[0];
+        popup.setAttribute('aria-label', select.getAttribute('aria-label') ||
+          (label && label.textContent.trim()) || select.title || t('Выбрать'));
+      }
+
+      Array.prototype.forEach.call(select.options, function (option) {
+        var parent = option.parentElement;
+        var group = parent && parent.nodeName === 'OPTGROUP' ? parent : null;
+        if (!shown(option) || (group && !shown(group))) return;
+        if (lastGroup !== group) {
+          lastGroup = group;
+          holder = popup;
+          if (group) {
+            holder = document.createElement('div');
+            var heading = document.createElement('div');
+            heading.id = popup.id + '-group-' + rows.length;
+            heading.className = 'select-popup-heading';
+            heading.textContent = group.label;
+            holder.setAttribute('role', 'group');
+            holder.setAttribute('aria-labelledby', heading.id);
+            holder.appendChild(heading);
+            popup.appendChild(holder);
+          }
+        }
+        var row = document.createElement('div');
+        var disabled = option.disabled || Boolean(group && group.disabled);
+        row.className = 'select-popup-option';
+        row.id = popup.id + '-item-' + rows.length;
+        row.setAttribute('data-index', rows.length);
+        row.setAttribute('role', 'option');
+        row.setAttribute('aria-selected', String(option.selected));
+        row.setAttribute('aria-label', option.label);
+        if (disabled) row.setAttribute('aria-disabled', 'true');
+        selectLabel(row).textContent = option.label;
+        holder.appendChild(row);
+        rows.push({ row: row, option: option, disabled: disabled });
+      });
+      if (!rows.length) return;
+
+      place(popup, rect);
+      var topLayer = typeof popup.showPopover === 'function';
+      if (topLayer) popup.setAttribute('popover', 'manual');
+      (select.closest('dialog[open]') || document.body).appendChild(popup);
+      if (topLayer) {
+        try { popup.showPopover(); } catch (error) { popup.removeAttribute('popover'); }
+      }
+      current = { select: select, popup: popup, rows: rows, active: -1, query: '', typedAt: 0,
+        original: linked.map(function (attr) { return select.getAttribute(attr); }) };
+      select.setAttribute('aria-expanded', 'true');
+      select.setAttribute('aria-controls', popup.id);
+      var selected = rows.findIndex(function (item) { return item.option.selected && !item.disabled; });
+      if (selected >= 0) activate(selected);
+      else move(1, true);
+      popup.addEventListener('click', function (event) {
+        var row = event.target.closest('.select-popup-option');
+        if (row && current && current.popup === popup) choose(Number(row.getAttribute('data-index')));
+      });
+    }
+
+    function typeAhead(key) {
+      var state = current, now = Date.now(), letter = key.toLocaleLowerCase();
+      state.query = now - state.typedAt > 650 ? letter : state.query + letter;
+      state.typedAt = now;
+      var query = state.query.split('').every(function (part) { return part === letter; }) ? letter : state.query;
+      var first = state.active < 0 ? 0 : state.active + (query.length === 1 ? 1 : 0);
+      for (var i = 0; i < state.rows.length; i++) {
+        var at = (first + i) % state.rows.length, item = state.rows[at];
+        if (!item.disabled && item.option.label.trim().toLocaleLowerCase().indexOf(query) === 0) {
+          activate(at);
+          return;
+        }
+      }
+    }
+
+    function pointerStart(event) {
+      if (current && current.popup.contains(event.target)) {
+        if (event.type === 'mousedown' && event.button === 0 && event.target !== current.popup) event.preventDefault();
+      } else if (current && event.target !== current.select) close();
+      if (event.button === 0 && dropdown(event.target)) event.preventDefault();
+    }
+
+    document.addEventListener('pointerdown', pointerStart, true);
+    document.addEventListener('mousedown', pointerStart, true);
+    document.addEventListener('click', function (event) {
+      if (event.button !== 0 || !dropdown(event.target) || event.defaultPrevented) return;
+      event.preventDefault();
+      if (current && current.select === event.target) close();
+      else open(event.target);
+    }, true);
+    document.addEventListener('focusin', function (event) {
+      if (current && event.target !== current.select && !current.popup.contains(event.target)) close();
+    });
+    document.addEventListener('keydown', function (event) {
+      var select = event.target, key = event.key;
+      if (!dropdown(select) || event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey) return;
+      var opened = current && current.select === select;
+      var arrow = key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight';
+      var endpoint = key === 'Home' || key === 'End';
+      var accept = key === 'Enter' || key === ' ' || key === 'Spacebar';
+      if (opened && key === 'Tab') { close(); return; }
+      if (opened && (key === 'Escape' || key === 'F4' || (event.altKey && key === 'ArrowUp'))) {
+        event.preventDefault();
+        event.stopPropagation();
+        close();
+        return;
+      }
+      var printable = !event.altKey && key && key.length === 1 && !accept;
+      if (!arrow && !endpoint && !accept && key !== 'F4' && !printable) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (!opened) open(select);
+      if (!current) return;
+      if (opened && accept) choose(current.active);
+      else if (endpoint || (arrow && opened && !event.altKey)) {
+        move(key === 'Home' || key === 'ArrowDown' || key === 'ArrowRight' ? 1 : -1, endpoint);
+      } else if (printable) typeAhead(key);
+    }, true);
+    window.addEventListener('scroll', function (event) {
+      if (current && (event.target === window || !current.popup.contains(event.target))) close();
+    }, true);
+    window.addEventListener('resize', close);
+    window.addEventListener('pagehide', close);
+    var view = window.visualViewport;
+    if (view) {
+      view.addEventListener('resize', close);
+      view.addEventListener('scroll', close);
+    }
+  })();
+
   /** "5 минут назад", "вчера, 14:02", "3 марта". */
   function ago(time) {
     var date = new Date(time);
@@ -341,6 +663,8 @@
       node.prepend(icon(node.getAttribute('data-icon')));
     });
   }
+
+  if (customSelect) document.querySelectorAll('select').forEach(styleSelect);
 
   document.addEventListener('DOMContentLoaded', function () {
     translate(document.body);

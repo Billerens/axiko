@@ -56,7 +56,10 @@ class Conversation(
      * between two steps of the work in hand; the others wait for the work to end and are taken
      * up in order, each as a request of its own.
      */
-    private class Waiting(val id: String, val text: String, val attached: List<Attach>, val where: String?, @Volatile var steer: Boolean)
+    private class Waiting(
+        val id: String, val text: String, val attached: List<Attach>, val where: String?,
+        @Volatile var steer: Boolean, val browserVoice: String?,
+    )
 
     private val queue = ArrayList<Waiting>()
 
@@ -131,10 +134,12 @@ class Conversation(
         val delayMs: Long = 0,
         val replay: Replay? = null,
         val speechQueued: Boolean = false,
+        val waitStartedAtMs: Long = 0,
     )
 
     @Volatile
     private var retryState = RetryState()
+    private val retryWaiter = RetryWaiter(android.os.SystemClock::elapsedRealtime)
 
     private val narrationId = "chat-answer:${java.util.UUID.randomUUID()}"
 
@@ -175,14 +180,17 @@ class Conversation(
      * The owner's message. [attached] goes along with it (a captured screen, pictures, files);
      * [where] is the screen of the app the owner is looking at, so "this screen" has a meaning.
      */
-    fun send(text: String, attached: List<Attach> = emptyList(), where: String? = null, steer: Boolean? = null): Boolean {
+    fun send(
+        text: String, attached: List<Attach> = emptyList(), where: String? = null, steer: Boolean? = null,
+        browserVoice: String? = null,
+    ): Boolean {
         if (text.isBlank()) return false
         val waits = synchronized(queue) {
             if (busy) {
                 // The agent is at work: the message goes into the work in hand between two of its
                 // steps, or waits for it to end — as the owner said, or else as the setting says.
                 val redirect = (steer ?: steersByDefault) && !ChatParticipants.isAddressed(this, text)
-                queue.add(Waiting(java.lang.Long.toString(System.nanoTime(), 36), text.trim(), attached, where, redirect))
+                queue.add(Waiting(java.lang.Long.toString(System.nanoTime(), 36), text.trim(), attached, where, redirect, browserVoice))
             } else {
                 busy = true
                 stopping = false
@@ -193,8 +201,8 @@ class Conversation(
             emitQueue()
             return true
         }
-        if (assistantVoice == null) Tts.stop()
-        worker.execute { turn(text.trim(), attached, where) }
+        if (browserVoice == null && assistantVoice == null) Tts.stop()
+        worker.execute { turn(text.trim(), attached, where, browserVoice = browserVoice) }
         return true
     }
 
@@ -223,34 +231,36 @@ class Conversation(
             throw error
         }
 
-    fun stop(): Boolean {
+    fun stop(phoneVoice: Boolean = true): Boolean {
         synchronized(queue) {
             stopping = true
             queue.clear()
         }
+        retryWaiter.wake()
         emitQueue()
         call?.cancel()
         children.forEach { it.stop() }
-        if (lasting && assistantVoice == null) Tts.stop()
+        if (phoneVoice && lasting && assistantVoice == null) Tts.stop()
         return true
     }
 
-    fun retry(): Boolean {
+    fun retry(browserVoice: String? = null): Boolean {
         synchronized(queue) {
             val state = retryState
             val replay = state.replay ?: return false
             if (busy || state.phase != "failed") return false
             busy = true
             stopping = false
-            worker.execute { turn(replay.text, previousFailure = state) }
+            worker.execute { turn(replay.text, previousFailure = state, browserVoice = browserVoice) }
         }
         return true
     }
 
     fun retryStatus(): JSONObject {
         val state = retryState
+        val delay = if (state.phase == "waiting") retryWaiter.remaining(state.delayMs, state.waitStartedAtMs) else 0L
         return JSONObject().put("phase", state.phase).put("attempt", state.attempt).put("limit", state.limit)
-            .put("partial", state.partial).put("message", state.message).put("delayMs", state.delayMs)
+            .put("partial", state.partial).put("message", state.message).put("delayMs", delay)
             .put("available", state.replay != null && state.phase == "failed" && !busy)
     }
 
@@ -260,17 +270,12 @@ class Conversation(
         emit(JSONObject().put("type", "retry").put("retry", retryStatus()))
     }
 
-    private fun retryLimit(): Int = App.prefs.getString("chat.retryLimit", "2")?.toIntOrNull()?.coerceIn(0, 10) ?: 2
-
-    private fun waitForRetry(delayMs: Long): Boolean {
-        val start = System.nanoTime()
-        while (!cancelled) {
-            val left = delayMs - TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start)
-            if (left <= 0) return true
-            Thread.sleep(left.coerceAtMost(150))
-        }
-        return false
-    }
+    private fun retryPolicy(): RetryPolicy = RetryPolicy.read(
+        App.prefs.getString("chat.retryLimit", null),
+        App.prefs.getString("chat.retryInitialDelaySec", null),
+        App.prefs.getString("chat.retryBackoffMultiplier", null),
+        App.prefs.getString("chat.retryMaxDelaySec", null),
+    )
 
     // ---- what waits while the agent works ---------------------------------------------------------
 
@@ -625,7 +630,8 @@ class Conversation(
         if (error is LlmError) error.message.orEmpty() else Engine.describe(error),
     )
 
-    private fun speaker(): Speaker? {
+    private fun speaker(browserVoice: String?): Speaker? {
+        if (browserVoice != null) return null
         val voice = assistantVoice
         if (voice != null) return voice()
         if (!lasting || !(Tts.enabled || Tts.voiceTurn)) return null
@@ -637,15 +643,16 @@ class Conversation(
     /** Attempts share one prompt and one offered-tool list. Nothing is committed until parsing succeeds. */
     private fun modelStep(
         entry: Tasks.Entry, target: Models.Target, prompt: JSONArray, tools: JSONArray,
-        replay: Replay, previousFailure: RetryState?,
+        replay: Replay, previousFailure: RetryState?, browserVoice: String?,
     ): ModelStep {
-        val limit = retryLimit()
+        val policy = retryPolicy()
+        val limit = policy.limit
         var partial = previousFailure?.partial.orEmpty()
         var speechQueued = previousFailure?.speechQueued == true
         var attempt = 0
         val step = if (replay.finishing) (replay.step - 1).coerceAtLeast(1) else replay.step
         while (!cancelled) {
-            val voice = if (!speechQueued && !replay.finishing) speaker() else null
+            val voice = if (!speechQueued && !replay.finishing) speaker(browserVoice) else null
             val pondered = StringBuilder()
             writing.setLength(0)
             try {
@@ -680,15 +687,16 @@ class Conversation(
                 writing.setLength(0)
                 val message = stepError(error)
                 val transient = error as? LlmError
-                // Very long provider delays stay available as a deliberate manual retry.
-                if (transient?.retryable != true || attempt >= limit || transient.retryAfterMs > RETRY_DELAY_LIMIT) {
+                if (transient?.retryable != true || !policy.allows(attempt)) {
                     updateRetry(RetryState("failed", attempt, limit, partial, message, replay = replay, speechQueued = speechQueued))
                     throw error
                 }
-                val delay = maxOf((1_000L shl attempt.coerceAtMost(5)), transient.retryAfterMs)
-                attempt++
-                updateRetry(RetryState("waiting", attempt, limit, partial, message, delay, speechQueued = speechQueued))
-                if (!waitForRetry(delay)) break
+                val delay = policy.delayMs(attempt, transient.retryAfterMs)
+                val startedAt = android.os.SystemClock.elapsedRealtime()
+                attempt = RetryPolicy.nextAttempt(attempt)
+                updateRetry(RetryState("waiting", attempt, limit, partial, message, delay, speechQueued = speechQueued,
+                    waitStartedAtMs = startedAt))
+                if (!retryWaiter.await(delay, startedAt) { cancelled }) break
                 updateRetry(RetryState("retrying", attempt, limit, partial, speechQueued = speechQueued))
             } finally {
                 writing.setLength(0)
@@ -701,10 +709,11 @@ class Conversation(
     /** One request of the owner (or one task of a parent agent); returns the final answer. */
     private fun turn(
         text: String, attached: List<Attach> = emptyList(), where: String? = null, previousFailure: RetryState? = null,
+        browserVoice: String? = null,
     ): String {
         val replay = previousFailure?.replay
         updateRetry(if (previousFailure == null) RetryState() else previousFailure.copy(
-            phase = "retrying", attempt = 0, limit = retryLimit(), message = "", delayMs = 0,
+            phase = "retrying", attempt = 0, limit = retryPolicy().limit, message = "", delayMs = 0,
         ))
         val spec = Agent.spec(id)
         val snapshotWall = System.currentTimeMillis()
@@ -751,10 +760,10 @@ class Conversation(
                     append(reply)
                     if (guest == null) {
                         emit(JSONObject().put("type", "delta").put("text", answer))
-                        emit(JSONObject().put("type", "message"))
+                        emit(JSONObject().put("type", "message").put("browserVoice", browserVoice))
                     } else emit(JSONObject().put("type", "participant").put("participant", guest)
-                        .put("agentName", Agent.spec(guest).title).put("text", answer))
-                    if (!cancelled) speaker()?.let { it.feed(answer); it.finish() }
+                        .put("agentName", Agent.spec(guest).title).put("text", answer).put("browserVoice", browserVoice))
+                    if (!cancelled) speaker(browserVoice)?.let { it.feed(answer); it.finish() }
                     emit(JSONObject().put("type", "done").put("stopped", cancelled))
                     return answer
                 }
@@ -793,7 +802,7 @@ class Conversation(
                 val tools = if (finishing) JSONArray() else Tools.schemas(StoreAgent.tools(this, spec.tools ?: if (lean) LIGHT_TOOLS else null),
                     Agent.mayDelegate(this) && !lean, target.vision, StoreAgent.restricted(this))
                 val (reply, pondered) = modelStep(entry, target, request(spec, target, lean), tools, point,
-                    previousFailure.takeIf { resumed != null })
+                    previousFailure.takeIf { resumed != null }, browserVoice)
                 pendingStep = null
                 if (resumed != null) save() // Invalidate the old retry before this answer can start any action.
                 Usage.record(id, target.model, reply.usage)
@@ -824,7 +833,7 @@ class Conversation(
                 }
                 if (reply.text.isNotEmpty() || !finishing && reply.calls.isNotEmpty()) append(assistant)
                 if (reply.text.isNotEmpty()) answer = reply.text
-                emit(JSONObject().put("type", "message"))
+                emit(JSONObject().put("type", "message").put("browserVoice", browserVoice))
                 if (finishing) {
                     val mark = JSONObject().put("type", "limit").put("steps", (steps - 1).coerceAtLeast(1))
                     synchronized(messages) { marks.add(mark.put("at", messages.size)) }
@@ -907,7 +916,7 @@ class Conversation(
                     val guestFailure = error.guest.retryState
                     updateRetry(guestFailure.copy(replay = Replay(text, guestFailure.replay!!.step, guest = error.guest)))
                 } else if (pendingStep != null && retryState.phase != "failed") {
-                    updateRetry(RetryState("failed", limit = retryLimit(), message = message, replay = pendingStep,
+                    updateRetry(RetryState("failed", limit = retryPolicy().limit, message = message, replay = pendingStep,
                         partial = retryState.partial, speechQueued = retryState.speechQueued))
                 } else if (pendingStep == null) updateRetry(RetryState())
                 emit(JSONObject().put("type", "error").put("message", message))
@@ -938,7 +947,7 @@ class Conversation(
             }
             if (failure == null && !cancelled) compact()
             save()
-            if (assistantVoice == null) Tts.voiceTurn = false
+            if (browserVoice == null && assistantVoice == null) Tts.voiceTurn = false
             // Finished while the owner was elsewhere: the answer goes to the notification shade.
             if (persist && !MainActivity.visible && !OnScreenAssistant.isShowing(this) && answer.isNotBlank()) {
                 runCatching { Notify.answer(id, thread, spec.title, Tts.speakable(answer).take(700)) }
@@ -961,7 +970,7 @@ class Conversation(
             }
             emitQueue()
             emit(JSONObject().put("type", "idle").put("more", next != null))
-            if (next != null) worker.execute { turn(next.text, next.attached, next.where) }
+            if (next != null) worker.execute { turn(next.text, next.attached, next.where, browserVoice = next.browserVoice) }
         }
         return answer
     }
@@ -1334,7 +1343,6 @@ class Conversation(
         private const val THOUGHT = "_thought"
         private const val THOUGHT_LIMIT = 20_000
         private const val RETRY_PARTIAL_LIMIT = 20_000
-        private const val RETRY_DELAY_LIMIT = 120_000L
         private const val DETAIL_LIMIT = 8_000
 
         /** Steps of a plan that are not finished yet. */

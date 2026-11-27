@@ -21,6 +21,7 @@ object LocalTts {
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-supertonic-3-tts-int8-2026-05-11.tar.bz2"
     const val MEGABYTES = 123
     const val VOICES = 10
+    private const val CHUNK_PAUSE_SECONDS = 0.3f
     private val FILES = listOf(
         "duration_predictor.int8.onnx", "text_encoder.int8.onnx", "vector_estimator.int8.onnx",
         "vocoder.int8.onnx", "tts.json", "unicode_indexer.bin", "voice.bin",
@@ -114,6 +115,23 @@ object LocalTts {
         engine = null
     }
 
+    private val expressionTags = Regex(
+        """[ \t]*(?:</?(?:angry|breath|cough|laugh|sad|scream|sigh|surprise|throatclear|yawn)>[ \t]*)+""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /** Supertonic can pronounce expression cues aloud, so omit them from local speech. */
+    internal fun spokenText(text: String): String = expressionTags.replace(text) { cue ->
+        val before = text.getOrNull(cue.range.first - 1)
+        val after = text.getOrNull(cue.range.last + 1)
+        when {
+            before == null || after == null -> ""
+            before.isWhitespace() || after.isWhitespace() -> ""
+            before in "«“([{" || after in ".,!?…;:»”)]}" -> ""
+            else -> " "
+        }
+    }
+
     /** The language the text is mostly written in: the voice has to be told. */
     private fun language(text: String): String {
         val cyrillic = text.count { it in 'а'..'я' || it in 'А'..'Я' || it == 'ё' || it == 'Ё' }
@@ -130,18 +148,35 @@ object LocalTts {
      */
     @Synchronized
     fun speak(text: String, sid: Int = voice, sink: (FloatArray) -> Boolean) {
+        val spoken = spokenText(text)
+        if (spoken.isBlank()) return
         val tts = engine()
         lastUse = System.currentTimeMillis()
-        val config = GenerationConfig(sid = sid, speed = speed, numSteps = 5, extra = mapOf("lang" to language(text)))
+        val config = GenerationConfig(
+            sid = sid,
+            speed = speed,
+            numSteps = 5,
+            extra = mapOf("lang" to language(spoken), "silence_duration" to CHUNK_PAUSE_SECONDS.toString()),
+        )
+        val pauseSamples = (tts.sampleRate() * CHUNK_PAUSE_SECONDS).toInt()
         var fed = false
+        var stopped = false
         // A named class, not a lambda: the native side looks its method up by its exact signature.
         val pass = object : Function1<FloatArray, Int> {
             override fun invoke(samples: FloatArray): Int {
+                if (stopped) return 0
+                if (samples.isEmpty()) return 1
+                // Sherpa adds this silence to its final result, but sends bare chunks here.
+                if (fed && !sink(FloatArray(pauseSamples))) {
+                    stopped = true
+                    return 0
+                }
                 fed = true
-                return if (sink(samples)) 1 else 0
+                stopped = !sink(samples)
+                return if (stopped) 0 else 1
             }
         }
-        val audio = tts.generateWithConfigAndCallback(text, config, pass)
+        val audio = tts.generateWithConfigAndCallback(spoken, config, pass)
         // Some models hand everything over only at the end.
         if (!fed && audio.samples.isNotEmpty()) sink(audio.samples)
         lastUse = System.currentTimeMillis()
@@ -163,6 +198,7 @@ object LocalTts {
     /** The whole phrase as samples at 16 kHz: what a recognizer takes. */
     fun render(text: String, sid: Int = voice): FloatArray {
         val source = samples(text, sid)
+        if (source.isEmpty()) return source
         val from = rate()
         val length = (source.size.toLong() * 16000 / from).toInt()
         return FloatArray(length) { index ->

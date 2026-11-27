@@ -229,6 +229,9 @@
             </intent-filter>
         </service>
         <receiver
+            android:name=".update.UpdateInstallReceiver"
+            android:exported="false" />
+        <receiver
             android:name=".sense.BoardWidget"
             android:exported="true"
             android:label="Axiko: модуль">

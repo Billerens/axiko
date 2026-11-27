@@ -25,6 +25,16 @@ material outside the repository. Do not solve a signature mismatch by uninstalli
 with personal data. Use the [backup flow](backup.md) for a deliberate move to another
 installation or device, and account for its exclusions.
 
+Build the public ARM64 APK with `.\gradlew.bat assembleRelease -Pphone`.
+Release builds verify the signing certificate against the certificate pinned in
+`app/build.gradle.kts`. Set `-PaxikoReleaseKeystore=<local path>` to select the matching
+keystore when needed. Debug builds still support a contributor's local debug key.
+
+For each stable release, increase Android `versionCode` and match `versionName` to the
+version in the GitHub tag, such as `v0.3.2`. Upload the APK as `axiko-0.3.2-arm64-v8a.apk`
+and add the English and Russian release notes in GitHub Releases. Axiko uses that asset and
+its SHA-256 digest to check and download the update.
+
 The embedded PRoot build requires 4 KiB memory pages. Settings report the limitation on
 16 KiB devices. Shizuku is a separate app started by the owner; do not assume privileged
 operations or Android permissions are available.

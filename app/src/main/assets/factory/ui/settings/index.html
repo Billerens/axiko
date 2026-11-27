@@ -68,6 +68,11 @@
     flex-wrap: wrap;
   }
 
+  #retry-limit input.input {
+    width: 7rem;
+    max-width: 100%;
+  }
+
   .wake-phrase-list {
     flex: none;
     overflow-wrap: anywhere;
@@ -160,6 +165,34 @@
   }
 
   .assistant-opacity output { min-width: 3em; font-variant-numeric: tabular-nums; }
+  .app-updates .btn {
+    max-width: 100%;
+    white-space: normal;
+  }
+
+  #update-offer {
+    align-items: start;
+  }
+
+  #update-offer .btn {
+    align-self: end;
+  }
+
+  #update-details {
+    margin-top: 8px;
+  }
+
+  #update-details summary {
+    cursor: pointer;
+  }
+
+  #update-notes {
+    max-height: min(42vh, 260px);
+    overflow: auto;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    margin: 6px 0 0;
+  }
 </style>
 <body>
 <main class="page">
@@ -366,6 +399,31 @@
   </div>
 
   <div class="tab" data-tab="system">
+    <section class="section app-updates" aria-labelledby="update-heading">
+      <h2 id="update-heading">Обновления Axiko</h2>
+      <div class="list">
+        <div>
+          <div class="grow">
+            <div id="update-installed" data-raw>Axiko</div>
+            <div id="update-status" class="value" role="status"></div>
+          </div>
+          <button type="button" class="btn soft" id="update-check" disabled data-icon="refresh">Проверить обновления</button>
+        </div>
+        <div id="update-offer" hidden>
+          <div class="grow">
+            <strong id="update-version"></strong>
+            <div id="update-size" class="value"></div>
+            <details id="update-details" open>
+              <summary>Что нового</summary>
+              <p id="update-notes" class="small" data-raw></p>
+            </details>
+            <p id="update-phone" class="value" hidden>Для установки откройте настройки Axiko на телефоне.</p>
+          </div>
+          <button type="button" class="btn primary" id="update-install" data-icon="download" hidden><span id="update-install-text">Скачать и установить</span></button>
+        </div>
+      </div>
+    </section>
+
     <section class="section">
       <h2>Резервная копия</h2>
       <p class="muted small">Один зашифрованный файл со всем личным: рабочая папка, данные модулей, чаты и задачи, настройки, секреты. Скачанные модели, Linux-окружение и кэш в копию не входят: их можно скачать заново.</p>
@@ -416,7 +474,7 @@
 
   const showTab = ui.tabs(document.getElementById('tabs'), [
     ['models', 'Модели'], ['agents', 'Агенты'], ['voice', 'Голос'], ['assistant', 'Ассистент'], ['look', 'Вид'], ['phone', 'Телефон'], ['links', 'Связи'], ['system', 'Система'],
-  ]);
+  ], tab => { if (tab === 'system') queueMicrotask(refreshUpdate); });
 
   let providers = [];
   let roles = {};
@@ -437,7 +495,8 @@
       axiko.native('modules.list'), axiko.native('speech.status'), axiko.native('pref.all'),
     ]);
     document.getElementById('safe').checked = info.safeMode;
-    document.getElementById('about').textContent = `Axiko ${info.version} · ${info.device} · Android ${info.android}`;
+    if (!updateState?.installedVersion && info.version) document.getElementById('update-installed').textContent = 'Axiko ' + info.version;
+    document.getElementById('about').textContent = info.device + ' · Android ' + info.android;
     render();
   }
 
@@ -875,24 +934,82 @@
   }
 
   async function renderRetryLimit() {
-    const pref = 'chat.retryLimit';
-    const label = 'Максимум автоматических повторов';
-    const saved = Number(await axiko.native('pref.get', pref, '2'));
-    let current = Number.isInteger(saved) && saved >= 0 && saved <= 10 ? saved : 2;
-    const control = h('select', { class: 'input', 'aria-label': label },
-      Array.from({ length: 11 }, (_, value) => h('option', { value }, String(value))));
-    control.value = current;
-    control.onchange = async () => {
-      control.disabled = true;
-      try {
-        await axiko.native('pref.set', pref, control.value);
-        current = control.value;
-      } catch (error) {
-        control.value = current;
-        ui.toast(error.message);
-      } finally { control.disabled = false; }
+    const limitKey = 'chat.retryLimit';
+    const limitLabel = 'Максимум автоматических повторов';
+    const timings = [
+      {
+        key: 'chat.retryInitialDelaySec', label: 'Начальная пауза (секунды)', fallback: 1, min: 1, max: 300, step: 1,
+        help: 'Пауза перед первым повтором. Чтобы задать значение выше текущего предела, сначала увеличьте максимальную паузу.',
+      },
+      {
+        key: 'chat.retryBackoffMultiplier', label: 'Множитель паузы', fallback: 2, min: 1, max: 5, step: 'any',
+        help: 'Во сколько раз растёт пауза после каждого сбоя. При значении 1 пауза постоянна.',
+      },
+      {
+        key: 'chat.retryMaxDelaySec', label: 'Максимальная пауза (секунды)', fallback: 60, min: 1, max: 3600, step: 1,
+        help: 'Предел нарастания паузы Axiko. Сервис может попросить ждать дольше.',
+      },
+    ];
+    const [savedLimit, ...savedTimings] = await Promise.all([
+      axiko.native('pref.get', limitKey, '2'),
+      ...timings.map(field => axiko.native('pref.get', field.key, String(field.fallback))),
+    ]);
+    const limit = h('select', { class: 'input', 'aria-label': limitLabel },
+      Array.from({ length: 11 }, (_, value) => h('option', { value }, String(value))),
+      h('option', { value: 'unlimited' }, 'Без ограничения'));
+    const limitText = String(savedLimit ?? '').trim();
+    limit.value = limitText === 'unlimited' ? limitText
+      : /^[+-]?\d+$/.test(limitText) ? String(Math.min(10, Math.max(0, Number(limitText)))) : '2';
+
+    const inputs = timings.map((field, index) => {
+      const saved = String(savedTimings[index] ?? '').trim();
+      const validNumber = saved && (field.step !== 1 || /^[+-]?\d+$/.test(saved));
+      const number = validNumber ? Number(saved) : NaN;
+      const value = Number.isFinite(number) ? Math.min(field.max, Math.max(field.min, number)) : field.fallback;
+      return h('input', { type: 'number', class: 'input', min: field.min, max: field.max,
+        step: field.step, inputMode: field.step === 1 ? 'numeric' : 'decimal', value,
+        'aria-label': field.label, 'aria-describedby': 'retry-help-' + index });
+    });
+    const [initial, , maximum] = inputs;
+    maximum.value = Math.max(Number(initial.value), Number(maximum.value));
+    const updateBounds = () => {
+      initial.max = Math.min(timings[0].max, Number(maximum.value));
+      maximum.min = initial.value;
     };
-    document.getElementById('retry-limit').replaceChildren(h('label', {}, h('span', { class: 'grow' }, label), control));
+    updateBounds();
+
+    const controls = [limit, ...inputs];
+    controls.forEach((control, index) => {
+      const key = index === 0 ? limitKey : timings[index - 1].key;
+      let current = control.value;
+      control.onchange = async () => {
+        if (control.disabled) return;
+        if (control.type === 'number' && (!control.value || !control.checkValidity())) {
+          ui.toast(ui.t(control.step === '1' ? 'Введите целое число от {} до {}.' : 'Введите число от {} до {}.',
+            control.min, control.max));
+          control.value = current;
+          return;
+        }
+        const value = control.type === 'number' ? String(control.valueAsNumber) : control.value;
+        controls.forEach(item => { item.disabled = true; });
+        try {
+          await axiko.native('pref.set', key, value);
+          current = value;
+        } catch (error) {
+          ui.toast(error.message);
+        } finally {
+          control.value = current;
+          updateBounds();
+          controls.forEach(item => { item.disabled = false; });
+        }
+      };
+    });
+    document.getElementById('retry-limit').replaceChildren(
+      h('label', {}, h('span', { class: 'grow' }, limitLabel), limit),
+      ...timings.map((field, index) => h('label', {},
+        h('span', { class: 'grow' }, field.label,
+          h('div', { class: 'value', id: 'retry-help-' + index }, field.help)), inputs[index])),
+    );
   }
 
   // ---- how many steps one request may take -------------------------------------------------------
@@ -1937,6 +2054,107 @@
   });
 
   // ---- system ------------------------------------------------------------------------------
+
+  const updateCheck = document.getElementById('update-check');
+  const updateInstall = document.getElementById('update-install');
+  const updateErrors = {
+    abi: 'Для этого устройства нет совместимой сборки.',
+    signer: 'Эта сборка подписана другим сертификатом.',
+    package: 'Обновления доступны для официальной сборки Axiko.',
+    version: 'Не удалось определить установленную версию.',
+    noRelease: 'На GitHub пока нет опубликованного релиза.',
+    metadata: 'Не удалось проверить данные релиза.',
+    network: 'Не удалось связаться с GitHub. Повторите проверку.',
+  };
+  const downloadErrors = {
+    network: 'Не удалось скачать обновление. Повторите попытку.',
+    storage: 'Не удалось сохранить обновление. Проверьте свободное место.',
+  };
+  const updateMessages = {
+    checking: 'Проверяем обновления…',
+    current: 'У вас актуальная версия.',
+    downloading: 'Загружаем обновление…',
+    unavailable: 'Для этой сборки Axiko обновление недоступно.',
+    error: 'Не удалось проверить обновления.',
+  };
+  let updateState;
+  let updateRequest = 0;
+  let updatePoll;
+
+  function releaseNotes(notes) {
+    const chunks = String(notes || '').split(/^[ \t]*##[ \t]+(English|Русский|Russian)[ \t]*#*[ \t]*\r?$/gmi);
+    if (chunks.length === 1) return chunks[0].trim();
+    const languages = {};
+    for (let index = 1; index < chunks.length; index += 2) {
+      languages[chunks[index].toLowerCase() === 'english' ? 'en' : 'ru'] = chunks[index + 1].trim();
+    }
+    const language = (window.__lang || 'ru').toLowerCase().split('-')[0];
+    return languages[language] || languages.en || languages.ru || chunks[0].trim();
+  }
+
+  function renderUpdate(state) {
+    updateState = state;
+    const { status, code, installedVersion, version, notes, bytes, canInstall, downloaded, downloadError } = state;
+    if (installedVersion) document.getElementById('update-installed').textContent = 'Axiko ' + installedVersion;
+    const busy = status === 'checking' || status === 'downloading';
+    const offer = Boolean(version) && ['available', 'downloading', 'error', 'checking'].includes(status);
+    const web = axiko.platform === 'web';
+    const actionVisible = offer && Number(bytes) > 0 && (busy || canInstall !== false);
+    const error = downloadError && (downloadErrors[downloadError] || 'Не удалось проверить скачанное обновление.');
+    document.getElementById('update-status').textContent = ui.t(error || updateErrors[code] || updateMessages[status] || '');
+    document.getElementById('update-offer').hidden = !offer;
+    document.getElementById('update-version').textContent = offer ? ui.t('Доступна версия {}', version) : '';
+    document.getElementById('update-size').textContent = offer && Number(bytes) > 0 ? ui.t('Размер загрузки {}', sized(bytes)) : '';
+    const patch = offer ? releaseNotes(notes) : '';
+    document.getElementById('update-notes').textContent = patch.replace(/^[ \t]*[-*][ \t]+/gm, '• ');
+    document.getElementById('update-details').hidden = !patch;
+    document.getElementById('update-phone').hidden = !actionVisible || !web;
+    updateInstall.hidden = !actionVisible || web;
+    document.getElementById('update-install-text').textContent = ui.t(downloaded ? 'Установить' : 'Скачать и установить');
+    updateInstall.disabled = busy || (status !== 'available' && canInstall !== true);
+    updateCheck.disabled = busy;
+    if (busy && !document.hidden && !updateCheck.closest('.tab').hidden) {
+      updatePoll = setTimeout(refreshUpdate, 1500);
+    }
+  }
+
+  async function readUpdate(method) {
+    clearTimeout(updatePoll);
+    const request = ++updateRequest;
+    try {
+      const state = await axiko.native(method);
+      if (request === updateRequest) renderUpdate(state?.status ? state : { status: 'unavailable' });
+    } catch {
+      if (request === updateRequest) renderUpdate({ ...updateState, status: 'error', code: undefined });
+    }
+  }
+
+  function refreshUpdate() {
+    return readUpdate('update.state');
+  }
+
+  updateCheck.onclick = () => {
+    renderUpdate({ ...updateState, status: 'checking', code: undefined });
+    return readUpdate('update.check');
+  };
+
+  updateInstall.onclick = async () => {
+    updateInstall.disabled = true;
+    try {
+      if (!(await axiko.native('update.install', updateState.version))) {
+        ui.toast('Не удалось начать установку. Повторите попытку.');
+      }
+    } catch {
+      ui.toast('Не удалось начать установку. Повторите попытку.');
+    }
+    refreshUpdate();
+  };
+
+  axiko.on('update.changed', refreshUpdate);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) clearTimeout(updatePoll);
+    else if (!updateCheck.closest('.tab').hidden) refreshUpdate();
+  });
 
   async function cacheSize() {
     const cache = await axiko.native('webcache.info');

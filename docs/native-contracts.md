@@ -137,6 +137,26 @@ The `mascot` event notifies pages about edits under `ui/mascot/` or `ui/button/`
 `mascot.changed` can request it explicitly. Native overlays are outside the page's CSS stacking
 context: page dialogs and tours must keep controls out of their hit areas. More in [brand.md](brand.md).
 
+## App updates
+
+With `app.update`, `update.state` returns the current status of the public Axiko release check.
+`update.check` starts a manual check and returns the current snapshot. Pages can refresh on
+the `update.changed` event, which carries a new snapshot. Opening the Android app triggers
+the automatic check when at least 24 hours have passed since the last attempt.
+
+Both methods are available to pages, scripts and the paired web hub.
+
+The snapshot contains `installedVersion`, `status`, `canInstall` and `downloaded`. Status values
+are `idle`, `checking`, `current`, `available`, `unavailable`, `downloading` and `error`. It can
+also include `checkedAt` in epoch milliseconds, a diagnostic `code` and release fields
+`version`, `notes`, `url` and `bytes`. Treat release notes as display text.
+
+`update.install(version)` is accepted only from the top-level Axiko Settings page in the
+foreground Android app. A `true` result means the request was accepted. The shell verifies
+the APK against the offer, including its SHA-256, package ID, version, architecture and pinned
+signing certificate. The system installer asks the owner to confirm an in-place update.
+Package updates for modules and mods use the store contracts below.
+
 ## Store and backup
 
 The shell advertises separate features for repository installation (`store.v1`), adopting an

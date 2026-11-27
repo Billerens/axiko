@@ -16,7 +16,9 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.InputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
@@ -36,7 +38,13 @@ object Tts {
     private const val DEFAULT_RATE = 24_000
     private const val CHUNK = 600
     private const val MAX_ECHO_PCM_BYTES = 16 * 1024 * 1024
+    internal const val BROWSER_TEXT_LIMIT = 6_000
+    private const val BROWSER_AUDIO_LIMIT = 16 * 1024 * 1024
     private const val GEMINI_STYLE = "provider.options.google-ai-studio.speech_metadata.style"
+
+    internal data class RenderedAudio(val type: String, val bytes: ByteArray)
+
+    internal class BrowserAudioTooLarge : IllegalArgumentException("Запись слишком длинная для озвучки в браузере")
 
     /** A sample quieter than this, of 32767, counts as silence at the start of a piece. */
     private const val QUIET = 400
@@ -318,8 +326,10 @@ object Tts {
     }
 
     private fun fillLocal(clip: Clip) {
+        val spoken = LocalTts.spokenText(clip.text)
+        if (spoken.isBlank()) return
         clip.rate = LocalTts.rate()
-        LocalTts.speak(clip.text) { samples ->
+        LocalTts.speak(spoken) { samples ->
             if (clip.alive()) {
                 val bytes = ByteArray(samples.size * 2)
                 for (index in samples.indices) {
@@ -552,34 +562,98 @@ object Tts {
             "local" -> false
             else -> App.prefs.getString("tts.engine", "auto") != "local" && cloudSet() || !LocalTts.ready
         }
-        return if (cloud) renderCloud(spoken, path) else renderLocal(spoken, path)
+        val audio = if (cloud) renderCloud(spoken) else renderLocal(spoken)
+        return save(path, extension(audio.type, path), audio.bytes)
     }
 
-    private fun renderLocal(text: String, path: String): String {
-        val pcm = java.io.ByteArrayOutputStream()
-        for (phrase in phrases(text)) {
-            for (sample in LocalTts.samples(phrase)) {
-                val value = (sample.coerceIn(-1f, 1f) * 32767f).toInt()
-                pcm.write(value and 0xFF)
-                pcm.write(value shr 8 and 0xFF)
-            }
+    /** Synthesize for a browser without using the phone's playback queue or the workspace. */
+    internal fun browserAudio(text: String): RenderedAudio {
+        require(text.length <= BROWSER_TEXT_LIMIT)
+        val spoken = speakable(text)
+        require(spoken.isNotBlank()) { "Нечего озвучивать" }
+        val mode = App.prefs.getString("tts.engine", "auto")
+        val local = LocalTts.ready
+        if (local && (mode == "local" || mode != "cloud" && (!cloudSet() || System.currentTimeMillis() < cloudDownUntil))) {
+            return renderLocal(spoken, BROWSER_AUDIO_LIMIT)
         }
-        return save(path, "wav", wav(pcm.toByteArray(), LocalTts.rate()))
+        try {
+            return renderCloud(spoken, BROWSER_AUDIO_LIMIT)
+        } catch (error: Exception) {
+            if (!local || mode == "cloud" || error is BrowserAudioTooLarge) throw error
+            cloudDownUntil = System.currentTimeMillis() + 60_000
+            return renderLocal(spoken, BROWSER_AUDIO_LIMIT)
+        }
     }
 
-    private fun renderCloud(text: String, path: String): String {
+    private fun renderLocal(text: String, limit: Int? = null): RenderedAudio {
+        val spoken = LocalTts.spokenText(text)
+        if (spoken.isBlank()) error("Нечего озвучивать")
+        val pcm = ByteArrayOutputStream()
+        for (phrase in phrases(spoken)) {
+            var exceeded = false
+            LocalTts.speak(phrase) { samples ->
+                if (limit != null && samples.size > (limit - 44 - pcm.size()) / 2) {
+                    exceeded = true
+                    return@speak false
+                }
+                for (sample in samples) {
+                    val value = (sample.coerceIn(-1f, 1f) * 32767f).toInt()
+                    pcm.write(value and 0xFF)
+                    pcm.write(value shr 8 and 0xFF)
+                }
+                true
+            }
+            if (exceeded) throw BrowserAudioTooLarge()
+        }
+        if (limit != null && pcm.size() == 0) error("Модель не вернула аудио")
+        return RenderedAudio("audio/wav", wav(pcm.toByteArray(), LocalTts.rate()))
+    }
+
+    private fun renderCloud(text: String, limit: Int? = null): RenderedAudio {
         Usage.guard()
         val target = Models.resolve(ROLE, inherit = false)
         if (target.model.isBlank()) error("Облачный голос не настроен: назначьте модель роли tts в «Настройках»")
         Llm.client.newCall(cloudRequest(target, text)).execute().use { response ->
             val source = response.body
             if (!response.isSuccessful || source == null) failed(response)
-            val bytes = source.bytes()
+            val type = response.header("Content-Type").orEmpty().lowercase()
+            val pcm = raw(type)
+            val bytes = if (limit == null) source.bytes() else {
+                val available = if (pcm) limit - 44 else limit
+                if (source.contentLength() > available) throw BrowserAudioTooLarge()
+                readBrowserAudio(source.byteStream(), available)
+            }
             // The provider reports no tokens for speech: the call itself is counted.
             Usage.record(ROLE, target.model, JSONObject())
-            val type = response.header("Content-Type").orEmpty().lowercase()
-            return if (raw(type)) save(path, "wav", wav(bytes, rate(type))) else save(path, extension(type, path), bytes)
+            if (limit != null) {
+                require(bytes.isNotEmpty()) { "Модель не вернула аудио" }
+                if (pcm) require(bytes.size % 2 == 0 && rate(type) in 8_000..192_000) { "Провайдер вернул некорректный PCM" }
+            }
+            return if (pcm) RenderedAudio("audio/wav", wav(bytes, rate(type)))
+            else RenderedAudio(if (limit == null) type else browserMime(type), bytes)
         }
+    }
+
+    private fun readBrowserAudio(input: InputStream, limit: Int): ByteArray {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(8_192)
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) return output.toByteArray()
+            if (count > limit - output.size()) throw BrowserAudioTooLarge()
+            output.write(buffer, 0, count)
+        }
+    }
+
+    private fun browserMime(type: String): String = when (type.substringBefore(';').trim()) {
+        "audio/mpeg", "audio/mp3", "audio/x-mpeg", "audio/x-mp3" -> "audio/mpeg"
+        "audio/wav", "audio/wave", "audio/x-wav" -> "audio/wav"
+        "audio/ogg", "audio/opus", "application/ogg" -> "audio/ogg"
+        "audio/aac", "audio/aacp", "audio/x-aac" -> "audio/aac"
+        "audio/flac", "audio/x-flac" -> "audio/flac"
+        "audio/mp4", "audio/m4a", "audio/x-m4a" -> "audio/mp4"
+        "audio/webm" -> "audio/webm"
+        else -> error("Провайдер вернул аудио в формате, который браузер не поддерживает")
     }
 
     /** The file's extension for an encoded answer; the one asked for when the type says nothing known. */

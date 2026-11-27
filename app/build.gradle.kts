@@ -1,7 +1,14 @@
+import java.security.KeyStore
+import java.security.MessageDigest
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
+
+// SHA-256 of the signing certificate on official APKs distributed through GitHub Releases.
+val updateSignerSha256 = "5c84ebf638cee21b0c39455ff3faa32e03f6591ba072a5b3e6bec42c22dcea9a"
+val releaseKeystore = providers.gradleProperty("axikoReleaseKeystore")
 
 // A separate installation for inspecting the factory state without touching the owner's app.
 // Use: gradlew.bat assembleDebug -PcleanPreview -Pphone
@@ -22,8 +29,9 @@ android {
         // only for apps targeting it (typed foreground services, read-only dynamic code,
         // tighter background launches) stay off for a personal, sideloaded app.
         targetSdk = 33
-        versionCode = 5
-        versionName = "0.3.1"
+        versionCode = 6
+        versionName = "0.3.2"
+        resValue("string", "update_signer_sha256", updateSignerSha256)
         // The phone needs arm64 only; x86_64 is for the emulator. `-Pphone` leaves it out (about 70 MB less).
         ndk { abiFilters += if (project.hasProperty("phone")) listOf("arm64-v8a") else listOf("arm64-v8a", "x86_64") }
     }
@@ -33,16 +41,20 @@ android {
         // its own. A machine that builds for the owner's phone gets the key the installed app was
         // signed with as ~/.android/debug-axiko.keystore (standard debug alias and passwords);
         // without that file the machine's own debug key is used, as before.
-        getByName("debug") {
+        val debugSigning = getByName("debug") {
             val shared = File(System.getProperty("user.home"), ".android/debug-axiko.keystore")
             if (shared.isFile) storeFile = shared
+        }
+        create("axikoRelease") {
+            initWith(debugSigning)
+            releaseKeystore.orNull?.let { storeFile = rootProject.file(it) }
         }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("axikoRelease")
         }
     }
 
@@ -66,6 +78,35 @@ android {
     testOptions {
         unitTests.isReturnDefaultValues = true
     }
+}
+
+val releaseSigning = android.signingConfigs.getByName("axikoRelease")
+val releaseSigningFile = releaseSigning.storeFile
+val releaseSigningAlias = releaseSigning.keyAlias
+val releaseSigningPassword = releaseSigning.storePassword
+val checkAxikoReleaseSigner = tasks.register("checkAxikoReleaseSigner") {
+    group = "verification"
+    description = "Verifies the signing certificate used for official Axiko releases."
+    doLast {
+        val keystoreFile = releaseSigningFile
+        if (keystoreFile == null || !keystoreFile.isFile) {
+            throw GradleException("The Axiko release keystore is missing. Set -PaxikoReleaseKeystore to its path.")
+        }
+        val alias = requireNotNull(releaseSigningAlias) { "The Axiko release signing alias is missing." }
+        val password = requireNotNull(releaseSigningPassword) { "The Axiko release keystore password is missing." }
+        val keystore = KeyStore.getInstance(keystoreFile, password.toCharArray())
+        val certificate = keystore.takeIf { it.isKeyEntry(alias) }?.getCertificate(alias)
+        val fingerprint = certificate?.let {
+            MessageDigest.getInstance("SHA-256").digest(it.encoded).joinToString("") { byte -> "%02x".format(byte) }
+        }
+        if (fingerprint != updateSignerSha256) {
+            throw GradleException("The release key does not match Axiko's published signing certificate. Set -PaxikoReleaseKeystore to the official keystore.")
+        }
+    }
+}
+
+tasks.configureEach {
+    if (name == "validateSigningRelease") dependsOn(checkAxikoReleaseSigner)
 }
 
 kotlin {

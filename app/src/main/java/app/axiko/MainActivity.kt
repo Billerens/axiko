@@ -44,6 +44,9 @@ import app.axiko.agent.Inbox
 import app.axiko.agent.Threads
 import app.axiko.voice.Wake
 import app.axiko.sense.Bubble
+import app.axiko.update.AppUpdates
+import app.axiko.update.UpdateInstaller
+import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -78,6 +81,7 @@ class MainActivity : Activity() {
     private var pendingChatAgent: String? = null
     private var alive = false
     private var typing = false
+    private var appUpdateDialog: AlertDialog? = null
 
     /** The address of the screen that was given the whole display, or null. */
     private var staged: String? = null
@@ -168,6 +172,67 @@ class MainActivity : Activity() {
         super.onResume()
         visible = true
         Wake.start()
+        UpdateInstaller.resumed(this)
+        AppUpdates.get(this).check(manual = false) { runOnUiThread { offerAppUpdate() } }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            UpdateInstaller.present()
+            offerAppUpdate()
+        }
+    }
+
+    private fun offerAppUpdate() {
+        if (!visible || current !== this || isFinishing || !hasWindowFocus()) return
+        if (page.location.substringBefore('?').endsWith("/ui/settings/index.html")) return
+        val update = AppUpdates.get(this).state()
+        val version = update.optString("version")
+        if (update.optString("status") != "available" || !update.optBoolean("canInstall") ||
+            version.isBlank() || App.prefs.getString("update.offered", null) == version
+        ) return
+        showAppUpdate(update)
+    }
+
+    private fun checkAppUpdate() {
+        toast("Проверяем обновления…")
+        AppUpdates.get(this).check(manual = true) { update ->
+            runOnUiThread {
+                if (!visible || current !== this || isFinishing) return@runOnUiThread
+                when {
+                    update.optBoolean("canInstall") -> showAppUpdate(update)
+                    update.optString("status") == "current" -> toast("У вас актуальная версия.")
+                    update.optString("status") == "downloading" -> toast("Загружаем обновление…")
+                    update.optString("status") == "unavailable" -> toast("Для этой сборки Axiko обновление недоступно.")
+                    else -> toast("Не удалось проверить обновления.")
+                }
+            }
+        }
+    }
+
+    private fun showAppUpdate(update: JSONObject) {
+        if (appUpdateDialog?.isShowing == true) return
+        val version = update.getString("version")
+        val raw = update.optString("notes")
+        val headings = Regex("(?im)^[ \\t]*##[ \\t]+(English|Русский|Russian)[ \\t]*#*[ \\t]*\\r?$")
+        val sections = headings.findAll(raw).toList()
+        val notes = sections.mapIndexed { index, heading ->
+            val language = if (heading.groupValues[1].equals("English", ignoreCase = true)) "en" else "ru"
+            language to raw.substring(heading.range.last + 1, sections.getOrNull(index + 1)?.range?.first ?: raw.length).trim()
+        }.toMap().filterValues(String::isNotBlank)
+        val localized = (notes[I18n.language.substringBefore('-')] ?: notes["en"] ?: notes["ru"] ?: raw)
+            .trim().take(12_000).replace(Regex("(?m)^[ \\t]*[-*][ \\t]+"), "• ")
+        val message = listOf(I18n.t("Версия $version"), localized).filter(String::isNotBlank).joinToString("\n\n")
+        App.prefs.edit().putString("update.offered", version).apply()
+        appUpdateDialog = AlertDialog.Builder(this)
+            .setTitle(I18n.t("Доступно обновление Axiko"))
+            .setMessage(message)
+            .setNegativeButton(I18n.t("Позже"), null)
+            .setNeutralButton(I18n.t("Настройки")) { _, _ -> open("ui/settings/index.html?tab=system") }
+            .setPositiveButton(I18n.t(if (update.optBoolean("downloaded")) "Установить" else "Скачать и установить")) { _, _ ->
+                if (!UpdateInstaller.request(this, version)) toast("Не удалось начать установку. Повторите попытку.")
+            }.show()
     }
 
     override fun onPause() {
@@ -565,6 +630,7 @@ class MainActivity : Activity() {
             if (safe) "Выйти из безопасного режима" else "Безопасный режим",
             "Откатить последнее изменение",
             "Сбросить интерфейс к заводскому",
+            "Проверить обновления",
             // Only while the folders from before a restore are still kept (until the first good start).
         ) + if (app.axiko.backup.Backup.undoable) arrayOf("Вернуть как было до восстановления из копии") else emptyArray<String>()
         AlertDialog.Builder(this).setTitle("Axiko").setItems(items.map { I18n.t(it) }.toTypedArray()) { _, which ->
@@ -579,7 +645,8 @@ class MainActivity : Activity() {
                     reloadPages()
                     toast("Интерфейс сброшен")
                 }
-                5 -> runCatching { app.axiko.backup.Backup.undo() }.onFailure { toast(it.message ?: it.toString()) }
+                5 -> checkAppUpdate()
+                6 -> runCatching { app.axiko.backup.Backup.undo() }.onFailure { toast(it.message ?: it.toString()) }
             }
         }.show()
     }

@@ -5,6 +5,7 @@ import app.axiko.agent.Agent
 import app.axiko.agent.Conversation
 import app.axiko.agent.Inbox
 import app.axiko.agent.Tools
+import app.axiko.voice.Tts
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedInputStream
@@ -18,6 +19,7 @@ import java.net.URI
 import java.net.URLDecoder
 import java.security.SecureRandom
 import java.util.concurrent.Executors
+import java.util.concurrent.Semaphore
 
 /**
  * The app in a browser on the same network: the phone serves its own screens and chat over
@@ -30,8 +32,11 @@ import java.util.concurrent.Executors
 object Lan {
     private const val COOKIE = "axiko"
     private const val FACTORY_COOKIE = "axiko_factory"
+    private const val AUDIO_PATH = "/__axiko/audio"
+    private const val AUDIO_BODY_LIMIT = 32 * 1024
     private val workers = Executors.newCachedThreadPool { task -> Thread(task, "axiko-lan").apply { isDaemon = true } }
     private val streams = EventStreams { workers.execute(it) }
+    private val audioRequests = Semaphore(2)
 
     /**
      * How often an event stream speaks when nothing happens. Its keep-alive is an event a page can
@@ -174,7 +179,10 @@ object Lan {
 
     // ---- HTTP ---------------------------------------------------------------------------------
 
-    private class Request(val method: String, val path: String, val query: Map<String, String>, val headers: Map<String, String>, val body: ByteArray)
+    private class Request(
+        val method: String, val path: String, val query: Map<String, String>,
+        val headers: Map<String, String>, val body: ByteArray, val bodyTooLarge: Boolean,
+    )
 
     private fun read(input: InputStream): Request? {
         val head = StringBuilder()
@@ -191,20 +199,22 @@ object Lan {
         if (first.size < 2) return null
         val headers = lines.drop(1).filter { it.contains(':') }
             .associate { it.substringBefore(':').trim().lowercase() to it.substringAfter(':').trim() }
+        val target = first[1]
+        val path = URLDecoder.decode(target.substringBefore('?'), "UTF-8")
         val length = headers["content-length"]?.toIntOrNull() ?: 0
-        if (length > 64 * 1024 * 1024) return null
-        val body = ByteArray(length)
+        val bodyTooLarge = path == AUDIO_PATH && length > AUDIO_BODY_LIMIT
+        if (length < 0 || !bodyTooLarge && length > 64 * 1024 * 1024) return null
+        val body = ByteArray(if (bodyTooLarge) 0 else length)
         var got = 0
-        while (got < length) {
-            val read = input.read(body, got, length - got)
+        while (got < body.size) {
+            val read = input.read(body, got, body.size - got)
             if (read < 0) return null
             got += read
         }
-        val target = first[1]
         val query = target.substringAfter('?', "").split('&').filter { it.contains('=') }.associate {
             URLDecoder.decode(it.substringBefore('='), "UTF-8") to URLDecoder.decode(it.substringAfter('='), "UTF-8")
         }
-        return Request(first[0], URLDecoder.decode(target.substringBefore('?'), "UTF-8"), query, headers, body)
+        return Request(first[0], path, query, headers, body, bodyTooLarge)
     }
 
     private fun send(out: OutputStream, status: String, type: String, body: ByteArray, extra: String = "") {
@@ -214,6 +224,53 @@ object Lan {
         )
         out.write(body)
         out.flush()
+    }
+
+    private fun audioError(out: OutputStream, status: String, message: String, extra: String = "") {
+        val body = JSONObject().put("error", I18n.t(message)).toString()
+        send(out, status, "application/json; charset=utf-8", body.toByteArray(), extra)
+    }
+
+    private fun serveAudio(out: OutputStream, request: Request) {
+        if (request.method != "POST") {
+            audioError(out, "405 Method Not Allowed", "Для озвучки нужен запрос POST", "Allow: POST\r\n")
+            return
+        }
+        if (request.headers["content-type"]?.substringBefore(';')?.trim()?.lowercase() != "application/json") {
+            audioError(out, "415 Unsupported Media Type", "Для озвучки нужен JSON")
+            return
+        }
+        if (request.bodyTooLarge) {
+            audioError(out, "413 Content Too Large", "Текст слишком длинный для озвучки в браузере")
+            return
+        }
+        val text = runCatching { JSONObject(request.body.toString(Charsets.UTF_8)).opt("text") as? String }.getOrNull()
+        if (text == null || Tts.speakable(text).isBlank()) {
+            audioError(out, "400 Bad Request", "Нечего озвучивать")
+            return
+        }
+        if (text.length > Tts.BROWSER_TEXT_LIMIT) {
+            audioError(out, "413 Content Too Large", "Текст слишком длинный для озвучки в браузере")
+            return
+        }
+        if (!audioRequests.tryAcquire()) {
+            audioError(out, "429 Too Many Requests", "Телефон уже готовит озвучку. Попробуйте ещё раз чуть позже.")
+            return
+        }
+        try {
+            val audio = try {
+                Tts.browserAudio(text)
+            } catch (error: Tts.BrowserAudioTooLarge) {
+                audioError(out, "413 Content Too Large", error.message.orEmpty())
+                return
+            } catch (error: Exception) {
+                audioError(out, "502 Bad Gateway", Vault.scrub(Engine.describe(error)).take(1_000))
+                return
+            }
+            send(out, "200 OK", audio.type, audio.bytes, "X-Content-Type-Options: nosniff\r\n")
+        } finally {
+            audioRequests.release()
+        }
     }
 
     private val deskFiles by lazy {
@@ -330,6 +387,10 @@ object Lan {
             }
             if (!known) {
                 if (offered != null) Thread.sleep(WRONG_KEY_PAUSE)
+                if (request.path == AUDIO_PATH) {
+                    audioError(out, "401 Unauthorized", "Нужно войти снова.")
+                    return
+                }
                 val page = "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'><title>" + Agent.name + "</title>" +
                     "<body style='font:17px system-ui;background:#101010;color:#ededed;padding:40px'>" +
                     "<h2>" + Agent.name + "</h2><p>" + I18n.t("Введите ключ из настроек приложения: вкладка «Телефон», раздел «Доступ с компьютера».") + "</p>" +
@@ -343,6 +404,7 @@ object Lan {
             }
 
             when {
+                request.path == AUDIO_PATH -> serveAudio(out, request)
                 request.path == "/__axiko/events" -> {
                     out.write("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-store\r\nConnection: keep-alive\r\n\r\n".toByteArray())
                     out.flush()
@@ -459,6 +521,10 @@ object Lan {
         return Drafts.within(draft) { rpcInWorkspace(request, factory) }
     }
 
+    private val browserVoicePattern = Regex("web-[a-z0-9-]{1,48}")
+
+    private fun browserVoice(client: String): String = client.takeIf(browserVoicePattern::matches).orEmpty()
+
     /** The phone's ordinary bridge plus the revision-aware web editor operations. */
     private fun rpcInWorkspace(request: JSONObject, factory: Boolean): String? = when (request.optString("op")) {
         "desk.read" -> deskFiles.read(request.getString("path")).json().toString()
@@ -483,19 +549,29 @@ object Lan {
         "native" -> {
             val method = request.getString("method")
             val args = JSONArray(request.optString("args", "[]"))
-            if (method == "agent.send") {
-                // "This screen" is the one open in the browser, not the one on the phone.
-                val thread = if (args.isNull(2)) null else args.optString(2).takeIf { it.isNotBlank() }
-                Native.encode(
-                    Agent.chat(args.getString(0), thread).send(
-                        args.getString(1),
-                        if (args.optBoolean(3, false)) Inbox.take() else emptyList(),
-                        request.optString("where").takeIf { it.isNotBlank() && !it.startsWith("ui/home/") },
-                        Native.steer(args, 4),
-                    ),
-                )
-            } else {
-                Native.encode(Native.call(method, args))
+            when (method) {
+                "agent.send" -> {
+                    // "This screen" and spoken replies belong to the requesting browser.
+                    val thread = if (args.isNull(2)) null else args.optString(2).takeIf { it.isNotBlank() }
+                    Native.encode(
+                        Agent.chat(args.getString(0), thread).send(
+                            args.getString(1),
+                            if (args.optBoolean(3, false)) Inbox.take() else emptyList(),
+                            request.optString("where").takeIf { it.isNotBlank() && !it.startsWith("ui/home/") },
+                            Native.steer(args, 4),
+                            browserVoice = browserVoice(args.optString(5)),
+                        ),
+                    )
+                }
+                "agent.retry", "agent.stop" -> {
+                    val thread = if (args.isNull(1)) null else args.optString(1).takeIf { it.isNotBlank() }
+                    val chat = Agent.chat(args.getString(0), thread)
+                    Native.encode(
+                        if (method == "agent.retry") chat.retry(browserVoice(args.optString(2)))
+                        else chat.stop(phoneVoice = false),
+                    )
+                }
+                else -> Native.encode(Native.call(method, args))
             }
         }
         "call" -> Engine.rpc(request.getString("path"), request.getString("fn"), request.optString("args", "[]"))
