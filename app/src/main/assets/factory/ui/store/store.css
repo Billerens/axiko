@@ -48,7 +48,8 @@
 .store-status .grow { white-space: pre-wrap; }
 .store-pending { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid var(--accent); border-radius: 12px; background: var(--accent-soft); }
 .store-pending p { color: var(--ink-2); font-size: 14px; margin-top: 4px; }
-.store-pending .btn { width: auto; flex: none; }
+.store-pending-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; max-width: 100%; }
+.store-pending-actions .btn { width: auto; }
 .store-sources { display: flex; flex-direction: column; gap: 12px; }
 .store-field { display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: var(--ink-2); }
 .store-field input, .store-field textarea { width: 100%; min-width: 0; min-height: 46px; border: 1px solid var(--line); border-radius: 11px; padding: 10px 12px; background: var(--surface); color: var(--ink); font: inherit; }
@@ -219,6 +220,7 @@
   .store-plan-choice { width: 100%; }
   .store-plan-choice .btn { width: auto; flex: 1 1 130px; min-height: 44px; }
   .store-pending { align-items: flex-start; flex-direction: column; }
+  .store-pending-actions { justify-content: flex-start; }
 }
 /* The list: what narrows it, how it looks, and the next portion. */
 .store-controls { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; }

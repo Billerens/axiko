@@ -504,13 +504,20 @@
   }
   function openPlan(id, control) {
     return operation('open-plan-' + id, control, async () => {
-      const [fresh, report] = await Promise.all([api('plan', id), api('review', id).catch(() => null)]);
-      if (!fresh) throw new Error(tr('Этого плана больше нет: подготовьте обновление заново.'));
-      showPlan(fresh, report || undefined);
+      const [plan, review] = await Promise.allSettled([api('plan', id), api('review', id)]);
+      if (plan.status === 'rejected' || !plan.value) {
+        await load({ keepStatus: true });
+        if (plan.status === 'rejected') throw plan.reason;
+        throw new Error(tr('Этого плана больше нет: подготовьте обновление заново.'));
+      }
+      if (state.operations.has('discard-' + id)) return;
+      showPlan(plan.value, review.value, review.status === 'rejected' ? errorText(review.reason) : null);
     });
   }
+  const pendingPlan = plan => ['ready','conflicts','blocked','carrying','banned'].includes(plan.status);
   async function load(options) {
     const serial = ++state.loadSerial;
+    const pendingAtStart = state.pending;
     const results = await Promise.allSettled([api('sources'), api('installed'), api('plans'), api('bans')]);
     if (serial !== state.loadSerial) return;
     if (results[0].status === 'fulfilled') state.sources = listOf(results[0].value, 'sources');
@@ -518,9 +525,10 @@
     if (results[2].status === 'fulfilled') {
       const plans = listOf(results[2].value, 'plans');
       state.plans = plans;
-      const live = state.pending && plans.find(plan => plan.id === state.pending.id);
-      if (live) state.pending = live;
-      else if (!state.pending) state.pending = plans.find(plan => ['ready','conflicts','blocked'].includes(plan.status)) || null;
+      // A preparation can finish while this list is loading. Reconcile only the plan seen when the request started.
+      if (state.pending === pendingAtStart) {
+        state.pending = plans.find(plan => plan.id === pendingAtStart?.id && pendingPlan(plan)) || plans.find(pendingPlan) || null;
+      }
       if (state.pending && state.pending.reviewTask && state.pending.reviewTask.status === 'running' && state.pending.status !== 'applied') state.reviewTask = Object.assign({ planId: state.pending.id }, state.pending.reviewTask);
     }
     if (results[3].status === 'fulfilled') state.bans = listOf(results[3].value, 'bans');
@@ -702,11 +710,30 @@
       if (state.dialog && state.dialog.token === token) showPlan(plan, report || undefined); else status(tr('Пакет подготовлен. Можно продолжить установку.'));
     });
   }
+  function discardButton(plan, text, options) {
+    return button(text, event => operation('discard-' + plan.id, event.currentTarget, async () => {
+      await api('discard', plan.id);
+      if (state.pending?.id === plan.id) state.pending = null;
+      if (state.reviewTask?.planId === plan.id) state.reviewTask = null;
+      state.plans = state.plans.filter(item => item.id !== plan.id);
+      if (state.dialog?.planId === plan.id) closeDialog();
+      renderPending();
+      await load({ keepStatus: true });
+      status(tr('Пакет не установлен. Подготовленный план убран.'));
+    }), options);
+  }
   function renderPending() {
-    const node = $('store-pending'), plan = state.pending && state.pending.status !== 'applied' ? state.pending : state.plans.find(item => ['ready','conflicts','blocked','carrying'].includes(item.status));
-    node.hidden = !plan || plan.status === 'applied'; if (node.hidden) { node.replaceChildren(); return; }
-    node.replaceChildren(h('div', { class: 'store-pending' }, h('div', {}, h('strong', {}, tr(plan.status === 'carrying' ? (plan.carryTask && plan.carryTask.status === 'running' ? 'Агент переносит доработку' : 'Доработка ждёт переноса') : state.reviewTask && state.reviewTask.planId === plan.id ? 'Агент проверяет пакет' : 'Подготовленная установка')), h('p', {}, raw((plan.title || plan.manifest && plan.manifest.id || plan.packageId || '') + ' · ' + (plan.version || '')))),
-      button(tr('Продолжить'), event => operation('resume-plan', event.currentTarget, async () => { const [fresh, report] = await Promise.all([api('plan', plan.id), api('review', plan.id)]); showPlan(fresh, report); }), { id: 'store-resume-plan' })));
+    const node = $('store-pending');
+    const plan = state.pending && pendingPlan(state.pending) ? state.pending : state.plans.find(pendingPlan);
+    node.hidden = !plan; if (!plan) { node.replaceChildren(); return; }
+    const reviewRunning = state.reviewTask?.planId === plan.id;
+    const heading = plan.status === 'carrying' ? (plan.carryTask?.status === 'running' ? 'Агент переносит доработку' : 'Доработка ждёт переноса')
+      : reviewRunning ? 'Агент проверяет пакет' : 'Подготовленная установка';
+    node.replaceChildren(h('div', { class: 'store-pending' },
+      h('div', {}, h('strong', {}, tr(heading)), h('p', {}, raw((plan.title || plan.manifest?.id || plan.packageId || '') + ' · ' + (plan.version || '')))),
+      h('div', { class: 'store-pending-actions' },
+        button(tr('Продолжить'), event => openPlan(plan.id, event.currentTarget), { id: 'store-resume-plan', class: 'btn primary small' }),
+        discardButton(plan, tr('Убрать подготовленный план'), { id: 'store-discard-pending' }))));
   }
   function readableStatus(value) { return tr(({ pass: 'Проверка завершена: находок нет', needsAttention: 'Найдены подозрения: решение за вами', reject: 'Нарушение правил: выпуск забанен', running: 'Агент проверяет пакет', pending: 'Проверка ещё не завершена', applied: 'Установка завершена' })[value] || value || 'Проверка ещё не завершена'); }
   function reviewCard(report, task, brief) {
@@ -724,7 +751,7 @@
     if (task && task.thread) card.append(button(tr('Открыть диалог с агентом'), () => operation('open-review', null, () => openReviewChat(task)), { id: 'store-open-review' }));
     return card;
   }
-  function showPlan(plan, report) {
+  function showPlan(plan, report, reviewError) {
     const previous = state.dialog, origin = previous && previous.origin;
     const adoption = !!plan.adoption, mod = plan.mod || null, removal = !!(mod && mod.removal);
     const current = dialog(plan.status === 'applied' ? tr('Готово') : tr(plan.rollback || plan.operation === 'rollback' ? 'Возврат версии' : removal ? 'Снятие доработки' : mod && plan.status === 'carrying' ? 'Перенос доработки' : mod ? 'Установка доработки' : adoption ? 'Принятие под управление магазина' : 'Проверка перед установкой'));
@@ -745,10 +772,7 @@
     }
     const task = plan.reviewTask || (state.reviewTask && state.reviewTask.planId === plan.id ? state.reviewTask : null);
     const currentReport = report || plan.review;
-    const discard = (text, options) => button(text, event => operation('discard-' + plan.id, event.currentTarget, async () => {
-      await api('discard', plan.id); state.pending = null; state.reviewTask = null; closeDialog(); await load({ keepStatus: true });
-      status(tr('Пакет не установлен. Подготовленный план убран.'));
-    }), options);
+    const discard = (text, options) => discardButton(plan, text, options);
     if (plan.status === 'banned' || plan.ban) {
       // A banned release has one way out of this dialog: away. Lifting the ban is in «Источники».
       current.root.setAttribute('data-plan-banned', '');
@@ -824,7 +848,9 @@
     const requests = (manifest.capabilities || []).concat((manifest.networkDomains || []).map(domain => 'https://' + domain));
     if (requests.length) current.body.append(h('details', {}, h('summary', {}, tr('Заявленные возможности и сеть: {}', requests.length)), h('ul', { class: 'store-plain-list' }, requests.map(item => h('li', {}, raw(item))))));
     current.body.append(h('p', { class: 'store-notice' }, tr('Этот пакет выполняется с возможностями Axiko. Изоляция доступа модулей пока не включена. Проверка агентом помогает изучить код, но не создаёт такую изоляцию.')));
+    if (reviewError) dialogStatus(tr('Не удалось получить состояние проверки: {}', reviewError), true);
     const agentRunning = !!task && task.status !== 'stopped' && (!currentReport || currentReport.agentStatus !== 'stopped');
+    const decisionUnavailable = blocked || agentRunning || Boolean(reviewError);
     // Suspicions leave the decision to the owner: the report itself, or the last one made about this same archive.
     const verdict = currentReport && currentReport.status === 'pending' && currentReport.inherited ? currentReport.inherited : currentReport;
     const warned = !!verdict && verdict.status === 'needsAttention';
@@ -836,32 +862,37 @@
     const ackKey = plan.id + ':' + plan.digest;
     const ack = h('input', { type: 'checkbox', id: 'store-trust-ack', checked: state.acknowledged.has(ackKey) });
     const direct = button(tr(plan.rollback || plan.operation === 'rollback' ? 'Вернуть версию' : removal ? 'Снять доработку' : mod ? 'Установить доработку' : adoption ? 'Принять модуль' : 'Установить'), event => operation('apply-' + plan.id, event.currentTarget, async () => {
-      if (!state.acknowledged.has(ackKey) || conflicts.length || blocked || agentRunning) return;
+      if (!state.acknowledged.has(ackKey) || conflicts.length || decisionUnavailable) return;
       current.locked = true; current.close.disabled = true; dialogStatus(tr('Устанавливаем проверенный пакет…'));
       try {
         const result = await api('apply', plan.id, plan.digest, true);
-        state.pending = Object.assign({}, plan, result, { id: plan.id, status: 'applied' }); state.reviewTask = null;
-        current.locked = false; current.close.disabled = false; await load({ keepStatus: true }); showPlan(state.pending); status(tr('Установка завершена'));
+        const completed = Object.assign({}, plan, result, { id: plan.id, status: 'applied' });
+        state.pending = completed; state.reviewTask = null;
+        current.locked = false; current.close.disabled = false; await load({ keepStatus: true }); showPlan(completed); status(tr('Установка завершена'));
       } finally { current.locked = false; current.close.disabled = false; }
-    }), { class: 'btn primary', id: 'store-apply', disabled: blocked || agentRunning || !ack.checked || conflicts.length > 0 || currentReport && currentReport.status === 'reject' });
+    }), { class: 'btn primary', id: 'store-apply', disabled: decisionUnavailable || !ack.checked || conflicts.length > 0 || currentReport && currentReport.status === 'reject' });
     const agent = button(tr(warned ? 'Проверить заново с агентом' : 'Проверить и установить с агентом'), event => operation('review-' + plan.id, event.currentTarget, async () => {
-      if (!state.acknowledged.has(ackKey) || blocked) return;
+      if (!state.acknowledged.has(ackKey) || decisionUnavailable) return;
       const started = await api('reviewStart', plan.id, true); state.reviewTask = Object.assign({ planId: plan.id }, started); showPlan(plan, { status: 'running' }); schedulePoll();
       // The conversation is shown at once, over this dialog; the card under it keeps the status.
       try { await openReviewChat(started); } catch (error) { dialogStatus(tr('Проверка идёт, но чат открыть не удалось: {}', errorText(error)), true); }
-    }), { id: 'store-review-agent', disabled: blocked || !ack.checked || agentRunning });
+    }), { id: 'store-review-agent', disabled: decisionUnavailable || !ack.checked });
     ack.addEventListener('change', () => {
       if (ack.checked) state.acknowledged.add(ackKey); else state.acknowledged.delete(ackKey);
-      direct.disabled = blocked || agentRunning || !ack.checked || conflicts.length > 0 || currentReport && currentReport.status === 'reject'; agent.disabled = blocked || !ack.checked || agentRunning;
+      direct.disabled = decisionUnavailable || !ack.checked || conflicts.length > 0 || currentReport && currentReport.status === 'reject';
+      agent.disabled = decisionUnavailable || !ack.checked;
     });
     const trust = h('label', { class: 'store-trust' }, ack, h('span', {}, tr('Разрешаю запуск этого пакета с возможностями Axiko'), h('small', {}, tr('Для этой версии и показанного плана установки.'))));
     // Taking a mod off brings back files that were there before: there is nothing new for an agent to review.
-    if (removal) { current.footer.append(trust, h('div', { class: 'store-dialog-actions' }, direct)); return; }
-    if (!warned) { current.footer.append(trust, h('div', { class: 'store-dialog-actions' }, direct, agent)); return; }
+    if (removal || !warned) {
+      current.footer.append(trust, h('div', { class: 'store-dialog-actions' },
+        discard(tr('Убрать подготовленный план'), { id: 'store-discard' }), direct, removal ? null : agent));
+      return;
+    }
     // The agent does not install a release it has doubts about, and no page or model can say yes for the owner:
     // the shell asks in its own dialog, bound to this plan and digest.
     const accept = button(tr('Установить, несмотря на предупреждения'), event => operation('accept-' + plan.id, event.currentTarget, async () => {
-      if (conflicts.length || blocked || agentRunning) return;
+      if (conflicts.length || decisionUnavailable) return;
       current.locked = true; current.close.disabled = true; dialogStatus(tr('Подтвердите решение в окне Axiko на экране телефона.'));
       try {
         const result = await api('acceptWarnings', plan.id, plan.digest);
@@ -871,7 +902,7 @@
         const [fresh, done] = await Promise.all([api('plan', plan.id), api('review', plan.id)]);
         showPlan(fresh, done); status(tr('Пакет установлен с предупреждениями'));
       } finally { current.locked = false; current.close.disabled = false; }
-    }), { class: 'btn danger', id: 'store-accept-warnings', disabled: blocked || agentRunning || conflicts.length > 0 });
+    }), { class: 'btn danger', id: 'store-accept-warnings', disabled: decisionUnavailable || conflicts.length > 0 });
     current.footer.append(h('p', { class: 'store-note', id: 'store-warned-note' }, tr('Агент не устанавливает пакет с подозрениями. Решение за вами.')),
       h('div', { class: 'store-dialog-actions' }, discard(tr('Не устанавливать'), { class: 'btn primary', id: 'store-decline' }), accept),
       h('details', { class: 'store-recheck' }, h('summary', {}, tr('Проверить ещё раз')), trust, h('div', { class: 'store-dialog-actions' }, agent)));
