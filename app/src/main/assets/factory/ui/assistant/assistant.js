@@ -17,6 +17,8 @@
   const attachments = byId('attachments');
   const file = byId('file');
   const camera = byId('camera');
+  const speechPreview = byId('speech-preview');
+  const speechText = byId('speech-text');
   let state = null;
   let audio = {};
   let audioVersion = 0;
@@ -108,6 +110,30 @@
     attachments.hidden = !items.length;
   }
 
+  function renderSpeechPreview() {
+    if (!speechPreview || !speechText) return;
+    const view = sheet();
+    const inDrawer = view === 'history' || view === 'text';
+    const text = audio.active && (!view || inDrawer) && typeof audio.transcript === 'string'
+      ? audio.transcript : '';
+    if (!text) {
+      speechPreview.hidden = true;
+      speechText.textContent = '';
+      return;
+    }
+    const container = byId(inDrawer ? 'drawer' : 'bubbles');
+    const moved = speechPreview.parentElement !== container;
+    if (moved) {
+      if (inDrawer) content.after(speechPreview);
+      else container.prepend(speechPreview);
+    }
+    if (moved || speechPreview.hidden || speechText.textContent !== text) {
+      speechPreview.hidden = false;
+      speechText.textContent = text;
+      speechText.scrollTop = speechText.scrollHeight;
+    }
+  }
+
   function renderAudio() {
     const phase = audio.state === 'speaking' || audio.state === 'hearing' ? audio.state
       : state?.question ? 'asking'
@@ -138,6 +164,7 @@
     if (!conversation) mic.title += ' · ' + t('Удерживайте для режима разговора');
     mic.setAttribute('aria-pressed', String(Boolean(audio.active)));
     byId('silence').hidden = phase !== 'speaking';
+    renderSpeechPreview();
     renderError();
   }
 
@@ -248,6 +275,7 @@
     expand.setAttribute('aria-expanded', String(next === 'history'));
     label(expand, next === 'history' ? 'Скрыть переписку' : 'Показать переписку');
     renderTranscript();
+    renderSpeechPreview();
     if (next === 'participants') renderParticipants();
     if (newSheet) content.scrollTop = next === 'sessions' || next === 'participants' ? 0 : content.scrollHeight;
     queueHitAreas();
@@ -448,7 +476,7 @@
     }
     state = next;
     acceptDraft(next);
-    if (seenAudioVersion === audioVersion) audio = next.audio || {};
+    if (seenAudioVersion === audioVersion || next.audio?.generation > (audio.generation ?? -1)) audio = next.audio || {};
     const profile = state.profile || {};
     const opacity = Number(profile.opacity ?? 90);
     panel.style.setProperty('--assistant-opacity', (Number.isFinite(opacity) ? Math.max(0, Math.min(100, opacity)) : 90) + '%');
@@ -750,8 +778,11 @@
     axiko.on('assistant', () => schedule());
     axiko.on('assistant.audio', event => {
       if (!event || (event.id && event.id !== state?.id)) return;
+      if (event.generation !== undefined && event.generation < (audio.generation ?? -1)) return;
       audioVersion++;
-      audio = { ...audio, ...event, error: event.error || '' };
+      if (event.generation !== undefined && event.generation !== audio.generation) audio = {};
+      audio = { ...audio, ...event };
+      if (event.state) audio.error = event.error || '';
       renderAudio();
     });
     document.addEventListener('visibilitychange', () => {

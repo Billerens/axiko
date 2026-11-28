@@ -65,6 +65,7 @@ object OnScreenAssistant {
         var started = false
         var refreshQueued = false
         var audio = idleAudio()
+        var transcript = ""
         var audioGeneration = 0
         var capture: Assist.Capture? = null
         var attach = false
@@ -546,13 +547,31 @@ object OnScreenAssistant {
                     }
                 }
             },
+            onTranscript = { text ->
+                synchronized(this) {
+                    current?.takeIf {
+                        it.id == id && it.visible && it.audioGeneration == generation && it.audio.optBoolean("active")
+                    }?.let {
+                        if (it.transcript != text) {
+                            it.transcript = text
+                            Pages.assistantEvent(id, "assistant.audio", JSONObject().put("generation", generation).put("transcript", text))
+                        }
+                    }
+                }
+            },
             onState = { state ->
                 synchronized(this) {
                     current?.takeIf { it.id == id && it.visible && it.audioGeneration == generation }?.let {
                         it.audio = state
-                        if (!state.optBoolean("active")) { it.conversation = false; refresh(it) }
+                        val active = state.optBoolean("active")
+                        if (!active) {
+                            it.transcript = ""
+                            it.conversation = false
+                            refresh(it)
+                        }
                         state.optString("error").takeIf(String::isNotBlank)?.let { error -> it.error = error; refresh(it) }
-                        Pages.assistantEvent(id, "assistant.audio", audioState(it))
+                        if (active) Pages.assistantEvent(id, "assistant.audio", state.put("generation", generation))
+                        else Pages.assistantEvent(id, "assistant.audio", audioState(it))
                     }
                 }
             },
@@ -567,6 +586,7 @@ object OnScreenAssistant {
     private fun stopRecording(session: Session) {
         session.audioGeneration++
         session.conversation = false
+        session.transcript = ""
         Live.stopAssistant(session.id)
         session.audio = idleAudio()
         if (session.visible) {
@@ -580,10 +600,12 @@ object OnScreenAssistant {
         stopRecording(session)
     }
 
-    private fun audioState(session: Session): JSONObject =
-        if (!session.audio.optBoolean("active") && Tts.speakingFor(voiceId(session))) {
-            JSONObject(session.audio.toString()).put("state", "speaking")
-        } else session.audio
+    private fun audioState(session: Session): JSONObject {
+        val state = JSONObject(session.audio.toString())
+            .put("generation", session.audioGeneration).put("transcript", session.transcript)
+        if (!state.optBoolean("active") && Tts.speakingFor(voiceId(session))) state.put("state", "speaking")
+        return state
+    }
 
     private fun stopSpeaking(session: Session) {
         session.voiceGeneration++

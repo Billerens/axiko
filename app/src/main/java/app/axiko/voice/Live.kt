@@ -18,6 +18,7 @@ import app.axiko.agent.Conversation
 import app.axiko.core.Pages
 import com.k2fsa.sherpa.onnx.Vad
 import org.json.JSONObject
+import java.util.UUID
 import java.util.concurrent.Executors
 import kotlin.math.sqrt
 
@@ -38,6 +39,7 @@ import kotlin.math.sqrt
 object Live {
     private const val RATE = 16000
     private const val WINDOW = 512
+    private const val PREVIEW_PLAYBACK_TAIL_MS = 300L
 
     /** Windows (32 ms each) of loud speech in a row, give or take, that make an interruption. */
     private const val OVER_WINDOWS = 9
@@ -54,12 +56,15 @@ object Live {
     private class Panel(
         val owner: String,
         val onPhrase: (String) -> Unit,
+        val onTranscript: (String) -> Unit,
         val onState: (JSONObject) -> Unit,
         val onInterrupt: () -> Unit,
         @Volatile var conversationIdleMs: Long?,
     )
 
     private class Session(val chat: Conversation, val panel: Panel?) {
+        val id = UUID.randomUUID().toString()
+        @Volatile var transcript = ""
         @Volatile var state = "starting"
         var lastLevelAt = 0L
     }
@@ -92,23 +97,49 @@ object Live {
 
     fun status(): JSONObject {
         val session = current?.takeIf { it.panel == null }
-        return JSONObject().put("active", session != null).put("state", session?.state ?: "off")
+        val event = JSONObject().put("active", session != null).put("state", session?.state ?: "off")
             .put("interruptions", interruptions).put("echoes", echoes)
+        return if (session == null) event else identify(session, event).put("transcript", session.transcript)
+    }
+
+    private fun identify(session: Session, event: JSONObject): JSONObject =
+        event.put("id", session.id).put("agent", session.chat.id).put("thread", session.chat.thread)
+
+    private fun canPublish(session: Session, next: String): Boolean {
+        val activeSession = current
+        if (next != "off") return activeSession === session
+        return activeSession == null || activeSession === session || activeSession.panel?.owner != session.panel?.owner
     }
 
     private fun publish(session: Session, next: String, level: Double = 0.0, error: String? = null) {
-        val activeSession = current
-        if (next != "off" && activeSession !== session) return
-        if (next == "off" && activeSession != null && activeSession !== session &&
-            activeSession.panel?.owner == session.panel?.owner) return
         val event = JSONObject().put("active", next != "off").put("state", next).put("level", level)
         if (error != null) event.put("error", error)
         val panel = session.panel
-        if (panel != null) runCatching {
-            event.put("conversation", next != "off" && panel.conversationIdleMs != null)
-            panel.onState(event)
+        if (panel != null) {
+            if (canPublish(session, next)) runCatching {
+                event.put("conversation", next != "off" && panel.conversationIdleMs != null)
+                panel.onState(event)
+            }
+        } else synchronized(sessions) {
+            if (!canPublish(session, next)) return
+            if (next == "off") emitChatTranscript(session, "")
+            Pages.broadcast("live", identify(session, event).toString())
         }
-        else Pages.broadcast("live", event.toString())
+    }
+
+    private fun publishTranscript(session: Session, text: String) {
+        val panel = session.panel
+        if (panel != null) {
+            if (current === session) runCatching { panel.onTranscript(text) }
+        } else synchronized(sessions) {
+            if (current === session) emitChatTranscript(session, text)
+        }
+    }
+
+    private fun emitChatTranscript(session: Session, text: String) {
+        if (session.transcript == text) return
+        session.transcript = text
+        Pages.broadcast("live.partial", identify(session, JSONObject().put("text", text)).toString())
     }
 
     private fun tell(session: Session, next: String, level: Double? = null) {
@@ -135,6 +166,7 @@ object Live {
         chat: Conversation,
         owner: String,
         onPhrase: (String) -> Unit,
+        onTranscript: (String) -> Unit,
         onState: (JSONObject) -> Unit,
         onInterrupt: () -> Unit,
         conversationIdleMs: Long? = null,
@@ -144,7 +176,7 @@ object Live {
         if (App.instance.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             error("Нет доступа к микрофону. Разрешите его в настройках Axiko.")
         }
-        return begin(Session(chat, Panel(owner, onPhrase, onState, onInterrupt, conversationIdleMs)))
+        return begin(Session(chat, Panel(owner, onPhrase, onTranscript, onState, onInterrupt, conversationIdleMs)))
     }
 
     /** Promote a listening panel to a conversation without discarding speech in its recorder. */
@@ -161,7 +193,7 @@ object Live {
     }
 
     private fun checkAvailable() {
-        if (Stream.active || Stt.listening) error("Микрофон уже используется")
+        if (Stream.holdsMicrophone || Stt.listening) error("Микрофон уже используется")
         if (!Stt.ready) error("Модель распознавания речи не скачана. Откройте «Настройки», вкладка «Голос».")
     }
 
@@ -258,6 +290,7 @@ object Live {
         var noise: NoiseSuppressor? = null
         var routed = false
         var selectedSpeaker = false
+        val preview = SpeechPreview { text -> publishTranscript(session, text) }
         try {
             check(record.state == AudioRecord.STATE_INITIALIZED) { "Не удалось открыть микрофон." }
             if (current !== session) return
@@ -306,6 +339,7 @@ object Live {
             val speaker = SpeakerCapture()
             val silence = FloatArray(WINDOW)
             var idleConfiguration = panel?.conversationIdleMs
+            var previewMutedUntil = 0L
             while (current === session) {
                 val count = record.read(buffer, filled, WINDOW - filled)
                 if (current !== session) break
@@ -333,6 +367,7 @@ object Live {
                 if (panel != null && playback != null && roomSound != null) {
                     if (speaker.enter(roomSound.source, roomSound.deviceId)) {
                         detector.reset()
+                        preview.reset()
                         ownerSpoke = false
                         echoSpoke = false
                         interrupted = false
@@ -341,9 +376,18 @@ object Live {
                     val mayInterrupt = playback.playing && roomSound.id == panelSpeech
                     when (speaker.record(mayInterrupt) { roomSound.match(window) }) {
                         SpeakerCapture.Window.DROP -> Unit
-                        SpeakerCapture.Window.RESET -> detector.reset()
-                        SpeakerCapture.Window.SILENCE -> detector.acceptWaveform(silence)
-                        SpeakerCapture.Window.FOREGROUND -> detector.acceptWaveform(window)
+                        SpeakerCapture.Window.RESET -> {
+                            detector.reset()
+                            preview.reset()
+                        }
+                        SpeakerCapture.Window.SILENCE -> {
+                            detector.acceptWaveform(silence)
+                            preview.accept(silence, false)
+                        }
+                        SpeakerCapture.Window.FOREGROUND -> {
+                            detector.acceptWaveform(window)
+                            preview.accept(window, speaker.confirmed && detector.isSpeechDetected())
+                        }
                         SpeakerCapture.Window.INTERRUPTION -> {
                             detector.acceptWaveform(window)
                             if (detector.isSpeechDetected()) {
@@ -353,6 +397,7 @@ object Live {
                                 panel.onInterrupt()
                                 interruptions++
                             }
+                            preview.accept(window, speaker.confirmed)
                         }
                     }
                     if (!speaker.confirmed) {
@@ -361,12 +406,18 @@ object Live {
                     }
                     tell(session, "hearing", level)
                 } else {
-                    if (speaker.leave()) detector.reset()
+                    if (speaker.leave()) {
+                        detector.reset()
+                        preview.reset()
+                    }
                     detector.acceptWaveform(window)
                     val speech = detector.isSpeechDetected()
                     // The panel can use ordinary VAD with a known private output. The usual
                     // in-app chat keeps its call-audio path and Android's reference.
                     if (if (panel == null) answering else playback?.playing == true) {
+                        // Without a speaker reference, wait out the playback and its tail before displaying speech.
+                        if (now >= previewMutedUntil) preview.reset()
+                        previewMutedUntil = now + PREVIEW_PLAYBACK_TAIL_MS
                         val over = speech && level > maxOf(OVER_LEVEL, residue * OVER_ECHO)
                         if (!over) residue = if (residue == 0.0) level else residue * 0.97 + level * 0.03
                         loud = if (over) loud + 1 else maxOf(0, loud - 2)
@@ -383,6 +434,7 @@ object Live {
                             tell(session, "speaking")
                         }
                     } else {
+                        if (now >= previewMutedUntil) preview.accept(window, speech)
                         residue = 0.0
                         loud = 0
                         if (speech) {
@@ -397,6 +449,7 @@ object Live {
                 while (!detector.empty()) {
                     val samples = detector.front().samples
                     detector.pop()
+                    preview.reset()
                     val mine = ownerSpoke || !echoSpoke
                     val minSamples = if (interrupted) RATE / 5 else RATE * 4 / 10
                     ownerSpoke = false
@@ -438,6 +491,7 @@ object Live {
                 if (idleMs > 0 && now - lastWord > idleMs) break
             }
         } finally {
+            preview.close()
             synchronized(microphone) {
                 if (recorder?.second === record) {
                     recorder = null

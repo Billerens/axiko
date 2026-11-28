@@ -336,6 +336,28 @@
     text-align: left;
   }
 
+  .speech-preview {
+    min-width: 0;
+    margin: 0 10px 6px;
+    padding: 8px 12px;
+    border-inline-start: 2px solid var(--accent);
+    border-radius: 8px;
+    background: var(--accent-soft);
+  }
+
+  .speech-preview-label {
+    color: var(--ink-2);
+    font-size: 12px;
+  }
+
+  .speech-preview-text {
+    max-height: 4.5em;
+    overflow-y: auto;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    line-height: 1.5;
+  }
+
   .composer {
     display: flex;
     align-items: flex-end;
@@ -916,6 +938,10 @@
   <span class="grow truncate" id="attach-text"></span>
   <button class="icon-btn" id="attach-drop" aria-label="Не прикладывать" data-icon="close"></button>
 </div>
+<section class="speech-preview" id="speech-preview" aria-labelledby="speech-preview-label" hidden>
+  <p class="speech-preview-label" id="speech-preview-label">Распознаю…</p>
+  <p class="speech-preview-text" id="speech-preview-text" data-raw></p>
+</section>
 <footer class="composer">
   <button class="round ghost" id="clip" aria-label="Приложить файл или картинку" data-icon="clip"></button>
   <input type="file" id="files" multiple hidden>
@@ -962,7 +988,7 @@
   let bubble = null;      // the answer being written
   let written = '';
   let drawing = false;
-  let hearing = false;
+  let dictation = null;
   const browserVoice = axiko.platform === 'web'
     ? 'web-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2) : null;
   let speaking = false;
@@ -1102,7 +1128,7 @@
     if (log.children.length && !log.querySelector('.blank')) return;
     log.replaceChildren(h('div', { class: 'blank' },
       // The main agent is met by the mascot; with the mascot off, by its icon like any other agent.
-      agent.id === 'axiko' && ui.mascot(hearing ? 'listening' : 'idle', { lively: true }),
+      agent.id === 'axiko' && ui.mascot(currentDictation(dictation) ? 'listening' : 'idle', { lively: true }),
       h('div', { class: 'well' }, ui.mark(agent)),
       h('div', {},
         h('h3', {}, agent.id === 'axiko' ? 'Чем помочь?' : agent.title),
@@ -1886,7 +1912,10 @@
     const who = agentId;
     const selectedThread = await axiko.native('agent.thread', who);
     if (ticket !== chatLoadVersion || who !== agentId) return;
-    if (browserVoice && selectedThread !== threadId) stopBrowserSpeech();
+    if (selectedThread !== threadId) {
+      if (browserVoice) stopBrowserSpeech();
+      clearVoicePreview();
+    }
     threadId = selectedThread;
     participantsButton.disabled = !selectedThread;
     const version = agentEventsVersion;
@@ -2075,7 +2104,10 @@
   }
 
   function switchTo(id) {
-    if (browserVoice && id !== agentId) stopBrowserSpeech();
+    if (id !== agentId) {
+      if (browserVoice) stopBrowserSpeech();
+      clearVoicePreview();
+    }
     agentId = id;
     localStorage.setItem('chat.agent', id);
     return load();
@@ -2320,35 +2352,71 @@
 
   // ---- voice -----------------------------------------------------------------------------------
 
+  const speechPreview = document.getElementById('speech-preview');
+  const speechPreviewText = document.getElementById('speech-preview-text');
+
+  function showSpeechPreview(text) {
+    const phrase = typeof text === 'string' ? text : '';
+    if (speechPreviewText.textContent === phrase) return;
+    const stick = nearBottom();
+    speechPreview.hidden = !phrase;
+    speechPreviewText.textContent = phrase;
+    speechPreviewText.scrollTop = speechPreviewText.scrollHeight;
+    if (stick) toBottom();
+  }
+
+  function clearVoicePreview() {
+    showSpeechPreview('');
+    // The old recording belongs to the conversation it started in.
+    if (dictation && !dictation.cancelled) {
+      dictation.cancelled = true;
+      axiko.native('speech.stopListening').catch(() => {});
+    }
+  }
+
+  function currentDictation(request) {
+    return request && dictation === request && !request.cancelled &&
+      request.agent === agentId && request.thread === threadId;
+  }
+
   async function listen() {
     if (dialog) { axiko.native('live.stop'); return; }
-    if (hearing) { axiko.native('speech.stopListening'); return; }
-    hearing = true;
+    if (dictation) { axiko.native('speech.stopListening'); return; }
+    const request = { id: 'chat-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2), agent: agentId, thread: threadId };
+    dictation = request;
     mic.classList.add('live');
     // On an empty chat the mascot is there to listen.
     const face = log.querySelector('.blank .mascot');
     if (face) ui.mascot.pose(face, 'listening');
     try {
-      const text = await axiko.native('speech.listen');
-      if (!text) {
-        ui.toast('Ничего не расслышал');
-      } else if (!input.value.trim() && !busy && (await axiko.native('pref.get', 'voice.autosend', 'on')) !== 'off') {
-        submit(text);
-      } else {
+      const text = await axiko.native('speech.listen', 45, { id: request.id });
+      if (!currentDictation(request)) return;
+      showSpeechPreview('');
+      if (!text) { ui.toast('Ничего не расслышал'); return; }
+      const autoSend = !input.value.trim() && !busy && (await axiko.native('pref.get', 'voice.autosend', 'on')) !== 'off';
+      if (!currentDictation(request)) return;
+      if (autoSend && !input.value.trim() && !busy) submit(text);
+      else {
         input.value = (input.value + ' ' + text).trim();
         grow();
       }
     } catch (error) {
-      failRow(error.message);
+      if (currentDictation(request)) failRow(error.message);
+    } finally {
+      dictation = null;
+      showSpeechPreview('');
+      const mascot = log.querySelector('.blank .mascot');
+      if (mascot) ui.mascot.pose(mascot, 'idle');
+      mic.classList.remove('live', 'wait');
+      mic.style.removeProperty('--level');
     }
-    hearing = false;
-    if (log.querySelector('.blank .mascot')) ui.mascot.pose(log.querySelector('.blank .mascot'), 'idle');
-    mic.classList.remove('live', 'wait');
-    mic.style.removeProperty('--level');
   }
 
+  axiko.on('speech.partial', event => {
+    if (event?.mode === 'listen' && currentDictation(dictation) && event.id === dictation.id) showSpeechPreview(event.text);
+  });
   axiko.on('speech', event => {
-    if (!hearing) return;
+    if (!currentDictation(dictation)) return;
     mic.classList.toggle('live', event.state === 'listening' || event.state === 'speech');
     mic.classList.toggle('wait', event.state === 'processing');
     if (event.level !== undefined) mic.style.setProperty('--level', Math.min(1, event.level * 6));
@@ -2364,8 +2432,13 @@
   // ---- a live conversation: the microphone stays open, and the owner can speak over the answer ------
 
   let dialog = false;
+  let liveCaptureId = null;
 
-  function setDialog(on) {
+  function setDialog(on, id) {
+    if (!on || id && id !== liveCaptureId) {
+      liveCaptureId = on ? id : null;
+      if (!dictation) showSpeechPreview('');
+    }
     dialog = on;
     mic.classList.toggle('dialog', on);
     if (!on) mic.classList.remove('live', 'wait');
@@ -2384,15 +2457,31 @@
     }
   });
 
+  function showLivePreview(event, text) {
+    if (dialog && !dictation && liveCaptureId && event.id === liveCaptureId &&
+        event.agent === agentId && event.thread === threadId) showSpeechPreview(text);
+  }
+
+  axiko.on('live.partial', event => { if (event) showLivePreview(event, event.text); });
   axiko.on('live', event => {
     if (event.error) ui.toast(event.error);
-    if (event.state === 'off') { setDialog(false); mic.style.removeProperty('--level'); return; }
-    setDialog(true);
+    if (event.state === 'off') {
+      if (event.id && liveCaptureId && event.id !== liveCaptureId) return;
+      setDialog(false);
+      mic.style.removeProperty('--level');
+      return;
+    }
+    setDialog(true, event.id);
     mic.classList.toggle('live', event.state === 'hearing' || event.state === 'listening');
     mic.classList.toggle('wait', event.state === 'thinking');
     if (event.state === 'hearing') mic.style.setProperty('--level', Math.min(1, event.level * 6));
   });
-  axiko.native('live.status').then(state => setDialog(state.active));
+  axiko.native('live.status').then(state => {
+    if (!dialog && state?.active) {
+      setDialog(true, state.id);
+      showLivePreview(state, state.transcript);
+    }
+  });
 
   /** Kept for the turn-by-turn flow: in a live conversation the shell listens by itself. */
   function listenAgain() {}

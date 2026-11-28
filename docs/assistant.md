@@ -23,7 +23,9 @@ or approve a plan in the overlay. The regular Axiko chat keeps its selected conv
 
 Each invocation starts a fresh conversation. Use **Sessions** to open a recent assistant
 conversation or start another. The keyboard button opens the same conversation in text mode.
-The center microphone then dictates into an editable draft. Send it when it is ready. Drafts
+The center microphone then dictates into an editable draft. While you speak, a separate preview
+shows the provisional transcription. Each finished phrase is appended to the draft in text mode
+or sent to the agent in voice mode. Send the text draft when it is ready. Drafts
 and temporary conversations stay in memory while the Axiko process lives. A saved conversation
 can also be opened in the regular chat after its first message. **Open Axiko** returns to the
 main app from any assistant conversation. Closing the overlay releases the conversation's

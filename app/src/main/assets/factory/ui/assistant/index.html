@@ -8,6 +8,9 @@
 <body>
 <main class="assistant-panel" id="assistant-panel" data-motion="true" data-mode="voice" data-phase="idle" aria-label="Наэкранный ассистент">
   <div class="assistant-bubbles" id="assistant-bubbles" aria-hidden="true">
+    <div class="assistant-message user assistant-speech-preview" id="assistant-speech-preview" hidden>
+      <span class="assistant-author">Распознаю…</span><p id="assistant-speech-text" data-raw></p>
+    </div>
     <div class="assistant-message user" id="assistant-user-bubble" hidden>
       <span class="assistant-author">Вы</span><p id="assistant-utterance" data-raw></p>
     </div>

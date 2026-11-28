@@ -445,6 +445,75 @@ textarea.input {
   line-height: 1.4;
 }
 
+/* Native disclosures share the kit's down icon. Menus and custom controls keep their own trigger. */
+:where(details:not(.menu, .thought, [data-details-style="custom"]) > summary:first-child:not(.btn, .icon-btn, [data-icon], [aria-haspopup], :has(> svg.i, > [data-icon]))) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  min-block-size: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  list-style: none;
+  cursor: pointer;
+}
+
+:where(details:not(.menu, .thought, [data-details-style="custom"]) > summary:first-child:not(.btn, .icon-btn, [data-icon], [aria-haspopup], :has(> svg.i, > [data-icon])))::-webkit-details-marker {
+  display: none;
+}
+
+:where(details:not(.menu, .thought, [data-details-style="custom"]) > summary:first-child:not(.btn, .icon-btn, [data-icon], [aria-haspopup], :has(> svg.i, > [data-icon])))::after {
+  content: "";
+  flex: none;
+  inline-size: 18px;
+  block-size: 18px;
+  margin-inline-start: auto;
+  background-color: var(--ink-2);
+  --details-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  -webkit-mask: var(--details-chevron) center / contain no-repeat;
+  mask: var(--details-chevron) center / contain no-repeat;
+  transform: rotate(-90deg);
+  pointer-events: none;
+}
+
+:where(details:not(.menu, .thought, [data-details-style="custom"]) > summary:first-child:not(.btn, .icon-btn, [data-icon], [aria-haspopup], :has(> svg.i, > [data-icon])):dir(rtl))::after {
+  transform: rotate(90deg);
+}
+
+:where(details[open]:not(.menu, .thought, [data-details-style="custom"]) > summary:first-child:not(.btn, .icon-btn, [data-icon], [aria-haspopup], :has(> svg.i, > [data-icon]))) {
+  margin-block-end: 8px;
+  background: var(--surface-2);
+}
+
+:where(details[open]:not(.menu, .thought, [data-details-style="custom"]) > summary:first-child:not(.btn, .icon-btn, [data-icon], [aria-haspopup], :has(> svg.i, > [data-icon])))::after {
+  background-color: var(--accent);
+  transform: none;
+}
+
+:where(details:not(.menu, .thought, [data-details-style="custom"]) > summary:first-child:not(.btn, .icon-btn, [data-icon], [aria-haspopup], :has(> svg.i, > [data-icon])):focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) {
+  :where(details:not(.menu, .thought, [data-details-style="custom"]) > summary:first-child:not(.btn, .icon-btn, [data-icon], [aria-haspopup], :has(> svg.i, > [data-icon])):hover) {
+    background: var(--surface-2);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :where(details:not(.menu, .thought, [data-details-style="custom"]) > summary:first-child:not(.btn, .icon-btn, [data-icon], [aria-haspopup], :has(> svg.i, > [data-icon])))::after {
+    transition: transform .16s ease, background-color .16s ease;
+  }
+}
+
 /* Single-choice fields keep their form semantics and share the same picker in each theme. */
 select:not([multiple]):is(:not([size]), [size="0"], [size="1"]) {
   min-inline-size: 0;

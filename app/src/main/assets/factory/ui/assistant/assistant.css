@@ -83,6 +83,20 @@
   overflow: hidden;
 }
 
+.assistant-speech-preview {
+  --assistant-preview-lines: 3;
+  border-style: dashed;
+  overflow-anchor: none;
+}
+
+.assistant-bubbles .assistant-speech-preview p, .assistant-speech-preview p {
+  display: block;
+  max-height: calc(1.35em * var(--assistant-preview-lines));
+  overflow: hidden;
+}
+
+.assistant-bubbles:has(> .assistant-speech-preview:not([hidden])) > #assistant-user-bubble { display: none; }
+
 [data-motion="true"] .assistant-bubbles .assistant-message { animation: assistant-appear .18s ease-out both; }
 [data-motion="true"] .assistant-bubbles .assistant-message.leaving { animation: assistant-leave .23s ease both; }
 
@@ -312,6 +326,7 @@
 @media (max-height: 310px) {
   .assistant-panel { gap: 3px; }
   .assistant-bubbles .assistant-message p { -webkit-line-clamp: 2; }
+  .assistant-speech-preview { --assistant-preview-lines: 2; }
   #assistant-actions { flex-wrap: nowrap; overflow-x: auto; justify-content: safe center; scrollbar-width: none; pointer-events: auto; }
   #assistant-actions > button { flex: none; }
 }
@@ -321,6 +336,7 @@
   .assistant-drawer-head h3 { font-size: .88rem; }
   .assistant-drawer[data-sheet="text"] .assistant-drawer-head { display: none; }
   .assistant-bubbles .assistant-message p { -webkit-line-clamp: 1; }
+  .assistant-speech-preview { --assistant-preview-lines: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {

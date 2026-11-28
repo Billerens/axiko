@@ -76,6 +76,7 @@ function native(method, args) {
   switch (method) {
     case 'agent.list': return [{ id: 'axiko', title: 'Axiko', icon: 'spark', description: '' }];
     case 'speech.status': return { tts: false, ready: false };
+    case 'speech.listen': return new Promise(resolve => { phone.dictation = { id: args[1]?.id, finish: resolve }; });
     case 'agent.thread': return phone.current;
     case 'agent.threads': return [];
     case 'agent.history': return JSON.parse(JSON.stringify(phone.threads[args[1] || phone.current] || []));
@@ -113,7 +114,7 @@ const server = http.createServer((req, res) => {
   if (route === '/__axiko/rpc' || route === '/__axiko/audio') {
     let body = '';
     req.on('data', chunk => body += chunk);
-    req.on('end', () => {
+    req.on('end', async () => {
       const request = JSON.parse(body);
       if (route === '/__axiko/audio') {
         phone.audio.push({ method: req.method, text: request.text });
@@ -122,7 +123,7 @@ const server = http.createServer((req, res) => {
         return;
       }
       let value = null;
-      if (request.op === 'native') value = native(request.method, JSON.parse(request.args || '[]'));
+      if (request.op === 'native') value = await native(request.method, JSON.parse(request.args || '[]'));
       else if (request.op === 'desk.status') value = { name: 'Axiko', factory: false };
       else if (request.op === 'eval') value = request.code.includes('nav.json') ? JSON.stringify({ items: [] }) : [];
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', Connection: 'close' });
@@ -310,6 +311,61 @@ const scenarios = {
     await until(frame, () => phone.sent.length === 2, 1500, 'the pending work accepts the follow-up');
     assert.deepEqual(phone.sent.map(item => item.text), [multiline, 'Уточнение по ходу работы']);
     assert.equal(phone.stopped, 0);
+  },
+  async provisionalSpeech(page) {
+    const frame = await chat(page);
+    const composer = frame.locator('#input');
+    const preview = frame.locator('#speech-preview');
+    const snippet = preview.locator('#speech-preview-text');
+    const waitForDictation = async previous => {
+      const deadline = Date.now() + 2500;
+      while (Date.now() < deadline) {
+        const request = phone.dictation;
+        if (request?.id && request.id !== previous) return request;
+        await wait(25);
+      }
+      throw new Error('The microphone did not start a new dictation request');
+    };
+    await composer.fill('Мой черновик');
+    await frame.click('#mic');
+    const first = await waitForDictation();
+    emit('speech.partial', { id: 'other-screen', mode: 'listen', text: 'Чужое распознавание' });
+    emit('speech.partial', { id: first.id, mode: 'stream', text: 'Запись другого модуля' });
+    assert.equal(await preview.isVisible(), false);
+    emit('speech.partial', { id: first.id, mode: 'listen', text: 'ещё' });
+    await snippet.getByText('ещё', { exact: true }).waitFor();
+    emit('speech.partial', { id: first.id, mode: 'listen', text: 'ещё несколько слов' });
+    await snippet.getByText('ещё несколько слов', { exact: true }).waitFor();
+    assert.equal(await composer.inputValue(), 'Мой черновик');
+    assert.equal(phone.sent.length, 0);
+    first.finish('точная фраза');
+    await frame.waitForFunction(() => document.getElementById('input').value === 'Мой черновик точная фраза');
+    await preview.waitFor({ state: 'hidden' });
+    assert.equal(phone.sent.length, 0);
+
+    await composer.fill('');
+    await frame.click('#mic');
+    const second = await waitForDictation(first.id);
+    emit('speech.partial', { id: first.id, mode: 'listen', text: 'Запоздавший черновик' });
+    emit('speech.partial', { id: second.id, mode: 'listen', text: 'оконч…' });
+    await snippet.getByText('оконч…', { exact: true }).waitFor();
+    assert.equal(phone.sent.length, 0);
+    second.finish('Окончательный текст');
+    await until(frame, () => phone.sent.length === 1, 1500, 'only the final phrase is sent');
+    assert.equal(phone.sent[0].text, 'Окончательный текст');
+    await preview.waitFor({ state: 'hidden' });
+
+    const live = { id: 'live-test', agent: 'axiko', thread: 't1' };
+    emit('live', { ...live, state: 'hearing', active: true, level: 0.1 });
+    emit('live.partial', { ...live, text: 'предварительная реплика' });
+    await snippet.getByText('предварительная реплика', { exact: true }).waitFor();
+    emit('live.partial', { ...live, thread: 'different', text: 'Другой разговор' });
+    emit('live.partial', { ...live, id: 'old-id', text: 'Старая запись' });
+    emit('live.partial', { ...live, text: 'предварительная реплика обновлена' });
+    await snippet.getByText('предварительная реплика обновлена', { exact: true }).waitFor();
+    assert.equal(phone.sent.length, 1);
+    emit('live', { ...live, state: 'off', active: false });
+    await preview.waitFor({ state: 'hidden' });
   },
   // A stream that stays open but says nothing is opened anew from its pings alone, before anyone asks.
   async silentStreamIsReplaced(page) {

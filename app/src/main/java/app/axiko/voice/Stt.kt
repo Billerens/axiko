@@ -28,6 +28,8 @@ import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 import kotlin.math.sqrt
 
 /**
@@ -71,6 +73,7 @@ object Stt {
     @Volatile
     private var stopRequested = false
 
+    private val decoding = ReentrantLock(true)
     private var recognizer: Pair<String, OfflineRecognizer>? = null
 
     private val engine: String get() = App.prefs.getString("stt.engine", "gigaam") ?: "gigaam"
@@ -161,7 +164,6 @@ object Stt {
         }
     }
 
-    @Synchronized
     private fun recognizer(): OfflineRecognizer {
         val wanted = if (engine == "parakeet") "parakeet" else "gigaam"
         recognizer?.let { (made, engine) ->
@@ -208,7 +210,19 @@ object Stt {
     )
 
     /** Text of one stretch of speech (up to about 25 seconds), 16 kHz mono. */
-    internal fun decode(samples: FloatArray): String {
+    internal fun decode(samples: FloatArray): String = decoding.withLock { decodeAudioSegment(samples) }
+
+    /** Skip this draft if a final decode is already running or queued. */
+    internal fun tryDecodePreview(samples: FloatArray): String? {
+        if (!decoding.tryLock(0, TimeUnit.MILLISECONDS)) return null
+        try {
+            return decodeAudioSegment(samples)
+        } finally {
+            decoding.unlock()
+        }
+    }
+
+    private fun decodeAudioSegment(samples: FloatArray): String {
         if (samples.size < RATE / 5) return ""
         val engine = recognizer()
         val stream = engine.createStream()
@@ -283,27 +297,32 @@ object Stt {
      * Listens for one utterance and returns its text: starts at once, ends after a pause in
      * speech, on [stop], or when nobody speaks. Pages follow it through the "speech" event.
      */
-    fun listen(maxSeconds: Int = 45): String {
+    fun listen(maxSeconds: Int = 45, requestId: String? = null): String {
         if (Thread.currentThread().isInterrupted) return ""
-        if (listening || Stream.active) error("Уже слушаю")
+        if (listening || Stream.holdsMicrophone || Live.holdsMicrophone) error("Уже слушаю")
         if (!Permissions.ensure(Manifest.permission.RECORD_AUDIO)) error("Нет доступа к микрофону")
         val useSystem = engine == "system" || !ready
         if (useSystem && !SpeechRecognizer.isRecognitionAvailable(App.instance)) {
             error("Модель распознавания речи не скачана. Откройте «Настройки» и скачайте её.")
         }
-        listening = true
-        stopRequested = false
-        Tts.stop()
+        val partial = checkedSpeechId(requestId)?.let { SpeechPartial(it, "listen") }
+        synchronized(this) {
+            if (listening || Stream.holdsMicrophone || Live.holdsMicrophone) error("Уже слушаю")
+            listening = true
+            stopRequested = false
+        }
         try {
-            return if (useSystem) listenSystem(maxSeconds) else listenLocal(maxSeconds)
+            Tts.stop()
+            return if (useSystem) listenSystem(maxSeconds, partial) else listenLocal(maxSeconds, partial)
         } finally {
+            partial?.close()
             listening = false
             emit("speech", JSONObject().put("state", "idle"))
         }
     }
 
     @SuppressLint("MissingPermission")
-    private fun listenLocal(maxSeconds: Int): String {
+    private fun listenLocal(maxSeconds: Int, partial: SpeechPartial?): String {
         val detector = vad(1.0f)
         val minimum = AudioRecord.getMinBufferSize(RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val record = AudioRecord(
@@ -311,6 +330,7 @@ object Stt {
             AudioFormat.ENCODING_PCM_16BIT, maxOf(minimum, RATE * 2),
         )
         val segments = ArrayList<FloatArray>()
+        val preview = partial?.let { output -> SpeechPreview { output.emit(it) } }
         try {
             record.startRecording()
             emit("speech", JSONObject().put("state", "listening"))
@@ -331,14 +351,17 @@ object Stt {
                     sample
                 }
                 detector.acceptWaveform(window)
-                if (detector.isSpeechDetected()) spoke = true
+                val speech = detector.isSpeechDetected()
+                if (speech) spoke = true
                 var ended = false
                 while (!detector.empty()) {
                     segments.add(detector.front().samples)
                     detector.pop()
                     ended = true
                 }
-                if (ended && !detector.isSpeechDetected()) break
+                if (ended && !speech) break
+                if (ended) preview?.reset()
+                preview?.accept(window, speech)
                 val now = System.currentTimeMillis()
                 if (now - reported > 120) {
                     reported = now
@@ -357,6 +380,7 @@ object Stt {
                 detector.pop()
             }
         } finally {
+            preview?.close()
             record.release()
             detector.release()
         }
@@ -370,7 +394,7 @@ object Stt {
         return if (Thread.currentThread().isInterrupted) "" else text.joinToString(" ")
     }
 
-    private fun listenSystem(maxSeconds: Int): String {
+    private fun listenSystem(maxSeconds: Int, partial: SpeechPartial?): String {
         val done = CountDownLatch(1)
         var text = ""
         var failure: String? = null
@@ -385,7 +409,10 @@ object Stt {
                 override fun onRmsChanged(rmsdB: Float) = Unit
                 override fun onBufferReceived(buffer: ByteArray?) = Unit
                 override fun onEndOfSpeech() = emit("speech", JSONObject().put("state", "processing"))
-                override fun onPartialResults(partialResults: Bundle?) = Unit
+                override fun onPartialResults(partialResults: Bundle?) {
+                    val draft = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.trim()
+                    if (done.count > 0 && !draft.isNullOrEmpty()) partial?.emit(draft)
+                }
                 override fun onEvent(eventType: Int, params: Bundle?) = Unit
                 override fun onError(error: Int) {
                     if (error != SpeechRecognizer.ERROR_NO_MATCH && error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
@@ -402,6 +429,7 @@ object Stt {
             created.startListening(
                 Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
                     .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, partial != null)
                     .putExtra(RecognizerIntent.EXTRA_LANGUAGE, app.axiko.core.I18n.language.let { if (it == "ru") "ru-RU" else it }),
             )
         }

@@ -52,7 +52,7 @@ object Native {
      */
     val FEATURES = listOf(
         "notice.full", "notice.removed", "notice.open", "notify.actions", "dnd", "off", "job.once",
-        "vibrate.pattern", "app.visible", "speech.stream", "transcribe.segments", "speech.render",
+        "vibrate.pattern", "app.visible", "speech.stream", "speech.partial", "transcribe.segments", "speech.render",
         "theme.decor", "widget.image", "home.cards", "usage", "store.v1", "button.face", "launcher.icon",
         "launcher.icons", "ui.scale", "store.adopt", "ui.probe", "bubble.looks", "store.pages", "store.kinds", "store.mods", "store.carry", "store.share", "secrets.sealed",
         "assistant.panel", "app.update", "screen.suspicions",
@@ -413,7 +413,7 @@ object Native {
             Stt.download()
             true
         }
-        "speech.listen" -> Stt.listen(args.optInt(0, 45))
+        "speech.listen" -> Stt.listen(args.optInt(0, 45), speechRequestId(args.optJSONObject(1)))
         // (agent, thread) — a live conversation: the microphone stays open and the owner can speak over the answer.
         "live.start" -> Live.start(args.optString(0, Agent.MAIN), text(args, 1))
         "live.stop" -> {
@@ -429,10 +429,13 @@ object Native {
         "speech.transcribe" -> Workspace.resolve(args.getString(0)).path.let { path ->
             if (args.optJSONObject(1)?.optBoolean("segments") == true) Stt.segmentFile(path) else Stt.transcribeFile(path)
         }
-        // ({maxMinutes}) — the microphone stays open; every phrase comes as the "speech.phrase" event.
-        "speech.stream.start" -> Stream.start(args.optJSONObject(0)?.optDouble("maxMinutes", 10.0) ?: 10.0)
+        // The microphone stays open across phrases; a caller can opt into provisional text.
+        "speech.stream.start" -> args.optJSONObject(0).let { options ->
+            Stream.start(options?.optDouble("maxMinutes", 10.0) ?: 10.0, speechRequestId(options),
+                options?.optBoolean("previewText", false) == true)
+        }
         "speech.stream.stop" -> {
-            Stream.stop()
+            Stream.stop(speechRequestId(args.optJSONObject(0)))
             true
         }
         // (text, path, 'cloud'|'local'?) — the text spoken into an audio file; the path written comes back.
@@ -686,6 +689,8 @@ object Native {
         require(!Secrets.shell(name)) { "Секрет «$name» принадлежит оболочке: скрипты его не читают и не меняют." }
         return name
     }
+
+    private fun speechRequestId(options: JSONObject?): String? = options?.opt("id") as? String
 
     private fun text(args: JSONArray, index: Int): String? =
         if (args.isNull(index)) null else args.optString(index).takeIf { it.isNotBlank() }

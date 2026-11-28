@@ -176,6 +176,8 @@ async function main() {
     const panel = page.locator('#assistant-panel');
     const mic = page.locator('#assistant-mic');
     const openApp = page.locator('#assistant-app');
+    const speechPreview = page.locator('#assistant-speech-preview');
+    const speechText = page.locator('#assistant-speech-text');
     const transcript = page.locator('#assistant-expand');
     assert.equal(await panel.evaluate(node => node.style.getPropertyValue('--assistant-opacity')), '84%');
     assert.equal(await page.locator('#assistant-name').textContent(), 'Axiko');
@@ -219,9 +221,20 @@ async function main() {
     await mic.click();
     await called('startVoice');
     await page.waitForFunction(() => document.querySelector('#assistant-panel').dataset.phase === 'listening');
-    await page.evaluate(() => window.fixture.push('assistant.audio', { active: true, state: 'hearing', level: 0.7 }));
+    await page.evaluate(() => {
+      window.fixture.push('assistant.audio', { active: true, state: 'hearing', level: 0.7, generation: 2 });
+      window.fixture.push('assistant.audio', { transcript: '<b>Words so far', generation: 2 });
+    });
     assert.equal(await panel.getAttribute('data-phase'), 'hearing');
     assert.equal(await panel.evaluate(node => Number(node.style.getPropertyValue('--assistant-level'))), 0.7);
+    assert.equal(await speechPreview.isVisible(), true);
+    assert.equal(await speechText.textContent(), '<b>Words so far');
+    assert.equal(await speechText.locator('b').count(), 0);
+    assert.deepEqual(await page.evaluate(() => window.fixture.state.messages), []);
+    await page.evaluate(() => window.fixture.push('assistant.audio', { transcript: 'Previous turn', generation: 1 }));
+    assert.equal(await speechText.textContent(), '<b>Words so far');
+    await page.evaluate(() => window.fixture.push('assistant.audio', { transcript: '', generation: 2 }));
+    assert.equal(await speechPreview.isVisible(), false);
     await mic.click();
     await called('stopVoice');
     await page.waitForFunction(() => document.querySelector('#assistant-panel').dataset.phase === 'idle');
@@ -303,8 +316,15 @@ async function main() {
     assert.equal(await countCalls('stopSpeaking'), stopsBeforeText + 1);
     await mic.click();
     await page.waitForFunction(() => window.fixture.calls.filter(([method]) => method === 'assistant.startVoice').length === 2);
+    await page.waitForFunction(() => document.querySelector('#assistant-mic').getAttribute('aria-pressed') === 'true');
+    await page.evaluate(() => window.fixture.push('assistant.audio', { transcript: 'Voice draft so far' }));
+    assert.equal(await speechPreview.isVisible(), true);
+    assert.equal(await speechPreview.evaluate(node => node.parentElement.id), 'assistant-drawer');
+    assert.equal(await composer.inputValue(), 'In progress, unsent');
+    assert.equal(await page.locator('#assistant-log').getByText('Voice draft so far').count(), 0);
     await page.evaluate(() => {
       const { state, push } = window.fixture;
+      push('assistant.audio', { transcript: '' });
       state.draft += ' with dictated text';
       state.draftRevision++;
       state.draftAudioRevision++;

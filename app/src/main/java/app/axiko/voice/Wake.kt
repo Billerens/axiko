@@ -395,7 +395,7 @@ object Wake {
     private var panelRequestedAt: Long? = null // wake worker only
 
     private fun micBusy(): Boolean =
-        Stt.listening || Tts.speaking || Live.holdsMicrophone || Stream.active
+        Stt.listening || Tts.speaking || Live.holdsMicrophone || Stream.holdsMicrophone
 
     /** Called by the live worker after it has reserved the microphone for its session. */
     internal fun yieldMicrophone() = synchronized(captureLock) {

@@ -103,9 +103,21 @@ re-registering sensors and jobs to work around missing access.
   a local recognizer and is mutually exclusive with ordinary listening and live conversation.
   The default maximum is 10 minutes; the accepted range is 0.1–180. Wake-word listening pauses
   during the stream and resumes afterwards.
-- Each VAD phrase produces `speech.phrase: {text,startMs,endMs,time}`. The first two times are
-  offsets from the stream start; `time` is the phrase start in epoch milliseconds.
-  `speech.stream: {active,error?}` announces state changes. `speech.status` includes `stream`.
+- Each completed phrase produces `speech.phrase: {text,startMs,endMs,time}`. The first two times
+  are offsets from the stream start. `time` is the phrase start in epoch milliseconds. Page and
+  engine listeners receive completed phrases. `speech.stream: {active,error?}` announces state
+  changes. `speech.status` includes `stream`.
+- `speech.partial` adds provisional text on pages. Call `speech.listen(maxSeconds, {id})` for
+  one utterance or `speech.stream.start({id,maxMinutes,previewText:true})` for long dictation.
+  Give each recording a distinct `id` of at most 128 characters. The event has
+  `{id,mode,text,segment?}`, where `mode` is `listen` or `stream`. Replace the preview
+  for that recording with the new text. An empty string clears it. For long recordings, the sequence number `segment`
+  matches a completed `speech.phrase` event from the same session. Save the final return
+  value from `speech.listen` or append completed phrases from the stream.
+- Passing `id` to `speech.stream.start` adds it to `speech.phrase` and `speech.stream`
+  events. Call `speech.stream.stop({id})` to stop that recording. Page listeners should stay
+  subscribed until `speech.stream: {id,active:false,drained:true}`, after the last completed
+  phrase. The last phrase can arrive while the microphone is stopping.
 - `transcribe.segments`: `speech.transcribe(path,{segments:true})` returns
   `[{startMs,endMs,text}]`, with offsets from the file start and empty phrases omitted. Without
   this option the result is text.
@@ -116,6 +128,9 @@ re-registering sensors and jobs to work around missing access.
   role and its usage accounting. Empty text or no usable voice produces an error.
 
 ## UI, mascot and visual extensions
+
+The UI kit styles native `details > summary` controls. Set `data-details-style="custom"`
+on a disclosure with its own styling. Its native toggle and keyboard behavior stay available.
 
 | Feature | Contract |
 |---|---|
