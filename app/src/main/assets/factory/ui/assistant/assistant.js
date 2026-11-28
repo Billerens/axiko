@@ -14,12 +14,17 @@
   const sessionSearch = byId('session-search');
   const participantList = byId('participant-list');
   const actionRow = byId('actions');
+  const attachments = byId('attachments');
+  const file = byId('file');
+  const camera = byId('camera');
   let state = null;
   let audio = {};
   let audioVersion = 0;
   let pane = '';
   let sending = false;
   let switching = false;
+  let attachmentAction = false;
+  let attachmentKey = '';
   let mascot;
   let actionError = '';
   let logKey = '';
@@ -67,12 +72,40 @@
 
   function inputState() {
     const ready = Boolean(state?.id);
+    const attachmentBusy = !ready || switching || sending || attachmentAction || Boolean(state?.attachmentsPicking);
     input.disabled = !ready || switching;
-    send.disabled = !ready || sending || switching || !input.value.trim();
+    send.disabled = attachmentBusy || !input.value.trim();
+    input.placeholder = t(state?.attachments?.length ? 'Что с этим сделать?' :
+      state?.context?.attached ? 'Что сделать с этим экраном?' : 'Написать или сказать…');
+    for (const button of [file, camera, ...(attachments?.querySelectorAll('button') || [])]) {
+      if (button) button.disabled = attachmentBusy;
+    }
     for (const button of [mic, byId('chat'), byId('sessions'), byId('expand')]) {
       button.disabled = !ready || switching;
     }
     if (app) app.disabled = !ready || switching;
+  }
+
+  function renderAttachments() {
+    for (const button of [file, camera]) {
+      if (button) button.hidden = !state?.attachmentsAvailable;
+    }
+    if (!attachments) return;
+    const items = Array.isArray(state?.attachments) ? state.attachments : [];
+    const key = JSON.stringify([state?.id, state?.thread, state?.agent, items]);
+    if (key === attachmentKey) return;
+    attachmentKey = key;
+    attachments.replaceChildren(...items.map(item => {
+      const remove = h('button', {
+        type: 'button', class: 'assistant-icon', onclick: () => changeAttachments('removeAttachment', item.id),
+      }, ui.icon('close'));
+      remove.setAttribute('aria-label', t('Убрать вложение {}', item.name));
+      remove.title = t('Не прикладывать');
+      const name = h('span', { class: 'assistant-attachment-name', 'data-raw': '' }, raw(item.name));
+      name.title = item.name;
+      return h('li', { class: 'assistant-attachment' }, ui.icon(item.kind === 'image' ? 'image' : 'clip'), name, remove);
+    }));
+    attachments.hidden = !items.length;
   }
 
   function renderAudio() {
@@ -434,6 +467,7 @@
     screen.setAttribute('aria-pressed', String(Boolean(context.attached)));
     screen.title = context.app || '';
     visibleText(byId('screen-label'), t(context.attached ? 'Экран добавлен' : 'Добавить экран'));
+    renderAttachments();
     byId('cancel').hidden = !state.busy;
     if (byId('retry')) byId('retry').hidden = !state.retry?.available || state.busy;
     renderAudio();
@@ -482,7 +516,10 @@
     errorText('');
     try {
       const result = await native(method, ...args);
-      if (result === false) errorText(t('Не удалось выполнить действие'));
+      if (result === false) {
+        await readState();
+        if (!state?.error) errorText(t('Не удалось выполнить действие'));
+      }
       return result !== false;
     } catch (error) {
       errorText(error.message || t('Не удалось выполнить действие'));
@@ -493,7 +530,7 @@
   }
 
   async function submit() {
-    if (sending || switching || !state?.id || !input.value.trim()) return;
+    if (sending || switching || attachmentAction || state?.attachmentsPicking || !state?.id || !input.value.trim()) return;
     sending = true;
     inputState();
     try {
@@ -507,6 +544,21 @@
       errorText(error.message);
     } finally {
       sending = false;
+      inputState();
+    }
+  }
+
+  async function changeAttachments(method, value) {
+    if (!state?.id || switching || sending || attachmentAction || state.attachmentsPicking) return;
+    attachmentAction = true;
+    inputState();
+    try {
+      if (method === 'pickAttachment' && !await flushDraft()) return;
+      if (await run(method, value)) await readState();
+    } catch (error) {
+      errorText(error.message);
+    } finally {
+      attachmentAction = false;
       inputState();
     }
   }
@@ -675,6 +727,8 @@
     };
     byId('cancel').onclick = () => run('cancel');
     byId('screen').onclick = () => run('attachScreen', !state?.context?.attached);
+    if (file) file.onclick = () => changeAttachments('pickAttachment', 'file');
+    if (camera) camera.onclick = () => changeAttachments('pickAttachment', 'camera');
     byId('resume').onclick = () => changeDialog('resume');
     byId('open').onclick = async () => { if (await flushDraft()) run('openChat'); };
     byId('composer').onsubmit = event => { event.preventDefault(); submit(); };

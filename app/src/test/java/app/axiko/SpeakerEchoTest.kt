@@ -1,10 +1,14 @@
 package app.axiko
 
+import app.axiko.voice.EchoMatch
 import app.axiko.voice.PcmEchoReference
+import app.axiko.voice.SpeakerCapture
+import app.axiko.voice.SpeakerCapture.Window
 import app.axiko.voice.SpeakerEchoGuard
 import app.axiko.voice.SpeakerOverlap
 import java.util.Random as JavaRandom
 import kotlin.random.Random
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -92,6 +96,48 @@ class SpeakerEchoTest {
         assertFalse(overlap.pending)
         assertFalse(overlap.record(true))
     }
+
+    @Test
+    fun anUnconfirmedFragmentAndUnreferencedTailCannotBecomeAnOwnerPhrase() {
+        val capture = SpeakerCapture()
+        assertTrue(capture.enter(Any(), 1))
+        repeat(12) {
+            assertEquals(Window.DROP, capture.record(mayInterrupt = true) { null })
+        }
+        repeat(4) { capture.record(mayInterrupt = true) { clearEcho } }
+        assertEquals(Window.FOREGROUND, capture.record(mayInterrupt = true) { foreground })
+        repeat(11) { assertEquals(Window.SILENCE, capture.record(mayInterrupt = false) { error("The tail cannot start a phrase") }) }
+        assertEquals(Window.RESET, capture.record(mayInterrupt = false) { error("The tail cannot start a phrase") })
+        assertTrue("Discard pending VAD state before accepting the next independent turn", capture.leave())
+    }
+
+    @Test
+    fun aProvenInterruptionKeepsItsVoiceWhileEchoContinuesAfterStop() {
+        val capture = SpeakerCapture()
+        val output = Any()
+        assertTrue(capture.enter(output, 1))
+        repeat(4) { capture.record(mayInterrupt = true) { clearEcho } }
+        repeat(6) { assertEquals(Window.FOREGROUND, capture.record(mayInterrupt = true) { foreground }) }
+        assertEquals(Window.INTERRUPTION, capture.record(mayInterrupt = true) { foreground })
+        capture.confirm()
+        assertFalse("The playback and its tail share an output", capture.enter(output, 1))
+        assertEquals(Window.SILENCE, capture.record(mayInterrupt = true) { clearEcho })
+        assertEquals(Window.SILENCE, capture.record(mayInterrupt = false) { null })
+        assertEquals(Window.FOREGROUND, capture.record(mayInterrupt = false) { foreground })
+        assertFalse("Keep the confirmed speech buffered in the VAD", capture.leave())
+    }
+
+    @Test
+    fun loudSoundDoesNotClaimAnUncalibratedQuietReference() {
+        val guard = SpeakerEchoGuard()
+        val quietReference = foreground.copy(peakReference = 0.003)
+        assertFalse(guard.hearsOwner(quietReference))
+        repeat(4) { assertFalse(guard.hearsOwner(quietReference.copy(echo = 0.001, residual = 0.002))) }
+        assertTrue(guard.hearsOwner(quietReference))
+    }
+
+    private val clearEcho = EchoMatch(0.95, 0.006, 0.06, 0.1, 0.12, 140)
+    private val foreground = EchoMatch(0.22, 0.09, 0.019, 0.09, 0.12, 146)
 
     private fun signal(length: Int, seed: Int): FloatArray {
         val random = Random(seed)

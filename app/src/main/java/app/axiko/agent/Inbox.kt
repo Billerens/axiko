@@ -2,7 +2,7 @@ package app.axiko.agent
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Base64
@@ -11,6 +11,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.nio.ByteBuffer
 
 /** Something that goes along with the owner's message: a captured screen, a picture, a file. */
 class Attach(
@@ -29,6 +30,8 @@ class Attach(
 object Inbox {
     private const val MAX_SIDE = 1568
     private val pending = ArrayList<Attach>()
+
+    internal class SavedUpload(val attachment: Attach, val file: File)
 
     @Synchronized
     fun add(attach: Attach) {
@@ -51,20 +54,38 @@ object Inbox {
      * goes to the model as a picture.
      */
     fun addFile(name: String, bytes: ByteArray, mime: String) {
+        val picture = if (mime.startsWith("image/")) encode(ImageDecoder.createSource(ByteBuffer.wrap(bytes))) else null
+        add(writeUpload(name, bytes.size.toLong(), picture) { it.writeBytes(bytes) }.attachment)
+    }
+
+    /** Shares the normal uploads location without consuming or populating the global chat inbox. */
+    internal fun storeFile(name: String, file: File, picture: String?): SavedUpload =
+        writeUpload(name, file.length(), picture) { target ->
+            file.inputStream().use { input -> target.outputStream().use { input.copyTo(it) } }
+        }
+
+    internal fun encodeImage(file: File): String? = encode(ImageDecoder.createSource(file))
+
+    @Synchronized
+    private fun writeUpload(name: String, size: Long, picture: String?, write: (File) -> Unit): SavedUpload {
         val uploads = File(Workspace.data, "uploads").apply { mkdirs() }
-        val safe = name.replace(Regex("[\\\\/:*?\"<>|]"), "_").ifBlank { "file" }
+        val safe = name.replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), "_").take(80)
+            .takeUnless { it.isBlank() || it == "." || it == ".." } ?: "file"
         var target = File(uploads, safe)
         var copy = 1
-        while (target.exists()) {
+        while (!target.createNewFile()) {
             target = File(uploads, safe.substringBeforeLast('.') + "-${copy++}" + safe.substringAfterLast('.', "").let { if (it.isEmpty()) "" else ".$it" })
         }
-        target.writeBytes(bytes)
+        try {
+            write(target)
+        } catch (error: Exception) {
+            target.delete()
+            throw error
+        }
         val path = "data/uploads/${target.name}"
-        val picture = if (mime.startsWith("image/")) encode(bytes) else null
-        add(
-            if (picture != null) Attach(target.name, "Изображение от владельца, сохранено как $path.", listOf(picture))
-            else Attach(target.name, "Файл от владельца сохранён как $path (${bytes.size} байт). Прочитайте его инструментами, если нужно."),
-        )
+        val attachment = if (picture != null) Attach(target.name, "Изображение от владельца, сохранено как $path.", listOf(picture))
+            else Attach(target.name, "Файл от владельца сохранён как $path ($size байт). Прочитайте его инструментами, если нужно.")
+        return SavedUpload(attachment, target)
     }
 
     /** Takes in what another app shared. */
@@ -81,16 +102,17 @@ object Inbox {
     }
 
     /** A picture scaled to what models take, as JPEG in base64; null when it is not a picture. */
-    private fun encode(bytes: ByteArray): String? {
-        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
-        val scale = minOf(1f, MAX_SIDE.toFloat() / maxOf(bitmap.width, bitmap.height))
-        val scaled = if (scale < 1f) {
-            Bitmap.createScaledBitmap(bitmap, (bitmap.width * scale).toInt(), (bitmap.height * scale).toInt(), true)
-        } else {
-            bitmap
+    private fun encode(source: ImageDecoder.Source): String? = runCatching {
+        val bitmap = ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+            val size = info.size
+            val scale = minOf(1f, MAX_SIDE.toFloat() / maxOf(size.width, size.height))
+            decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+            if (scale < 1f) decoder.setTargetSize((size.width * scale).toInt().coerceAtLeast(1),
+                (size.height * scale).toInt().coerceAtLeast(1))
         }
-        val out = ByteArrayOutputStream()
-        scaled.compress(Bitmap.CompressFormat.JPEG, 85, out)
-        return Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
-    }
+        try {
+            val out = ByteArrayOutputStream()
+            if (bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)) Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP) else null
+        } finally { bitmap.recycle() }
+    }.getOrNull()
 }

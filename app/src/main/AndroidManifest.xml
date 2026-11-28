@@ -319,6 +319,21 @@
             android:name=".sense.AssistSessionService"
             android:exported="true"
             android:permission="android.permission.BIND_VOICE_INTERACTION" />
+        <activity
+            android:name=".sense.AssistantAttachmentActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|density|fontScale"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:theme="@style/Theme.Axiko.Assistant" />
+        <provider
+            android:name=".sense.AssistantCameraProvider"
+            android:authorities="${applicationId}.assistant-files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/assistant_camera_paths" />
+        </provider>
         <service
             android:name=".sense.AssistRecognitionService"
             android:exported="true"

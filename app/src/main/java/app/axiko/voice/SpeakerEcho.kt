@@ -134,7 +134,10 @@ internal class SpeakerEchoGuard {
         if (match == null) return false
         val level = hypot(match.echo, match.residual)
         val quiet = level < 0.018
-        if (match.peakReference < 0.012) return !quiet && match.residual >= 0.018
+        if (match.peakReference < 0.012) {
+            if (quiet) learnNoise(level)
+            return !quiet && calibration >= 4 && match.residual >= maxOf(0.018, noise * 2.4)
+        }
 
         val aligned = match.reference >= 0.010 && match.similarity >= 0.57 &&
             (delay?.let { abs(it - match.delaySamples) <= 36 } != false || match.similarity >= 0.88)
@@ -143,7 +146,8 @@ internal class SpeakerEchoGuard {
         val independent = !quiet && !cleanEcho && match.residual > maxOf(0.017, noise * 2.4, farEnd)
         if (quiet || aligned && (calibration < 4 || !independent)) {
             if (quiet) {
-                noise = if (noise == 0.0) level else noise * 0.9 + level * 0.1
+                learnNoise(level)
+                return false
             } else {
                 val ratio = match.residual / match.echo
                 reflection = if (delay == null) ratio else reflection * 0.9 + ratio * 0.1
@@ -153,6 +157,11 @@ internal class SpeakerEchoGuard {
             return false
         }
         return calibration >= 4 && independent
+    }
+
+    private fun learnNoise(level: Double) {
+        noise = if (noise == 0.0) level else noise * 0.9 + level * 0.1
+        calibration = (calibration + 1).coerceAtMost(4)
     }
 }
 
@@ -167,4 +176,51 @@ internal class SpeakerOverlap {
     }
 
     fun reset() { windows = 0 }
+}
+
+/** Only confirmed foreground speech can survive the transition out of the speaker's echo tail. */
+internal class SpeakerCapture {
+    enum class Window { DROP, RESET, SILENCE, FOREGROUND, INTERRUPTION }
+
+    private val echo = SpeakerEchoGuard()
+    private val overlap = SpeakerOverlap()
+    private var source: Any? = null
+    private var device: Int? = null
+    var confirmed = false
+        private set
+
+    fun enter(output: Any, deviceId: Int?): Boolean {
+        if (source === output && device == deviceId) return false
+        source = output
+        device = deviceId
+        confirmed = false
+        echo.reset()
+        overlap.reset()
+        return true
+    }
+
+    fun record(mayInterrupt: Boolean, match: () -> EchoMatch?): Window {
+        val owner = (mayInterrupt || confirmed) && echo.hearsOwner(match())
+        if (confirmed) return if (owner) Window.FOREGROUND else Window.SILENCE
+
+        val pending = overlap.pending
+        val sustained = overlap.record(owner)
+        return when {
+            sustained && owner -> Window.INTERRUPTION
+            owner -> Window.FOREGROUND
+            overlap.pending -> Window.SILENCE
+            pending -> Window.RESET
+            else -> Window.DROP
+        }
+    }
+
+    fun confirm() { confirmed = true }
+
+    fun leave(): Boolean {
+        if (source == null) return false
+        source = null
+        val discard = !confirmed
+        confirmed = false
+        return discard
+    }
 }

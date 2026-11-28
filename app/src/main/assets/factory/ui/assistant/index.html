@@ -46,7 +46,14 @@
     <span id="assistant-work" class="assistant-work" hidden data-raw></span>
   </div>
   <p id="assistant-error" class="assistant-error" role="alert" data-assistant-touch hidden data-raw></p>
+  <ul class="assistant-attachments" id="assistant-attachments" aria-label="Вложения" data-assistant-touch hidden></ul>
   <div class="assistant-actions" id="assistant-actions" aria-label="Разговор">
+    <button class="assistant-action" type="button" id="assistant-file" hidden disabled data-assistant-touch>
+      <span data-icon="clip"></span><span>Файл или картинка</span>
+    </button>
+    <button class="assistant-action" type="button" id="assistant-camera" hidden disabled data-assistant-touch>
+      <span data-icon="camera"></span><span>Снять фото</span>
+    </button>
     <button class="assistant-action" type="button" id="assistant-screen" hidden aria-pressed="false" data-assistant-touch>
       <span data-icon="image"></span><span id="assistant-screen-label">Добавить экран</span>
     </button>

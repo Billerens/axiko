@@ -280,7 +280,7 @@ class Bridge(val web: WebView, val name: String) : WebViewCompat.WebMessageListe
                 view: WebView,
                 callback: ValueCallback<Array<Uri>>,
                 params: FileChooserParams,
-            ): Boolean = MainActivity.current?.pickFiles(params, callback) ?: false
+            ): Boolean = name != "assistant" && MainActivity.current?.pickFiles(params, callback) == true
 
             override fun onGeolocationPermissionsShowPrompt(origin: String, callback: GeolocationPermissions.Callback) =
                 callback.invoke(origin, true, true)

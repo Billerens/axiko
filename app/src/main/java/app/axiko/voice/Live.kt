@@ -48,8 +48,6 @@ object Live {
     /** …and so is sound less than this many times louder than the echo has been on average. */
     private const val OVER_ECHO = 3.0
 
-    private const val SPEAKER_ECHO_TAIL_MS = 220L
-
     /** A conversation nobody continues ends by itself. */
     private const val IDLE_MS = 90_000L
 
@@ -249,9 +247,12 @@ object Live {
         @Suppress("DEPRECATION")
         val speakerBefore = callAudio && Build.VERSION.SDK_INT < 31 && audio.isSpeakerphoneOn
         val source = if (callAudio) MediaRecorder.AudioSource.VOICE_COMMUNICATION else MediaRecorder.AudioSource.VOICE_RECOGNITION
+        // The assistant processes microphone frames in real time. A two-second queue can replay
+        // old speaker audio after recognition finishes and the physical speaker has gone quiet.
+        val bufferSize = maxOf(minimum, if (callAudio) RATE * 4 else RATE / 2)
         val record = AudioRecord(
             source, RATE, AudioFormat.CHANNEL_IN_MONO,
-            AudioFormat.ENCODING_PCM_16BIT, maxOf(minimum, RATE * 4),
+            AudioFormat.ENCODING_PCM_16BIT, bufferSize,
         )
         var echo: AcousticEchoCanceler? = null
         var noise: NoiseSuppressor? = null
@@ -302,14 +303,8 @@ object Live {
             var ownerSpoke = false
             var echoSpoke = false
             var interrupted = false
-            val speakerEcho = SpeakerEchoGuard()
-            val overlap = SpeakerOverlap()
+            val speaker = SpeakerCapture()
             val silence = FloatArray(WINDOW)
-            var speakerSource: Any? = null
-            var speakerDevice: Int? = null
-            var interruptedSource: Any? = null
-            var suppressingSpeaker = false
-            var speakerEchoUntil = 0L
             var idleConfiguration = panel?.conversationIdleMs
             while (current === session) {
                 val count = record.read(buffer, filled, WINDOW - filled)
@@ -333,84 +328,70 @@ object Live {
                 val level = sqrt(energy / WINDOW)
                 val now = SystemClock.elapsedRealtime()
                 val answering = Tts.speaking
-                val speakerOutput = if (panel != null && answering) Tts.roomPlayback() else null
-                val activeSpeaker = speakerOutput?.takeUnless { it.source === interruptedSource }
-                if (activeSpeaker != null) speakerEchoUntil = now + SPEAKER_ECHO_TAIL_MS
-                if (now < speakerEchoUntil) {
-                    if (!suppressingSpeaker || (activeSpeaker != null && activeSpeaker.source !== speakerSource)) {
+                val playback = if (panel != null) Tts.acousticPlayback(now) else null
+                val roomSound = playback?.sound?.takeUnless { it.isolated }
+                if (panel != null && playback != null && roomSound != null) {
+                    if (speaker.enter(roomSound.source, roomSound.deviceId)) {
                         detector.reset()
                         ownerSpoke = false
                         echoSpoke = false
                         interrupted = false
-                        residue = 0.0
-                        loud = 0
-                        overlap.reset()
-                        speakerSource = activeSpeaker?.source
-                        suppressingSpeaker = true
-                    }
-                    if (activeSpeaker != null && activeSpeaker.deviceId != speakerDevice) {
-                        speakerEcho.reset()
-                        speakerDevice = activeSpeaker.deviceId
                     }
                     lastWord = now
-                    val ownerWindow = activeSpeaker != null && activeSpeaker.id == panelSpeech &&
-                        speakerEcho.hearsOwner(activeSpeaker.match(window))
-                    val pendingOverlap = overlap.pending
-                    val sustained = overlap.record(ownerWindow)
-                    if (ownerWindow) {
-                        detector.acceptWaveform(window)
-                        if (sustained && detector.isSpeechDetected()) {
-                            interruptedSource = activeSpeaker.source
-                            speakerEchoUntil = 0L
-                            suppressingSpeaker = false
-                            ownerSpoke = true
-                            interrupted = true
-                            panel.onInterrupt()
-                            interruptions++
-                            tell(session, "hearing", level)
-                            continue
+                    val mayInterrupt = playback.playing && roomSound.id == panelSpeech
+                    when (speaker.record(mayInterrupt) { roomSound.match(window) }) {
+                        SpeakerCapture.Window.DROP -> Unit
+                        SpeakerCapture.Window.RESET -> detector.reset()
+                        SpeakerCapture.Window.SILENCE -> detector.acceptWaveform(silence)
+                        SpeakerCapture.Window.FOREGROUND -> detector.acceptWaveform(window)
+                        SpeakerCapture.Window.INTERRUPTION -> {
+                            detector.acceptWaveform(window)
+                            if (detector.isSpeechDetected()) {
+                                speaker.confirm()
+                                ownerSpoke = true
+                                interrupted = true
+                                panel.onInterrupt()
+                                interruptions++
+                            }
                         }
-                    } else if (pendingOverlap) {
-                        if (overlap.pending) detector.acceptWaveform(silence) else detector.reset()
                     }
-                    tell(session, "speaking")
-                    continue
-                }
-                if (suppressingSpeaker) {
-                    // An unconfirmed fragment during playback cannot become a new request.
-                    detector.reset()
-                    suppressingSpeaker = false
-                }
-                detector.acceptWaveform(window)
-                val speech = detector.isSpeechDetected()
-                if (answering) {
-                    // Over the answer only a voice well above the answer's own echo counts, and only
-                    // when it lasts: the echo has peaks of its own.
-                    val over = speech && level > maxOf(OVER_LEVEL, residue * OVER_ECHO)
-                    if (!over) residue = if (residue == 0.0) level else residue * 0.97 + level * 0.03
-                    loud = if (over) loud + 1 else maxOf(0, loud - 2)
-                    if (speech) echoSpoke = true
-                    if (loud >= OVER_WINDOWS) {
-                        // The owner speaks over the answer: it falls silent at once, the phrase is heard out.
-                        if (panel == null) Tts.stop() else panel.onInterrupt()
-                        interruptions++
-                        ownerSpoke = true
-                        interrupted = panel != null
-                        loud = 0
-                        lastWord = now
-                        tell(session, "hearing", level)
-                    } else {
+                    if (!speaker.confirmed) {
                         tell(session, "speaking")
+                        continue
                     }
+                    tell(session, "hearing", level)
                 } else {
-                    residue = 0.0
-                    loud = 0
-                    if (speech) {
-                        ownerSpoke = true
-                        lastWord = now
-                        tell(session, "hearing", level)
+                    if (speaker.leave()) detector.reset()
+                    detector.acceptWaveform(window)
+                    val speech = detector.isSpeechDetected()
+                    // The panel can use ordinary VAD with a known private output. The usual
+                    // in-app chat keeps its call-audio path and Android's reference.
+                    if (if (panel == null) answering else playback?.playing == true) {
+                        val over = speech && level > maxOf(OVER_LEVEL, residue * OVER_ECHO)
+                        if (!over) residue = if (residue == 0.0) level else residue * 0.97 + level * 0.03
+                        loud = if (over) loud + 1 else maxOf(0, loud - 2)
+                        if (speech) echoSpoke = true
+                        if (loud >= OVER_WINDOWS) {
+                            if (panel == null) Tts.stop() else panel.onInterrupt()
+                            interruptions++
+                            ownerSpoke = true
+                            interrupted = panel != null
+                            loud = 0
+                            lastWord = now
+                            tell(session, "hearing", level)
+                        } else {
+                            tell(session, "speaking")
+                        }
                     } else {
-                        tell(session, if (chat.busy) "thinking" else "listening")
+                        residue = 0.0
+                        loud = 0
+                        if (speech) {
+                            ownerSpoke = true
+                            lastWord = now
+                            tell(session, "hearing", level)
+                        } else {
+                            tell(session, if (chat.busy) "thinking" else "listening")
+                        }
                     }
                 }
                 while (!detector.empty()) {

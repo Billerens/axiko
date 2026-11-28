@@ -37,6 +37,7 @@ async function main() {
         conversation: false, retry: { phase: 'idle', available: false },
         mode: 'voice', draft: '', draftRevision: 0, draftAudioRevision: 0, saved: true,
         audio: { active: false, state: 'off' }, context: { available: true, attached: false, app: 'Calendar' },
+        attachmentsAvailable: true, attachmentsPicking: false, attachments: [],
         profile: { opacity: 84, animation: true, mascot: false }, canOpenChat: false, canResume: true,
       };
       const drafts = new Map([['older-thread', {
@@ -53,7 +54,8 @@ async function main() {
           agent: state.agent, agentTitle: state.agentTitle, draft: state.draft, draftRevision: state.draftRevision,
           draftAudioRevision: state.draftAudioRevision, saved: state.saved });
         Object.assign(state, { agent: 'axiko', agentTitle: 'Axiko' }, next, { thread, busy: false, reply: '', work: '',
-          audio: { active: false, state: 'off' }, conversation: false, retry: { phase: 'idle', available: false } });
+          audio: { active: false, state: 'off' }, conversation: false, retry: { phase: 'idle', available: false },
+          attachmentsPicking: false, attachments: [] });
         push();
       };
       const calls = [];
@@ -71,7 +73,12 @@ async function main() {
         'lang.status': { language: 'en', setting: 'en', languages: [{ name: 'English', code: 'en' }] },
         'usage.summary': { days: [] }, 'bubble.looks': null, 'ui.scale': null,
       };
-      window.fixture = { calls, launches, state, push, profile, failSend: false, deferDraft: false };
+      const finishAttachment = item => {
+        state.attachmentsPicking = false;
+        if (item) state.attachments.push(item);
+        push();
+      };
+      window.fixture = { calls, launches, state, push, profile, finishAttachment, failSend: false, deferDraft: false };
       window.axiko = {
         platform: 'android',
         on(name, listener) { listeners.set(name, [...(listeners.get(name) || []), listener]); },
@@ -121,6 +128,8 @@ async function main() {
             return true;
           }
           if (method === 'assistant.attachScreen') state.context.attached = args[0];
+          if (method === 'assistant.pickAttachment') state.attachmentsPicking = true;
+          if (method === 'assistant.removeAttachment') state.attachments = state.attachments.filter(item => item.id !== args[0]);
           if (method === 'assistant.startVoice') state.audio = { active: true, state: 'listening' };
           if (method === 'assistant.startConversation') {
             state.conversation = true;
@@ -141,6 +150,7 @@ async function main() {
             if ((args[1] && args[1] !== state.thread) || (args[2] && args[2] !== state.agent)) return false;
             state.messages.push({ role: 'user', text: args[0] });
             state.context.attached = false;
+            state.attachments = [];
             if (state.draft.trim() === args[0].trim()) {
               state.draft = '';
               state.draftRevision++;
@@ -186,6 +196,12 @@ async function main() {
     const appBounds = await openApp.boundingBox();
     assert.ok(appBounds && covers(appBounds.x + appBounds.width / 2, appBounds.y + appBounds.height / 2),
       'the main app button should be visible and touchable in an empty conversation');
+    const file = page.getByRole('button', { name: 'File or picture', exact: true });
+    const camera = page.getByRole('button', { name: 'Take photo', exact: true });
+    for (const button of [file, camera]) {
+      const point = await button.boundingBox();
+      assert.ok(point && covers(point.x + point.width / 2, point.y + point.height / 2), 'attachment actions are touchable in voice mode');
+    }
     assert.ok(!covers(hitAreas.width / 2, hitAreas.height / 8), 'the top of the viewport should remain touch-through');
     await openApp.click();
     await called('openApp');
@@ -408,15 +424,55 @@ async function main() {
       thread: 'new-thread-1', saved: false, draft: 'Draft to keep when opening Axiko',
     });
 
+    const attachments = page.locator('#assistant-attachments');
+    const send = page.locator('#assistant-send');
+    await file.click();
+    await called('pickAttachment', 'file');
+    await file.waitFor();
+    await page.waitForFunction(() => document.querySelector('#assistant-file').disabled);
+    assert.equal(await camera.isDisabled(), true);
+    assert.equal(await send.isDisabled(), true);
+    await page.evaluate(() => window.fixture.finishAttachment());
+    await page.waitForFunction(() => !document.querySelector('#assistant-file').disabled);
+    assert.equal(await attachments.isVisible(), false, 'cancelling the picker creates no pending attachment');
+    assert.equal(await composer.inputValue(), 'Draft to keep when opening Axiko');
+
+    const fileName = '<img src=x onerror=alert(1)> description for the assistant document.pdf';
+    await file.click();
+    await page.evaluate(name => window.fixture.finishAttachment({ id: 'picked', name, kind: 'file' }), fileName);
+    await attachments.getByText(fileName, { exact: true }).waitFor();
+    assert.equal(await attachments.locator('img').count(), 0);
+    await camera.click();
+    await called('pickAttachment', 'camera');
+    await page.evaluate(() => window.fixture.finishAttachment({ id: 'taken', name: 'Camera photo with another long descriptive file name.jpg', kind: 'image' }));
+    await attachments.getByText('Camera photo with another long descriptive file name.jpg', { exact: true }).waitFor();
+    assert.equal(await composer.getAttribute('placeholder'), 'What to do with this?');
+
     for (const viewport of [{ width: 340, height: 174 }, { width: 448, height: 572 }, { width: 640, height: 510 }]) {
       await page.setViewportSize(viewport);
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth === innerWidth));
       const position = await mic.boundingBox();
       assert.ok(Math.abs(position.x + position.width / 2 - viewport.width / 2) < 2, 'mic centered in the viewport');
       const bounds = await composer.boundingBox();
-      assert.ok(bounds && bounds.height >= 44 && bounds.y + bounds.height <= viewport.height);
+      assert.ok(bounds && bounds.height >= 44 && bounds.y >= 0 && bounds.y + bounds.height <= viewport.height);
       await composer.click({ trial: true });
+      const preview = await attachments.boundingBox();
+      assert.ok(preview && preview.x >= 0 && preview.x + preview.width <= viewport.width);
     }
+
+    await attachments.getByRole('button', { name: 'Remove attachment ' + fileName }).click();
+    await called('removeAttachment', 'picked');
+    await attachments.getByText(fileName, { exact: true }).waitFor({ state: 'hidden' });
+    await composer.fill('What is in this photo?');
+    await page.evaluate(() => { window.fixture.failSend = true; });
+    await composer.press('Enter');
+    await page.getByText('Send failed', { exact: true }).waitFor();
+    assert.equal(await attachments.isVisible(), true);
+    assert.equal(await composer.inputValue(), 'What is in this photo?');
+    await page.evaluate(() => { window.fixture.failSend = false; });
+    await composer.press('Enter');
+    await called('send', 'What is in this photo?', 'new-thread-1', 'axiko');
+    await attachments.waitFor({ state: 'hidden' });
 
     light = true;
     await page.reload();
@@ -439,10 +495,10 @@ async function main() {
     });
     await preview.click();
     await called('preview');
-    await page.locator('#assistant-talk select').filter({ has: page.getByRole('option', { name: 'Start listening immediately' }) })
+    await page.locator('#assistant-talk select').filter({ has: page.locator('option[value="voice"]') })
       .selectOption('voice');
     await called('pref.set', { activation: 'voice' });
-    await page.locator('#assistant-talk select').filter({ has: page.getByRole('option', { name: 'Temporary conversation' }) })
+    await page.locator('#assistant-talk select').filter({ has: page.locator('option[value="temporary"]') })
       .selectOption('temporary');
     await called('pref.set', { history: 'temporary' });
     const idle = page.getByRole('spinbutton', { name: 'End conversation after an idle pause (seconds)' });

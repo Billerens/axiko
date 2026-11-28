@@ -25,6 +25,7 @@ import app.axiko.R
 import app.axiko.agent.Attach
 import app.axiko.agent.Inbox
 import app.axiko.core.Engine
+import app.axiko.core.I18n
 import app.axiko.voice.Wake
 import java.io.ByteArrayOutputStream
 
@@ -139,6 +140,17 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
     private val closeWindow: (String) -> Unit = { expectedId ->
         main.post { if (id == expectedId) hide() }
     }
+    private val attachmentWindow: (AssistantAttachmentRequest, Boolean) -> Unit = { request, opening ->
+        if (id == request.session) {
+            if (opening) {
+                setUiEnabled(false)
+                runCatching { startAssistantActivity(request.intent(context)) }.onFailure {
+                    android.util.Log.w("AxikoAssistant", "Unable to launch the attachment picker", it)
+                    OnScreenAssistant.attachmentResult(request.token, null, I18n.t("Не удалось открыть выбор вложения."))
+                }
+            } else setUiEnabled(true)
+        }
+    }
 
     /** Save only data the system shares during this invocation. The owner sends it explicitly. */
     private class ScreenContext(val session: String, val generation: Int) {
@@ -166,6 +178,7 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
     }
 
     override fun onShow(args: Bundle?, showFlags: Int) {
+        setUiEnabled(true)
         super.onShow(args, showFlags)
         val command = args?.getString(AssistService.COMMAND)
         val listen = args?.takeIf { it.containsKey(AssistService.LISTEN) }?.getBoolean(AssistService.LISTEN)
@@ -182,6 +195,7 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
         }
         id = shownId
         OnScreenAssistant.closeWindow = closeWindow
+        OnScreenAssistant.attachmentWindow = attachmentWindow
         val ticket = ++generation
         captured = if (OnScreenAssistant.screenEnabled &&
             (showFlags and (SHOW_WITH_ASSIST or SHOW_WITH_SCREENSHOT)) != 0) {
@@ -208,6 +222,7 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
         val prior = id
         id = null
         if (OnScreenAssistant.closeWindow === closeWindow) OnScreenAssistant.closeWindow = null
+        if (OnScreenAssistant.attachmentWindow === attachmentWindow) OnScreenAssistant.attachmentWindow = null
         if (prior != null) {
             OnScreenAssistant.visible(prior, false)
             OnScreenAssistant.close(prior)

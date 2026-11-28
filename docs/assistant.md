@@ -40,8 +40,9 @@ working. Set it to 0 to keep listening until you stop or close the panel.
 The overlay uses the audio output selected by Android. You can speak over a reply with
 headphones or through the phone's speaker when Axiko has access to the playback samples.
 Axiko compares audio from the microphone with those samples to avoid picking up the reply.
-It decodes WAV and other supported formats for this comparison. If playback supplies no
-samples, tap **Stop narration** and keep speaking.
+It keeps filtering the speaker's echo briefly after a reply ends or is interrupted, while
+keeping the start of a confirmed interruption. Axiko decodes WAV and other supported formats
+for this comparison. If playback supplies no samples, tap **Stop narration** and keep speaking.
 
 Ask the agent to open a recent chat by topic, for example, “Open my chat about creatine.”
 Axiko searches saved chats by title and recent messages, then opens the match in the same
@@ -60,6 +61,13 @@ message. Axiko can use only the supplied screen data, which may include text and
 The panel still works if the capture is unavailable. Adding a screen to a message can share the
 captured content with your selected model provider. The **Allow adding the screen** preference
 controls whether the panel accepts this context. Android's screen context settings must also allow it.
+
+Use **File or picture** to pick a document or an existing photo. **Take photo** opens the camera
+after Android grants access. Returning from either picker keeps your draft and the current
+conversation. Add up to four attachments, 25 MB each. The panel stops listening when the picker
+opens. Press the microphone to resume voice input after returning. You can remove attachments
+before asking your question. Sending the message adds the chosen files to the conversation like
+regular chat attachments. Images are sent as images when the selected model supports vision.
 
 The name detector listens locally when enabled and uses battery while watching for the name.
 Background microphone access, activation with the display off, and hardware shortcuts depend on
@@ -95,8 +103,12 @@ pages fail to load, the shell provides basic text input and native close and mic
 [Factory panel](../app/src/main/assets/factory/ui/assistant/index.html) · [Workspace layers](architecture.md) · [Studio](web-hub.md#studio-and-file-revisions)
 
 The system window, input routing, microphone and conversation ownership belong to the shell.
-The session-scoped bridge handles messages, supported session changes, screen attachments and
-questions. The panel bridge also exposes continuous voice, model retry and chat participants.
+The session-scoped bridge handles messages, supported session changes, attachments and questions.
+`assistant.pickAttachment(kind)` opens the Android picker with `file`, `photo` or `camera`.
+`assistant.removeAttachment(id)` removes a pending item. `assistant.status` reports availability
+as `attachmentsAvailable`, picker activity as `attachmentsPicking`, and `attachments` as an array
+of `id`, `name` and `kind` (`image` or `file`). The panel bridge also exposes continuous voice, model
+retry and chat participants.
 The factory page reports the interactive areas in CSS viewport pixels through
 `assistant.hitAreas`. Update those areas when your layout changes so Android can route touches
 to the underlying app elsewhere. In browser fixtures, stub the bridge and exercise the actual

@@ -52,6 +52,8 @@ object Tts {
     /** The silence kept before the first sound of a piece that follows another one. */
     private const val LEAD_MS = 120
 
+    private const val SPEAKER_ECHO_TAIL_MS = 480L
+
     val enabled: Boolean get() = App.prefs.getString("tts.on", "off") == "on"
 
     /** The next answer is spoken even with the voice off: it was asked for by voice alone. */
@@ -144,36 +146,63 @@ object Tts {
     private var track: PcmPlayback? = null
 
     @Volatile
-    private var player: MediaPlayer? = null
+    private var player: FilePlayback? = null
 
-    private class PcmPlayback(val output: AudioTrack, val reference: PcmEchoReference, @Volatile var id: String)
+    @Volatile
+    private var recentRoomSound: RecentRoomSound? = null
+
+    private class PcmPlayback(val output: AudioTrack, val reference: PcmEchoReference, @Volatile var id: String) {
+        private var device: AudioDeviceInfo? = null
+        private var head = 0L
+
+        @Synchronized
+        fun snapshot(): RoomPlayback {
+            runCatching { output.routedDevice }.getOrNull()?.let { device = it }
+            runCatching { output.playbackHeadPosition.toLong() and 0xFFFF_FFFFL }.getOrNull()?.let { head = maxOf(head, it) }
+            return RoomPlayback(this, id, reference, head, device)
+        }
+    }
+
+    private class FilePlayback(val output: MediaPlayer, val id: String) {
+        @Volatile private var device: AudioDeviceInfo? = null
+
+        fun snapshot(): RoomPlayback {
+            runCatching { output.routedDevice }.getOrNull()?.let { device = it }
+            return RoomPlayback(this, id, null, 0L, device)
+        }
+    }
 
     internal class RoomPlayback(
         val source: Any, val id: String, private val reference: PcmEchoReference?, private val renderedFrames: Long,
-        val deviceId: Int? = null,
+        device: AudioDeviceInfo?,
     ) {
+        val deviceId = device?.id
+        val isolated = device?.type in HEADPHONES
         fun match(window: FloatArray): EchoMatch? = reference?.match(window, renderedFrames)
     }
 
-    /** Capture the playback head and its PCM together. The MediaPlayer fallback has no reference. */
-    internal fun roomPlayback(): RoomPlayback? {
-        val output = track
-        if (output != null) return runCatching {
-            val sink = output.output
-            val device = sink.routedDevice
-            if (sink.playState != AudioTrack.PLAYSTATE_PLAYING || device?.type in HEADPHONES) null
-            else RoomPlayback(output, output.id, output.reference, sink.playbackHeadPosition.toLong() and 0xFFFF_FFFFL, device?.id)
-        }.getOrElse { RoomPlayback(output, output.id, null, 0L) }
-        val media = player ?: return null
-        return runCatching {
-            val device = media.routedDevice
-            if (media.isPlaying && device?.type !in HEADPHONES) RoomPlayback(media, "", null, 0L, device?.id) else null
-        }.getOrNull()
+    internal class AcousticPlayback(val sound: RoomPlayback, val playing: Boolean)
+    private class RecentRoomSound(val sound: RoomPlayback, val endsAt: Long)
+
+    /** Echo can still be in the room or queued for the microphone after the output has closed. */
+    internal fun acousticPlayback(now: Long): AcousticPlayback? {
+        val active = track?.snapshot() ?: player?.snapshot()
+        if (active != null && !active.isolated) return AcousticPlayback(active, playing = true)
+        val tail = recentRoomSound?.takeIf { now < it.endsAt }
+        return when {
+            tail != null -> AcousticPlayback(tail.sound, playing = false)
+            active != null -> AcousticPlayback(active, playing = true)
+            else -> null
+        }
+    }
+
+    private fun retainEchoTail(sound: RoomPlayback) {
+        if (!sound.isolated) recentRoomSound = RecentRoomSound(sound, android.os.SystemClock.elapsedRealtime() + SPEAKER_ECHO_TAIL_MS)
     }
 
     private val HEADPHONES = setOf(
         AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_WIRED_HEADPHONES, AudioDeviceInfo.TYPE_USB_HEADSET,
-        AudioDeviceInfo.TYPE_BLUETOOTH_SCO, AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_BLE_HEADSET,
+        AudioDeviceInfo.TYPE_BLUETOOTH_SCO, AudioDeviceInfo.TYPE_BLE_HEADSET,
         AudioDeviceInfo.TYPE_HEARING_AID,
     )
 
@@ -223,8 +252,8 @@ object Tts {
         }
         dropped.forEach { clip -> clip.file?.delete() }
         call?.cancel()
-        runCatching { track?.output?.let { it.pause(); it.flush() } }
-        runCatching { player?.stop() }
+        runCatching { track?.let { retainEchoTail(it.snapshot()); it.output.pause(); it.output.flush() } }
+        runCatching { player?.let { retainEchoTail(it.snapshot()); it.output.stop() } }
         Pages.broadcast("tts", JSONObject().put("state", "stopped").put("ids", ids).toString())
     }
 
@@ -445,9 +474,14 @@ object Tts {
         var outputRate = 0
         var outputCall = false
         var written = 0L
-        fun close() {
+        fun close(flush: Boolean = false) {
+            output?.let { retainEchoTail(it.snapshot()) }
             track = null
-            output?.output?.let { runCatching { it.stop() }; it.release() }
+            output?.output?.let { sink ->
+                if (flush) runCatching { sink.pause(); sink.flush() }
+                runCatching { sink.stop() }
+                sink.release()
+            }
             output = null
             written = 0
         }
@@ -510,15 +544,14 @@ object Tts {
                     }
                 } else if (clip.file != null && alive()) {
                     close()
-                    playFile(clip.file!!, clip.callAudio, alive)
+                    playFile(clip.file!!, clip.id, clip.callAudio, alive)
                 }
                 clip.file?.delete()
                 // The sound is let out to its end before a page hears the end, and before the track goes.
                 val more = synchronized(state) { clips.any { !it.started && it !== clip } }
                 val ends = clip.pieces.any { it.closes && it.id.isNotEmpty() }
                 if (output != null && alive() && (ends || !more)) drain(output!!.output, written, alive)
-                if (!alive()) runCatching { output?.output?.let { it.pause(); it.flush() } }
-                if (!more || !alive()) close()
+                if (!more || !alive()) close(flush = !alive())
                 if (alive()) clip.pieces.filter { it.closes && it.id.isNotEmpty() }.forEach { told(it.id, "end") }
             } catch (error: Exception) {
                 close()
@@ -713,19 +746,21 @@ object Tts {
     }
 
     /** Plays an encoded answer (mp3, wav…) from a provider that does not give raw PCM. */
-    private fun playFile(file: File, callAudio: Boolean, alive: () -> Boolean) {
+    private fun playFile(file: File, id: String, callAudio: Boolean, alive: () -> Boolean) {
         val done = CountDownLatch(1)
         val media = MediaPlayer()
-        player = media
         try {
             media.setAudioAttributes(attributes(callAudio))
             media.setDataSource(file.path)
             media.setOnCompletionListener { done.countDown() }
             media.setOnErrorListener { _, _, _ -> done.countDown(); true }
             media.prepare()
+            if (!alive()) return
+            player = FilePlayback(media, id)
             media.start()
             while (done.count > 0 && alive()) done.await(100, TimeUnit.MILLISECONDS)
         } finally {
+            player?.let { retainEchoTail(it.snapshot()) }
             player = null
             runCatching { media.release() }
         }
